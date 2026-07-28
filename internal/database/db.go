@@ -13,8 +13,8 @@ import (
 
 // category constants for filtering
 const (
-	CategoryFresh   = "Fresh Fruits"
-	CategoryDerived = "Derived Products"
+	CategoryFresh   = "میوه تازه"
+	CategoryDerived = "محصولات فرآوری‌شده"
 )
 
 func Init(dbPath string) (*sql.DB, error) {
@@ -95,11 +95,11 @@ func seed(db *sql.DB) error {
 		Price, Stock                      int
 		Unit                              string
 	}{
-		{"Fresh Organic Figs", "fresh-organic-figs", "Fresh Fruits", "Premium organic figs, hand-picked at peak ripeness.", 1299, 50, "1kg"},
-		{"Fresh Pomegranates", "fresh-pomegranates", "Fresh Fruits", "Juicy, ruby-red pomegranates straight from the orchard.", 899, 60, "1kg"},
-		{"Artisanal Fig Jam", "artisanal-fig-jam", "Derived Products", "Slow-cooked fig jam made with organic figs and a hint of lemon.", 949, 30, "250ml jar"},
-		{"Pure Pomegranate Molasses", "pure-pomegranate-molasses", "Derived Products", "Thick, tangy pomegranate molasses — perfect for dressings and marinades.", 1199, 25, "500ml bottle"},
-		{"Cold-Pressed Pomegranate Juice", "cold-pressed-pomegranate-juice", "Derived Products", "Fresh cold-pressed pomegranate juice, no added sugar.", 799, 40, "500ml bottle"},
+		{"انجیر تازه ارگانیک", "انجیر-تازه-ارگانیک", "میوه تازه", "انجیر ارگانیک درجه یک، چیده‌شده در اوج رسیدگی.", 1299, 50, "۱ کیلوگرم"},
+		{"انار تازه ملس", "انار-تازه-ملس", "میوه تازه", "انارهای آبدار و یاقوتی مستقیماً از باغ.", 899, 60, "۱ کیلوگرم"},
+		{"مربای انجیر خانگی", "مربای-انجیر-خانگی", "محصولات فرآوری‌شده", "مربای انجیر آرام‌پز شده با انجیر ارگانیک و کمی لیمو.", 949, 30, "شیشه ۲۵۰ گرمی"},
+		{"رب انار خالص", "رب-انار-خالص", "محصولات فرآوری‌شده", "رب انار غلیظ و ترش - عالی برای سس و ماریناد.", 1199, 25, "بطری ۵۰۰ میلی‌لیتر"},
+		{"آب انار طبیعی", "آب-انار-طبیعی", "محصولات فرآوری‌شده", "آب انار تازه و طبیعی، بدون شکر افزوده.", 799, 40, "بطری ۵۰۰ میلی‌لیتر"},
 	}
 
 	stmt, err := db.Prepare(`INSERT INTO products (name, slug, category, description, price, stock_quantity, unit) VALUES (?, ?, ?, ?, ?, ?, ?)`)

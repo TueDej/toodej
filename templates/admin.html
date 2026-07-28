@@ -1,26 +1,26 @@
-{{define "title"}}Admin — Toodej{{end}}
+{{define "title"}}پنل مدیریت{{end}}
 
 {{define "content"}}
 <div class="mx-auto max-w-6xl px-4 py-8">
-  <h1 class="mb-6 text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+  <h1 class="mb-6 text-2xl font-bold text-gray-900">پنل مدیریت</h1>
 
   <div class="mb-6 flex flex-wrap gap-2">
-    <button data-tab="orders" class="tab-btn rounded-lg bg-garnet px-4 py-2 text-sm font-medium text-white shadow-sm">Order Tracker</button>
-    <button data-tab="products" class="tab-btn rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 shadow-sm">Product Management</button>
+    <button data-tab="orders" class="tab-btn rounded-lg bg-garnet px-4 py-2 text-sm font-medium text-white shadow-sm">مدیریت سفارشات</button>
+    <button data-tab="products" class="tab-btn rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 shadow-sm">مدیریت محصولات</button>
   </div>
 
   <div data-tab-panel="orders">
     <div class="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-gray-100">
-      <table class="w-full text-left text-sm">
+      <table class="w-full text-right text-sm">
         <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
           <tr>
-            <th class="px-4 py-3 font-medium">ID</th>
-            <th class="px-4 py-3 font-medium">Date</th>
-            <th class="px-4 py-3 font-medium">Customer</th>
-            <th class="px-4 py-3 font-medium">Phone</th>
-            <th class="px-4 py-3 font-medium">Address</th>
-            <th class="px-4 py-3 font-medium">Total</th>
-            <th class="px-4 py-3 font-medium">Status</th>
+            <th class="px-4 py-3 font-medium">شناسه</th>
+            <th class="px-4 py-3 font-medium">تاریخ</th>
+            <th class="px-4 py-3 font-medium">مشتری</th>
+            <th class="px-4 py-3 font-medium">تلفن</th>
+            <th class="px-4 py-3 font-medium">آدرس</th>
+            <th class="px-4 py-3 font-medium">جمع</th>
+            <th class="px-4 py-3 font-medium">وضعیت</th>
           </tr>
         </thead>
         <tbody>
@@ -36,15 +36,15 @@
               <select name="status"
                 class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet {{statusColor .Status}}"
                 hx-post="/admin/orders/{{.ID}}/status" hx-trigger="change" hx-target="#order-{{.ID}}-status" hx-swap="outerHTML">
-                <option value="pending" {{if eq .Status "pending"}}selected{{end}}>Pending</option>
-                <option value="processing" {{if eq .Status "processing"}}selected{{end}}>Processing</option>
-                <option value="completed" {{if eq .Status "completed"}}selected{{end}}>Completed</option>
-                <option value="cancelled" {{if eq .Status "cancelled"}}selected{{end}}>Cancelled</option>
+                <option value="pending" {{if eq .Status "pending"}}selected{{end}}>در انتظار بررسی</option>
+                <option value="processing" {{if eq .Status "processing"}}selected{{end}}>در حال پردازش</option>
+                <option value="completed" {{if eq .Status "completed"}}selected{{end}}>تکمیل شده</option>
+                <option value="cancelled" {{if eq .Status "cancelled"}}selected{{end}}>لغو شده</option>
               </select>
             </td>
           </tr>
           {{else}}
-          <tr><td colspan="7" class="px-4 py-12 text-center text-gray-400">No orders yet.</td></tr>
+          <tr><td colspan="7" class="px-4 py-12 text-center text-gray-400">هنوز سفارشی ثبت نشده است.</td></tr>
           {{end}}
         </tbody>
       </table>
@@ -55,65 +55,65 @@
     <div class="mb-4">
       <button onclick="document.getElementById('new-product-form').classList.toggle('hidden')"
         class="rounded-lg bg-forest px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-forest/90 transition">
-        + Add New Product
+        + افزودن محصول جدید
       </button>
     </div>
 
     <div id="new-product-form" class="mb-6 hidden rounded-xl bg-white p-6 shadow-sm ring-1 ring-gray-100">
-      <h3 class="mb-4 text-lg font-semibold text-gray-900">New Product</h3>
+      <h3 class="mb-4 text-lg font-semibold text-gray-900">محصول جدید</h3>
       <form hx-post="/admin/products" hx-target="#products-tbody" hx-swap="afterbegin" hx-on::after-request="this.reset()">
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
-            <label class="block text-xs font-medium text-gray-600">Name *</label>
+            <label class="block text-xs font-medium text-gray-600">نام *</label>
             <input type="text" name="name" required
               class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet">
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-600">Category *</label>
+            <label class="block text-xs font-medium text-gray-600">دسته‌بندی *</label>
             <select name="category" required
               class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet">
-              <option value="Fresh Fruits">Fresh Fruits</option>
-              <option value="Derived Products">Derived Products</option>
+              <option value="میوه تازه">میوه تازه</option>
+              <option value="محصولات فرآوری‌شده">محصولات فرآوری‌شده</option>
             </select>
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-600">Price (cents) *</label>
+            <label class="block text-xs font-medium text-gray-600">قیمت (تومان) *</label>
             <input type="number" name="price" min="0" required
               class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet">
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-600">Stock Qty</label>
+            <label class="block text-xs font-medium text-gray-600">موجودی</label>
             <input type="number" name="stock_quantity" min="0" value="0"
               class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet">
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-600">Unit</label>
-            <input type="text" name="unit" placeholder="e.g. 1kg"
+            <label class="block text-xs font-medium text-gray-600">واحد</label>
+            <input type="text" name="unit" placeholder="مثلاً ۱ کیلوگرم"
               class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet">
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-600">Description</label>
+            <label class="block text-xs font-medium text-gray-600">توضیحات</label>
             <textarea name="description" rows="1"
               class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet"></textarea>
           </div>
         </div>
         <div class="mt-4 flex gap-2">
-          <button type="submit" class="rounded-lg bg-forest px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-forest/90 transition">Save Product</button>
-          <button type="button" onclick="this.closest('#new-product-form').classList.add('hidden')" class="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 transition">Cancel</button>
+          <button type="submit" class="rounded-lg bg-forest px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-forest/90 transition">ذخیره محصول</button>
+          <button type="button" onclick="this.closest('#new-product-form').classList.add('hidden')" class="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 transition">انصراف</button>
         </div>
       </form>
     </div>
 
     <div class="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-gray-100">
-      <table class="w-full text-left text-sm">
+      <table class="w-full text-right text-sm">
         <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
           <tr>
-            <th class="px-4 py-3 font-medium">ID</th>
-            <th class="px-4 py-3 font-medium">Name</th>
-            <th class="px-4 py-3 font-medium">Category</th>
-            <th class="px-4 py-3 font-medium">Price</th>
-            <th class="px-4 py-3 font-medium">Stock</th>
-            <th class="px-4 py-3 font-medium">Active</th>
+            <th class="px-4 py-3 font-medium">شناسه</th>
+            <th class="px-4 py-3 font-medium">نام</th>
+            <th class="px-4 py-3 font-medium">دسته‌بندی</th>
+            <th class="px-4 py-3 font-medium">قیمت</th>
+            <th class="px-4 py-3 font-medium">موجودی</th>
+            <th class="px-4 py-3 font-medium">فعال</th>
           </tr>
         </thead>
         <tbody id="products-tbody">
@@ -140,7 +140,7 @@
             </td>
           </tr>
           {{else}}
-          <tr><td colspan="6" class="px-4 py-12 text-center text-gray-400">No products yet.</td></tr>
+          <tr><td colspan="6" class="px-4 py-12 text-center text-gray-400">هنوز محصولی ثبت نشده است.</td></tr>
           {{end}}
         </tbody>
       </table>

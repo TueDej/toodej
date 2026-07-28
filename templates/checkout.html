@@ -1,9 +1,9 @@
-{{define "title"}}Checkout — Toodej{{end}}
+{{define "title"}}تکمیل سفارش{{end}}
 
 {{define "content"}}
 <div class="mx-auto max-w-2xl px-4 py-12">
-  <h1 class="text-3xl font-bold text-gray-900">Checkout</h1>
-  <p class="mt-2 text-gray-500">Total: <span class="font-semibold text-garnet">{{formatPrice .Total}}</span></p>
+  <h1 class="text-3xl font-bold text-gray-900">تکمیل سفارش</h1>
+  <p class="mt-2 text-gray-500">مبلغ قابل پرداخت: <span class="font-semibold text-garnet">{{formatPrice .Total}}</span></p>
 
   {{if .Error}}
   <div class="mt-4 rounded-lg bg-red-50 p-4 text-sm text-red-700 ring-1 ring-red-200">{{.Error}}</div>
@@ -11,23 +11,23 @@
 
   <form action="/checkout" method="POST" class="mt-8 space-y-5">
     <div>
-      <label for="name" class="block text-sm font-medium text-gray-700">Full Name</label>
+      <label for="name" class="block text-sm font-medium text-gray-700">نام و نام خانوادگی</label>
       <input type="text" id="name" name="name" required
         class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-garnet focus:ring-1 focus:ring-garnet">
     </div>
     <div>
-      <label for="phone" class="block text-sm font-medium text-gray-700">Phone Number</label>
+      <label for="phone" class="block text-sm font-medium text-gray-700">شماره تماس</label>
       <input type="tel" id="phone" name="phone" required
         class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-garnet focus:ring-1 focus:ring-garnet">
     </div>
     <div>
-      <label for="address" class="block text-sm font-medium text-gray-700">Delivery Address</label>
+      <label for="address" class="block text-sm font-medium text-gray-700">آدرس تحویل</label>
       <textarea id="address" name="address" rows="3" required
         class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-garnet focus:ring-1 focus:ring-garnet"></textarea>
     </div>
     <button type="submit"
       class="w-full rounded-lg bg-forest px-6 py-3 font-semibold text-white shadow-sm hover:bg-forest/90 transition">
-      Place Order — {{formatPrice .Total}}
+      ثبت سفارش — {{formatPrice .Total}}
     </button>
   </form>
 </div>

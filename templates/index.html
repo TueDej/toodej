@@ -1,12 +1,12 @@
-{{define "title"}}Farm Fresh Figs & Pomegranates{{end}}
+{{define "title"}}انجیر و انار تازه باغ{{end}}
 
 {{define "content"}}
 <section class="relative overflow-hidden bg-gradient-to-br from-garnet/90 via-garnet to-forest/80 text-white">
   <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIvPjwvZz48L2c+PC9zdmc+')] opacity-30"></div>
   <div class="relative mx-auto max-w-6xl px-4 py-20 text-center">
-    <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">From Grove to Table</h1>
-    <p class="mx-auto mt-4 max-w-2xl text-lg text-white/80">Hand-picked figs, sun-ripened pomegranates, and artisan-crafted products — grown with care on our family farm.</p>
-    <a href="#products" class="mt-8 inline-block rounded-lg bg-white px-6 py-3 font-semibold text-garnet shadow-md hover:bg-cream transition">Shop the Harvest</a>
+    <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">از باغ تا سفره</h1>
+    <p class="mx-auto mt-4 max-w-2xl text-lg text-white/80">انجیرهای دست‌چین، انارهای رسیده در آفتاب، و محصولات هنری خانواده - با عشق در مزرعه ما پرورش یافته‌اند.</p>
+    <a href="#products" class="mt-8 inline-block rounded-lg bg-white px-6 py-3 font-semibold text-garnet shadow-md hover:bg-cream transition">خرید محصولات</a>
   </div>
 </section>
 
@@ -20,13 +20,13 @@
 <div class="mb-8 flex flex-wrap items-center justify-center gap-3">
   <a href="/"
     class="rounded-full px-5 py-2 text-sm font-medium transition {{if eq .CurrentFilter "all"}}bg-garnet text-white{{else}}bg-white text-gray-700 ring-1 ring-gray-300 hover:ring-garnet{{end}}"
-    hx-get="/" hx-target="#product-section" hx-swap="outerHTML" hx-push-url="true">All</a>
+    hx-get="/" hx-target="#product-section" hx-swap="outerHTML" hx-push-url="true">همه</a>
   <a href="/?category=fresh"
     class="rounded-full px-5 py-2 text-sm font-medium transition {{if eq .CurrentFilter "fresh"}}bg-garnet text-white{{else}}bg-white text-gray-700 ring-1 ring-gray-300 hover:ring-garnet{{end}}"
-    hx-get="/?category=fresh" hx-target="#product-section" hx-swap="outerHTML" hx-push-url="true">Fresh</a>
+    hx-get="/?category=fresh" hx-target="#product-section" hx-swap="outerHTML" hx-push-url="true">میوه تازه</a>
   <a href="/?category=derived"
     class="rounded-full px-5 py-2 text-sm font-medium transition {{if eq .CurrentFilter "derived"}}bg-garnet text-white{{else}}bg-white text-gray-700 ring-1 ring-gray-300 hover:ring-garnet{{end}}"
-    hx-get="/?category=derived" hx-target="#product-section" hx-swap="outerHTML" hx-push-url="true">Derived</a>
+    hx-get="/?category=derived" hx-target="#product-section" hx-swap="outerHTML" hx-push-url="true">فرآوری‌شده</a>
 </div>
 
 <div id="product-grid" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -40,7 +40,7 @@
         <svg class="mx-auto h-12 w-12 text-garnet/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
         </svg>
-        <span class="mt-1 block text-xs text-gray-400">Farm Fresh</span>
+        <span class="mt-1 block text-xs text-gray-400">محصول تازه مزرعه</span>
       </div>
       {{end}}
     </div>
@@ -57,16 +57,16 @@
         </div>
         {{if gt .StockQuantity 0}}
         <button hx-post="/cart/add" hx-vals='{"product_id": "{{.ID}}"}' hx-target="#cart-count" hx-swap="innerHTML" hx-trigger="click" class="rounded-lg bg-garnet px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-garnet/90 transition">
-          Add to Cart
+          افزودن به سبد خرید
         </button>
         {{else}}
-        <span class="text-sm font-medium text-red-500">Out of Stock</span>
+        <span class="text-sm font-medium text-red-500">اتمام موجودی</span>
         {{end}}
       </div>
     </div>
   </div>
   {{else}}
-  <p class="col-span-full py-12 text-center text-gray-400">No products found.</p>
+  <p class="col-span-full py-12 text-center text-gray-400">محصولی یافت نشد.</p>
   {{end}}
 </div>
 </div>

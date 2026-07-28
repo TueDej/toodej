@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"farmstore/internal/database"
@@ -22,8 +23,7 @@ type Handler struct {
 func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 	funcMap := template.FuncMap{
 		"formatPrice": func(cents int) string {
-			tomans := float64(cents) / 100
-			return fmt.Sprintf("%.2f ﷼", tomans)
+			return formatToman(cents)
 		},
 		"multiply": func(a, b int) int {
 			return a * b
@@ -206,7 +206,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 
 	if name == "" || phone == "" || address == "" {
 		data := map[string]any{
-			"Error": "All fields are required.",
+			"Error": "تمامی فیلدها الزامی هستند.",
 			"Total": 0,
 		}
 		sid := h.getOrCreateSessionID(w, r)
@@ -306,6 +306,20 @@ func (h *Handler) Confirmation(w http.ResponseWriter, r *http.Request) {
 	if err := h.templates["confirmation"].Execute(w, data); err != nil {
 		log.Printf("render confirmation: %v", err)
 	}
+}
+
+func formatToman(cents int) string {
+	s := strconv.Itoa(cents)
+	n := len(s)
+	var parts []string
+	for i := n; i > 0; i -= 3 {
+		start := i - 3
+		if start < 0 {
+			start = 0
+		}
+		parts = append([]string{s[start:i]}, parts...)
+	}
+	return strings.Join(parts, ",") + " تومان"
 }
 
 func (h *Handler) renderCenteredError(w http.ResponseWriter, status int, msg string) {

@@ -60,10 +60,10 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 	tmpl := fmt.Sprintf(`<td id="order-%d-status" class="px-4 py-3">
     <select name="status" class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet %%s"
       hx-post="/admin/orders/%d/status" hx-trigger="change" hx-target="#order-%d-status" hx-swap="outerHTML">
-      <option value="pending" %%s>Pending</option>
-      <option value="processing" %%s>Processing</option>
-      <option value="completed" %%s>Completed</option>
-      <option value="cancelled" %%s>Cancelled</option>
+      <option value="pending" %%s>در انتظار بررسی</option>
+      <option value="processing" %%s>در حال پردازش</option>
+      <option value="completed" %%s>تکمیل شده</option>
+      <option value="cancelled" %%s>لغو شده</option>
     </select>
   </td>`, orderID, orderID, orderID)
 
