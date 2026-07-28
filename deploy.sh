@@ -17,18 +17,24 @@ if [ -f "$EXISTING_ENV_FILE" ]; then
   EXISTING_PORT=$(grep -oP 'Environment=PORT=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
   EXISTING_ADMIN_USER=$(grep -oP 'Environment=ADMIN_USER=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
   EXISTING_ADMIN_PASS=$(grep -oP 'Environment=ADMIN_PASS=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
-  info "Previous config found — port=${EXISTING_PORT:-8080}, user=${EXISTING_ADMIN_USER:-admin}"
 fi
 
-read -rp "HTTP port for the app [${EXISTING_PORT:-8080}]: " APP_PORT
-APP_PORT="${APP_PORT:-${EXISTING_PORT:-8080}}"
+if [ -n "$EXISTING_PORT" ] && [ -n "$EXISTING_ADMIN_USER" ] && [ -n "$EXISTING_ADMIN_PASS" ]; then
+  APP_PORT="$EXISTING_PORT"
+  ADMIN_USER="$EXISTING_ADMIN_USER"
+  ADMIN_PASS="$EXISTING_ADMIN_PASS"
+  info "Using previous config — port=$APP_PORT, user=$ADMIN_USER"
+else
+  read -rp "HTTP port for the app [${EXISTING_PORT:-8080}]: " APP_PORT
+  APP_PORT="${APP_PORT:-${EXISTING_PORT:-8080}}"
 
-read -rp "Admin username [${EXISTING_ADMIN_USER:-admin}]: " ADMIN_USER
-ADMIN_USER="${ADMIN_USER:-${EXISTING_ADMIN_USER:-admin}}"
+  read -rp "Admin username [${EXISTING_ADMIN_USER:-admin}]: " ADMIN_USER
+  ADMIN_USER="${ADMIN_USER:-${EXISTING_ADMIN_USER:-admin}}"
 
-read -rsp "Admin password [${EXISTING_ADMIN_PASS:-admin123}]: " ADMIN_PASS
-ADMIN_PASS="${ADMIN_PASS:-${EXISTING_ADMIN_PASS:-admin123}}"
-echo ""
+  read -rsp "Admin password [${EXISTING_ADMIN_PASS:-admin123}]: " ADMIN_PASS
+  ADMIN_PASS="${ADMIN_PASS:-${EXISTING_ADMIN_PASS:-admin123}}"
+  echo ""
+fi
 
 # --------------- 2. local build ---------------
 APP_DIR="$(cd "$(dirname "$0")" && pwd)"
