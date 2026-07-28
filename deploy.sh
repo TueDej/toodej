@@ -8,15 +8,26 @@ warn()  { printf "${YELLOW}==>${NC} %s\n" "$*"; }
 ok()    { printf "  ${GREEN}✓${NC} %s\n" "$*"; }
 fail()  { printf "  ${RED}✗${NC} %s\n" "$*"; exit 1; }
 
-# --------------- 1. interactive prompts ---------------
-read -rp "HTTP port for the app [8080]: " APP_PORT
-APP_PORT="${APP_PORT:-8080}"
+# --------------- 1. read previous config ---------------
+EXISTING_ENV_FILE="/etc/systemd/system/farmstore.service"
+EXISTING_PORT=""
+EXISTING_ADMIN_USER=""
+EXISTING_ADMIN_PASS=""
+if [ -f "$EXISTING_ENV_FILE" ]; then
+  EXISTING_PORT=$(grep -oP 'Environment=PORT=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
+  EXISTING_ADMIN_USER=$(grep -oP 'Environment=ADMIN_USER=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
+  EXISTING_ADMIN_PASS=$(grep -oP 'Environment=ADMIN_PASS=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
+  info "Previous config found — port=${EXISTING_PORT:-8080}, user=${EXISTING_ADMIN_USER:-admin}"
+fi
 
-read -rp "Admin username [admin]: " ADMIN_USER
-ADMIN_USER="${ADMIN_USER:-admin}"
+read -rp "HTTP port for the app [${EXISTING_PORT:-8080}]: " APP_PORT
+APP_PORT="${APP_PORT:-${EXISTING_PORT:-8080}}"
 
-read -rsp "Admin password [admin123]: " ADMIN_PASS
-ADMIN_PASS="${ADMIN_PASS:-admin123}"
+read -rp "Admin username [${EXISTING_ADMIN_USER:-admin}]: " ADMIN_USER
+ADMIN_USER="${ADMIN_USER:-${EXISTING_ADMIN_USER:-admin}}"
+
+read -rsp "Admin password [${EXISTING_ADMIN_PASS:-admin123}]: " ADMIN_PASS
+ADMIN_PASS="${ADMIN_PASS:-${EXISTING_ADMIN_PASS:-admin123}}"
 echo ""
 
 # --------------- 2. local build ---------------
@@ -28,11 +39,19 @@ go build -ldflags="-s -w" -o ./bin/farmstore ./cmd/server
 chmod +x ./bin/farmstore
 ok "Binary built at ./bin/farmstore"
 
-# --------------- 3. elevate and deploy ---------------
+# --------------- 3. stop running service ---------------
+if systemctl is-active --quiet farmstore.service 2>/dev/null; then
+  info "Stopping running service..."
+  sudo systemctl stop farmstore.service
+  ok "Previous service stopped"
+fi
+
+# --------------- 4. elevate and deploy ---------------
 info "Elevating privileges for system deployment..."
 sudo mkdir -p /var/lib/farmstore
 sudo cp ./bin/farmstore /usr/local/bin/farmstore
 sudo chmod +x /usr/local/bin/farmstore
+sudo rm -rf /var/lib/farmstore/templates
 sudo cp -r templates /var/lib/farmstore/templates
 sudo chmod 755 /var/lib/farmstore
 sudo chmod -R 755 /var/lib/farmstore/templates
@@ -67,7 +86,7 @@ sudo systemctl enable farmstore.service
 sudo systemctl restart farmstore.service
 ok "farmstore.service created, enabled, and started"
 
-# --------------- 4. verify ---------------
+# --------------- 5. verify ---------------
 sleep 1
 if sudo systemctl is-active --quiet farmstore.service; then
   ok "Service is running"
@@ -81,7 +100,7 @@ printf "${GREEN}═════════════════════�
 
 sudo systemctl status farmstore.service --no-pager 2>&1 | head -14
 
-# --------------- 5. caddy prompt ---------------
+# --------------- 6. caddy prompt ---------------
 printf "\n${CYAN}─── Caddy Reverse Proxy ─────────────────────${NC}\n"
 read -rp "Do you want to configure a Caddy reverse proxy? [y/N]: " SETUP_CADDY
 if [[ "$SETUP_CADDY" =~ ^[Yy] ]]; then
