@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"farmstore/internal/database"
@@ -15,9 +16,12 @@ import (
 )
 
 type Handler struct {
-	db        *sql.DB
-	templates map[string]*template.Template
-	cartStore *CartStore
+	db            *sql.DB
+	templates     map[string]*template.Template
+	cartStore     *CartStore
+	userSessions  map[string]int64
+	pendingLogins map[string]string
+	sessionMu     sync.RWMutex
 }
 
 func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
@@ -51,6 +55,8 @@ func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 		"checkout":     {"templates/checkout.html"},
 		"confirmation": {"templates/confirmation.html"},
 		"admin":        {"templates/admin.html"},
+		"login":        {"templates/login.html"},
+		"orders":       {"templates/orders.html"},
 	}
 
 	templates := make(map[string]*template.Template, len(pages))
@@ -62,7 +68,48 @@ func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 		templates[name] = t
 	}
 
-	return &Handler{db: db, templates: templates, cartStore: cartStore}, nil
+	return &Handler{
+		db:            db,
+		templates:     templates,
+		cartStore:     cartStore,
+		userSessions:  make(map[string]int64),
+		pendingLogins: make(map[string]string),
+	}, nil
+}
+
+func (h *Handler) getUserID(r *http.Request) int64 {
+	cookie, err := r.Cookie("session")
+	if err != nil {
+		return 0
+	}
+	h.sessionMu.RLock()
+	defer h.sessionMu.RUnlock()
+	return h.userSessions[cookie.Value]
+}
+
+func (h *Handler) commonData(r *http.Request) map[string]any {
+	sid, err := r.Cookie("session")
+	loggedIn := false
+	if err == nil {
+		h.sessionMu.RLock()
+		_, loggedIn = h.userSessions[sid.Value]
+		h.sessionMu.RUnlock()
+	}
+	return map[string]any{
+		"LoggedIn": loggedIn,
+	}
+}
+
+func (h *Handler) mergeData(r *http.Request, data map[string]any) map[string]any {
+	if data == nil {
+		data = make(map[string]any)
+	}
+	for k, v := range h.commonData(r) {
+		if _, exists := data[k]; !exists {
+			data[k] = v
+		}
+	}
+	return data
 }
 
 func (h *Handler) getOrCreateSessionID(w http.ResponseWriter, r *http.Request) string {
@@ -105,10 +152,10 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 		currentFilter = "derived"
 	}
 
-	data := map[string]any{
+	data := h.mergeData(r, map[string]any{
 		"Products":      products,
 		"CurrentFilter": currentFilter,
-	}
+	})
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
@@ -157,8 +204,64 @@ func (h *Handler) AddToCart(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.Header().Set("Content-Type", "text/plain")
-	w.Header().Set("HX-Trigger", "cartUpdated")
+	w.Header().Set("HX-Trigger", `{"cartUpdated":"", "cartEvent":"added"}`)
 	fmt.Fprint(w, cart.Count())
+}
+
+func (h *Handler) UpdateCart(w http.ResponseWriter, r *http.Request) {
+	sid := h.getOrCreateSessionID(w, r)
+	cart := h.cartStore.Get(sid)
+
+	productIDStr := r.FormValue("product_id")
+	deltaStr := r.FormValue("delta")
+	if productIDStr == "" {
+		http.Error(w, "missing product_id", http.StatusBadRequest)
+		return
+	}
+	productID, err := strconv.ParseInt(productIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid product_id", http.StatusBadRequest)
+		return
+	}
+	delta := 1
+	if deltaStr != "" {
+		d, err := strconv.Atoi(deltaStr)
+		if err == nil {
+			delta = d
+		}
+	}
+
+	cart.UpdateQuantity(productID, delta)
+
+	event := "added"
+	if delta < 0 {
+		event = "removed"
+	}
+	w.Header().Set("HX-Trigger", `{"cartUpdated":"", "cartEvent":"`+event+`"}`)
+	w.Header().Set("HX-Redirect", "/cart")
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) RemoveFromCart(w http.ResponseWriter, r *http.Request) {
+	sid := h.getOrCreateSessionID(w, r)
+	cart := h.cartStore.Get(sid)
+
+	productIDStr := r.FormValue("product_id")
+	if productIDStr == "" {
+		http.Error(w, "missing product_id", http.StatusBadRequest)
+		return
+	}
+	productID, err := strconv.ParseInt(productIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid product_id", http.StatusBadRequest)
+		return
+	}
+
+	cart.RemoveItem(productID)
+
+	w.Header().Set("HX-Trigger", `{"cartUpdated":"", "cartEvent":"removed"}`)
+	w.Header().Set("HX-Redirect", "/cart")
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *Handler) ViewCart(w http.ResponseWriter, r *http.Request) {
@@ -170,31 +273,54 @@ func (h *Handler) ViewCart(w http.ResponseWriter, r *http.Request) {
 	copy(items, cart.Items)
 	cart.mu.Unlock()
 
-	data := map[string]any{
+	data := h.mergeData(r, map[string]any{
 		"Items": items,
 		"Total": cart.Total(),
-	}
+	})
 	if err := h.templates["cart"].Execute(w, data); err != nil {
 		log.Printf("render cart: %v", err)
 	}
 }
 
 func (h *Handler) CheckoutForm(w http.ResponseWriter, r *http.Request) {
+	userID := h.getUserID(r)
+	if userID == 0 {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
 	if cart.Count() == 0 {
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
 	}
-	data := map[string]any{
-		"Total": cart.Total(),
+
+	phone := ""
+	rows, err := h.db.Query("SELECT phone_number FROM users WHERE id = ?", userID)
+	if err == nil {
+		if rows.Next() {
+			rows.Scan(&phone)
+		}
+		rows.Close()
 	}
+
+	data := h.mergeData(r, map[string]any{
+		"Total": cart.Total(),
+		"Phone": phone,
+	})
 	if err := h.templates["checkout"].Execute(w, data); err != nil {
 		log.Printf("render checkout: %v", err)
 	}
 }
 
 func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
+	userID := h.getUserID(r)
+	if userID == 0 {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
@@ -205,13 +331,13 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	address := r.FormValue("address")
 
 	if name == "" || phone == "" || address == "" {
-		data := map[string]any{
-			"Error": "تمامی فیلدها الزامی هستند.",
-			"Total": 0,
-		}
 		sid := h.getOrCreateSessionID(w, r)
 		cart := h.cartStore.Get(sid)
-		data["Total"] = cart.Total()
+		data := h.mergeData(r, map[string]any{
+			"Error": "تمامی فیلدها الزامی هستند.",
+			"Total": cart.Total(),
+			"Phone": phone,
+		})
 		w.WriteHeader(http.StatusBadRequest)
 		if err := h.templates["checkout"].Execute(w, data); err != nil {
 			log.Printf("render checkout error: %v", err)
@@ -240,6 +366,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 		CustomerAddress: address,
 		TotalAmount:     totalAmount,
 		Status:          "pending",
+		UserID:          userID,
 	}
 
 	var orderItems []models.OrderItem
@@ -299,12 +426,34 @@ func (h *Handler) Confirmation(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	data := map[string]any{
+	data := h.mergeData(r, map[string]any{
 		"Order": order,
 		"Items": itemViews,
-	}
+	})
 	if err := h.templates["confirmation"].Execute(w, data); err != nil {
 		log.Printf("render confirmation: %v", err)
+	}
+}
+
+func (h *Handler) UserOrders(w http.ResponseWriter, r *http.Request) {
+	userID := h.getUserID(r)
+	if userID == 0 {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	summaries, err := database.GetUserOrdersWithItems(h.db, userID)
+	if err != nil {
+		log.Printf("get user orders: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	data := h.mergeData(r, map[string]any{
+		"Orders": summaries,
+	})
+	if err := h.templates["orders"].Execute(w, data); err != nil {
+		log.Printf("render orders: %v", err)
 	}
 }
 

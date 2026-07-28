@@ -44,10 +44,18 @@ func main() {
 	r.Get("/", h.Home)
 	r.Get("/cart/count", h.CartCount)
 	r.Post("/cart/add", h.AddToCart)
+	r.Post("/cart/update", h.UpdateCart)
+	r.Post("/cart/remove", h.RemoveFromCart)
 	r.Get("/cart", h.ViewCart)
+	r.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(http.Dir("assets"))))
 	r.Get("/checkout", h.CheckoutForm)
 	r.Post("/checkout", h.PlaceOrder)
 	r.Get("/checkout/confirmation/{id}", h.Confirmation)
+	r.Get("/login", h.LoginPage)
+	r.Post("/auth/send-otp", h.SendOTP)
+	r.Post("/auth/verify-otp", h.VerifyOTP)
+	r.Get("/logout", h.Logout)
+	r.Get("/orders", h.UserOrders)
 
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(handlers.BasicAuth(adminUser, adminPass))

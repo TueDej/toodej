@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -57,6 +58,12 @@ func migrate(db *sql.DB) error {
 		created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 	);
 
+	CREATE TABLE IF NOT EXISTS users (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		phone_number TEXT    NOT NULL UNIQUE,
+		created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+	);
+
 	CREATE TABLE IF NOT EXISTS orders (
 		id              INTEGER PRIMARY KEY AUTOINCREMENT,
 		customer_name    TEXT    NOT NULL,
@@ -65,6 +72,7 @@ func migrate(db *sql.DB) error {
 		total_amount    INTEGER NOT NULL DEFAULT 0,
 		status          TEXT    NOT NULL DEFAULT 'pending'
 			CHECK (status IN ('pending','processing','completed','cancelled')),
+		user_id        INTEGER REFERENCES users(id),
 		created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 	);
 
@@ -76,9 +84,26 @@ func migrate(db *sql.DB) error {
 		price_per_unit INTEGER NOT NULL,
 		UNIQUE(order_id, product_id)
 	);
+
+	CREATE TABLE IF NOT EXISTS otp_codes (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		phone_number TEXT    NOT NULL,
+		code         TEXT    NOT NULL,
+		expires_at   TEXT    NOT NULL,
+		is_used      INTEGER NOT NULL DEFAULT 0
+	);
 	`
 	_, err := db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec("ALTER TABLE orders ADD COLUMN user_id INTEGER REFERENCES users(id)")
+	if err != nil {
+		// column may already exist on re-deploy — ignore
+	}
+
+	return nil
 }
 
 func seed(db *sql.DB) error {
@@ -260,8 +285,8 @@ func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (int64, 
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec(`INSERT INTO orders (customer_name, customer_phone, customer_address, total_amount, status) VALUES (?, ?, ?, ?, ?)`,
-		o.CustomerName, o.CustomerPhone, o.CustomerAddress, o.TotalAmount, o.Status)
+	res, err := tx.Exec(`INSERT INTO orders (customer_name, customer_phone, customer_address, total_amount, status, user_id) VALUES (?, ?, ?, ?, ?, ?)`,
+		o.CustomerName, o.CustomerPhone, o.CustomerAddress, o.TotalAmount, o.Status, o.UserID)
 	if err != nil {
 		return 0, fmt.Errorf("insert order: %w", err)
 	}
@@ -329,4 +354,150 @@ func GetOrderWithItems(db *sql.DB, orderID int64) (*models.Order, []models.Order
 	}
 
 	return &o, items, products, nil
+}
+
+// ── Users ────────────────────────────────────────────
+
+func GetUserByPhone(db *sql.DB, phone string) (*models.User, error) {
+	var u models.User
+	var createdAt string
+	err := db.QueryRow("SELECT id, phone_number, created_at FROM users WHERE phone_number = ?", phone).
+		Scan(&u.ID, &u.PhoneNumber, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	u.CreatedAt = parseTime(createdAt)
+	return &u, nil
+}
+
+func CreateUser(db *sql.DB, phone string) (*models.User, error) {
+	res, err := db.Exec("INSERT INTO users (phone_number) VALUES (?)", phone)
+	if err != nil {
+		return nil, fmt.Errorf("create user: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	return &models.User{ID: id, PhoneNumber: phone, CreatedAt: time.Now()}, nil
+}
+
+func GetOrCreateUser(db *sql.DB, phone string) (*models.User, error) {
+	user, err := GetUserByPhone(db, phone)
+	if err == nil {
+		return user, nil
+	}
+	return CreateUser(db, phone)
+}
+
+// ── OTP ──────────────────────────────────────────────
+
+func CreateOTP(db *sql.DB, phone, code string, expiresAt time.Time) error {
+	_, err := db.Exec("INSERT INTO otp_codes (phone_number, code, expires_at) VALUES (?, ?, ?)", phone, code, expiresAt.Format("2006-01-02 15:04:05"))
+	return err
+}
+
+func VerifyOTP(db *sql.DB, phone, code string) (bool, error) {
+	var id int64
+	var expiresAt string
+	err := db.QueryRow("SELECT id, expires_at FROM otp_codes WHERE phone_number = ? AND code = ? AND is_used = 0 ORDER BY id DESC LIMIT 1", phone, code).
+		Scan(&id, &expiresAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+
+	expTime, err := time.Parse("2006-01-02 15:04:05", expiresAt)
+	if err != nil {
+		return false, err
+	}
+
+	if time.Now().After(expTime) {
+		return false, nil
+	}
+
+	_, err = db.Exec("UPDATE otp_codes SET is_used = 1 WHERE id = ?", id)
+	return err == nil, err
+}
+
+// ── User Orders ──────────────────────────────────────
+
+func GetOrdersByUser(db *sql.DB, userID int64) ([]models.Order, error) {
+	rows, err := db.Query("SELECT id, customer_name, customer_phone, customer_address, total_amount, status, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC", userID)
+	if err != nil {
+		return nil, fmt.Errorf("query user orders: %w", err)
+	}
+	defer rows.Close()
+
+	var orders []models.Order
+	for rows.Next() {
+		var o models.Order
+		var createdAt string
+		if err := rows.Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.TotalAmount, &o.Status, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan order: %w", err)
+		}
+		o.CreatedAt = parseTime(createdAt)
+		o.UserID = userID
+		orders = append(orders, o)
+	}
+	return orders, rows.Err()
+}
+
+func GetUserOrdersWithItems(db *sql.DB, userID int64) ([]models.OrderSummary, error) {
+	orders, err := GetOrdersByUser(db, userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(orders) == 0 {
+		return nil, nil
+	}
+
+	orderIDs := make([]int64, len(orders))
+	for i, o := range orders {
+		orderIDs[i] = o.ID
+	}
+
+	placeholders := make([]string, len(orderIDs))
+	args := make([]interface{}, len(orderIDs))
+	for i, id := range orderIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf("SELECT oi.order_id, oi.quantity, oi.price_per_unit, p.name FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id IN (%s) ORDER BY oi.order_id", strings.Join(placeholders, ","))
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query order items: %w", err)
+	}
+	defer rows.Close()
+
+	itemsByOrder := make(map[int64][]models.OrderItemView)
+	for rows.Next() {
+		var orderID int64
+		var quantity, price int
+		var name string
+		if err := rows.Scan(&orderID, &quantity, &price, &name); err != nil {
+			return nil, fmt.Errorf("scan item: %w", err)
+		}
+		itemsByOrder[orderID] = append(itemsByOrder[orderID], models.OrderItemView{
+			Name:     name,
+			Quantity: quantity,
+			Price:    price,
+			Subtotal: quantity * price,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	summaries := make([]models.OrderSummary, len(orders))
+	for i, o := range orders {
+		summaries[i] = models.OrderSummary{
+			Order: o,
+			Items: itemsByOrder[o.ID],
+		}
+	}
+	return summaries, nil
 }

@@ -52,6 +52,31 @@ func (c *Cart) Count() int {
 	return count
 }
 
+func (c *Cart) UpdateQuantity(productID int64, delta int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i, item := range c.Items {
+		if item.ProductID == productID {
+			c.Items[i].Quantity += delta
+			if c.Items[i].Quantity <= 0 {
+				c.Items = append(c.Items[:i], c.Items[i+1:]...)
+			}
+			return
+		}
+	}
+}
+
+func (c *Cart) RemoveItem(productID int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i, item := range c.Items {
+		if item.ProductID == productID {
+			c.Items = append(c.Items[:i], c.Items[i+1:]...)
+			return
+		}
+	}
+}
+
 func (c *Cart) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()

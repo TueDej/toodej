@@ -13,10 +13,14 @@ EXISTING_ENV_FILE="/etc/systemd/system/farmstore.service"
 EXISTING_PORT=""
 EXISTING_ADMIN_USER=""
 EXISTING_ADMIN_PASS=""
+EXISTING_KAVENEGAR_KEY=""
+EXISTING_KAVENEGAR_TEMPLATE=""
 if [ -f "$EXISTING_ENV_FILE" ]; then
   EXISTING_PORT=$(grep -oP 'Environment=PORT=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
   EXISTING_ADMIN_USER=$(grep -oP 'Environment=ADMIN_USER=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
   EXISTING_ADMIN_PASS=$(grep -oP 'Environment=ADMIN_PASS=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
+  EXISTING_KAVENEGAR_KEY=$(grep -oP 'Environment=KAVENEGAR_API_KEY=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
+  EXISTING_KAVENEGAR_TEMPLATE=$(grep -oP 'Environment=KAVENEGAR_TEMPLATE=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
 fi
 
 if [ -n "$EXISTING_PORT" ] && [ -n "$EXISTING_ADMIN_USER" ] && [ -n "$EXISTING_ADMIN_PASS" ]; then
@@ -34,6 +38,18 @@ else
   read -rsp "Admin password [${EXISTING_ADMIN_PASS:-admin123}]: " ADMIN_PASS
   ADMIN_PASS="${ADMIN_PASS:-${EXISTING_ADMIN_PASS:-admin123}}"
   echo ""
+fi
+
+# --------------- Kavenegar SMS config ---------------
+KAVENEGAR_API_KEY="${EXISTING_KAVENEGAR_KEY:-}"
+KAVENEGAR_TEMPLATE="${EXISTING_KAVENEGAR_TEMPLATE:-verify-otp}"
+
+if [ -z "$KAVENEGAR_API_KEY" ]; then
+  read -rp "Kavenegar API key (leave blank for DEV_MODE): " KAVENEGAR_API_KEY
+fi
+if [ -n "$KAVENEGAR_API_KEY" ]; then
+  read -rp "Kavenegar template name [${KAVENEGAR_TEMPLATE}]: " INPUT_TEMPLATE
+  KAVENEGAR_TEMPLATE="${INPUT_TEMPLATE:-$KAVENEGAR_TEMPLATE}"
 fi
 
 # --------------- 2. local build ---------------
@@ -81,6 +97,8 @@ Environment=PORT=${APP_PORT}
 Environment=ADMIN_USER=${ADMIN_USER}
 Environment=ADMIN_PASS=${ADMIN_PASS}
 Environment=DB_PATH=/var/lib/farmstore/farmstore.db
+Environment=KAVENEGAR_API_KEY=${KAVENEGAR_API_KEY}
+Environment=KAVENEGAR_TEMPLATE=${KAVENEGAR_TEMPLATE}
 ExecStart=/usr/local/bin/farmstore
 
 [Install]

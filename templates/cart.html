@@ -8,6 +8,13 @@
   <div class="mt-8 space-y-4">
     {{range .Items}}
     <div class="flex items-center gap-4 rounded-xl bg-white p-4 shadow-sm ring-1 ring-gray-100">
+      <button hx-post="/cart/remove" hx-vals='{"product_id": "{{.ProductID}}"}' hx-trigger="click"
+        class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-300 hover:bg-red-50 hover:text-red-500 transition"
+        title="حذف">
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
       <div class="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-garnet/10 to-forest/10">
         <svg class="h-6 w-6 text-garnet/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
@@ -19,7 +26,13 @@
       </div>
       <div class="text-left">
         <p class="font-semibold text-gray-900">{{formatPrice .Price}}</p>
-        <p class="text-sm text-gray-500">تعداد: {{.Quantity}}</p>
+        <div class="mt-1 flex items-center gap-1" dir="ltr">
+          <button hx-post="/cart/update" hx-vals='{"product_id":"{{.ProductID}}","delta":"-1"}'
+            class="flex h-7 w-7 items-center justify-center rounded-full border border-gray-200 text-gray-500 hover:bg-gray-100 transition text-lg leading-none">−</button>
+          <span class="w-8 text-center text-sm font-semibold text-gray-900">{{.Quantity}}</span>
+          <button hx-post="/cart/update" hx-vals='{"product_id":"{{.ProductID}}","delta":"1"}'
+            class="flex h-7 w-7 items-center justify-center rounded-full border border-gray-200 text-gray-500 hover:bg-gray-100 transition text-lg leading-none">+</button>
+        </div>
       </div>
       <div class="text-left">
         <p class="font-semibold text-garnet">{{formatPrice (multiply .Price .Quantity)}}</p>

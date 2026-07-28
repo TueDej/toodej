@@ -4,6 +4,7 @@ go 1.24
 
 require (
 	github.com/go-chi/chi/v5 v5.3.1
+	github.com/kavenegar/kavenegar-go v0.0.0-20240205151018-77039f51467d
 	modernc.org/sqlite v1.36.0
 )
 
