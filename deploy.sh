@@ -8,9 +8,6 @@ warn()  { printf "${YELLOW}==>${NC} %s\n" "$*"; }
 ok()    { printf "  ${GREEN}✓${NC} %s\n" "$*"; }
 fail()  { printf "  ${RED}✗${NC} %s\n" "$*"; exit 1; }
 
-# --------------- root check ---------------
-[[ $EUID -eq 0 ]] || fail "This script must be run as root (sudo)."
-
 # --------------- 1. interactive prompts ---------------
 read -rp "HTTP port for the app [8080]: " APP_PORT
 APP_PORT="${APP_PORT:-8080}"
@@ -22,25 +19,27 @@ read -rsp "Admin password [admin123]: " ADMIN_PASS
 ADMIN_PASS="${ADMIN_PASS:-admin123}"
 echo ""
 
-# --------------- 2. build ---------------
+# --------------- 2. local build ---------------
 APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 info "Building production binary..."
 cd "$APP_DIR"
 go mod tidy
-go build -ldflags="-s -w" -o /usr/local/bin/farmstore ./cmd/server
-chmod +x /usr/local/bin/farmstore
+go build -ldflags="-s -w" -o ./bin/farmstore ./cmd/server
+chmod +x ./bin/farmstore
+ok "Binary built at ./bin/farmstore"
+
+# --------------- 3. elevate and deploy ---------------
+info "Elevating privileges for system deployment..."
+sudo mkdir -p /var/lib/farmstore
+sudo cp ./bin/farmstore /usr/local/bin/farmstore
+sudo chmod +x /usr/local/bin/farmstore
+sudo chown -R nobody:nogroup /var/lib/farmstore 2>/dev/null || true
+sudo chmod 755 /var/lib/farmstore
 ok "Binary installed to /usr/local/bin/farmstore"
+ok "Data directory /var/lib/farmstore ready"
 
-# --------------- 3. data directory ---------------
-info "Setting up data directory..."
-mkdir -p /var/lib/farmstore
-chown -R www-data:www-data /var/lib/farmstore 2>/dev/null || chown -R nobody:nogroup /var/lib/farmstore 2>/dev/null || true
-chmod 755 /var/lib/farmstore
-ok "/var/lib/farmstore ready"
-
-# --------------- 4. systemd service ---------------
 info "Creating systemd service..."
-cat > /etc/systemd/system/farmstore.service << UNIT
+sudo tee /etc/systemd/system/farmstore.service > /dev/null << UNIT
 [Unit]
 Description=Toodej — Farm Store E-Commerce
 After=network.target
@@ -62,17 +61,17 @@ ExecStart=/usr/local/bin/farmstore
 WantedBy=multi-user.target
 UNIT
 
-systemctl daemon-reload
-systemctl enable farmstore.service
-systemctl restart farmstore.service
+sudo systemctl daemon-reload
+sudo systemctl enable farmstore.service
+sudo systemctl restart farmstore.service
 ok "farmstore.service created, enabled, and started"
 
-# --------------- 5. status + caddy instructions ---------------
+# --------------- 4. status + caddy instructions ---------------
 printf "\n${GREEN}════════════════════════════════════════════${NC}\n"
 printf "${GREEN}  Deployment complete!${NC}\n"
 printf "${GREEN}════════════════════════════════════════════${NC}\n\n"
 
-systemctl status farmstore.service --no-pager 2>&1 | head -12
+sudo systemctl status farmstore.service --no-pager 2>&1 | head -12
 
 printf "\n${CYAN}─── Caddy Reverse Proxy ─────────────────────${NC}\n"
 printf "Add this block to ${YELLOW}/etc/caddy/Caddyfile${NC}:\n\n"
