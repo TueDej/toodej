@@ -1,0 +1,166 @@
+{{define "title"}}Admin — Toodej{{end}}
+
+{{define "content"}}
+<div class="mx-auto max-w-6xl px-4 py-8">
+  <h1 class="mb-6 text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+
+  <div class="mb-6 flex flex-wrap gap-2">
+    <button data-tab="orders" class="tab-btn rounded-lg bg-garnet px-4 py-2 text-sm font-medium text-white shadow-sm">Order Tracker</button>
+    <button data-tab="products" class="tab-btn rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 shadow-sm">Product Management</button>
+  </div>
+
+  <div data-tab-panel="orders">
+    <div class="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-gray-100">
+      <table class="w-full text-left text-sm">
+        <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+          <tr>
+            <th class="px-4 py-3 font-medium">ID</th>
+            <th class="px-4 py-3 font-medium">Date</th>
+            <th class="px-4 py-3 font-medium">Customer</th>
+            <th class="px-4 py-3 font-medium">Phone</th>
+            <th class="px-4 py-3 font-medium">Address</th>
+            <th class="px-4 py-3 font-medium">Total</th>
+            <th class="px-4 py-3 font-medium">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Orders}}
+          <tr class="border-b border-gray-100 hover:bg-gray-50 transition">
+            <td class="px-4 py-3 text-gray-500">#{{.ID}}</td>
+            <td class="px-4 py-3 text-gray-700">{{.CreatedAt.Format "Jan 2, 2006"}}</td>
+            <td class="px-4 py-3 font-medium text-gray-900">{{.CustomerName}}</td>
+            <td class="px-4 py-3 text-gray-600">{{.CustomerPhone}}</td>
+            <td class="px-4 py-3 max-w-[200px] truncate text-gray-600" title="{{.CustomerAddress}}">{{.CustomerAddress}}</td>
+            <td class="px-4 py-3 font-medium text-gray-900">{{formatPrice .TotalAmount}}</td>
+            <td id="order-{{.ID}}-status" class="px-4 py-3">
+              <select name="status"
+                class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet {{statusColor .Status}}"
+                hx-post="/admin/orders/{{.ID}}/status" hx-trigger="change" hx-target="#order-{{.ID}}-status" hx-swap="outerHTML">
+                <option value="pending" {{if eq .Status "pending"}}selected{{end}}>Pending</option>
+                <option value="processing" {{if eq .Status "processing"}}selected{{end}}>Processing</option>
+                <option value="completed" {{if eq .Status "completed"}}selected{{end}}>Completed</option>
+                <option value="cancelled" {{if eq .Status "cancelled"}}selected{{end}}>Cancelled</option>
+              </select>
+            </td>
+          </tr>
+          {{else}}
+          <tr><td colspan="7" class="px-4 py-12 text-center text-gray-400">No orders yet.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div data-tab-panel="products" class="hidden">
+    <div class="mb-4">
+      <button onclick="document.getElementById('new-product-form').classList.toggle('hidden')"
+        class="rounded-lg bg-forest px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-forest/90 transition">
+        + Add New Product
+      </button>
+    </div>
+
+    <div id="new-product-form" class="mb-6 hidden rounded-xl bg-white p-6 shadow-sm ring-1 ring-gray-100">
+      <h3 class="mb-4 text-lg font-semibold text-gray-900">New Product</h3>
+      <form hx-post="/admin/products" hx-target="#products-tbody" hx-swap="afterbegin" hx-on::after-request="this.reset()">
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-600">Name *</label>
+            <input type="text" name="name" required
+              class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600">Category *</label>
+            <select name="category" required
+              class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet">
+              <option value="Fresh Fruits">Fresh Fruits</option>
+              <option value="Derived Products">Derived Products</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600">Price (cents) *</label>
+            <input type="number" name="price" min="0" required
+              class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600">Stock Qty</label>
+            <input type="number" name="stock_quantity" min="0" value="0"
+              class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600">Unit</label>
+            <input type="text" name="unit" placeholder="e.g. 1kg"
+              class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600">Description</label>
+            <textarea name="description" rows="1"
+              class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet"></textarea>
+          </div>
+        </div>
+        <div class="mt-4 flex gap-2">
+          <button type="submit" class="rounded-lg bg-forest px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-forest/90 transition">Save Product</button>
+          <button type="button" onclick="this.closest('#new-product-form').classList.add('hidden')" class="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 transition">Cancel</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-gray-100">
+      <table class="w-full text-left text-sm">
+        <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+          <tr>
+            <th class="px-4 py-3 font-medium">ID</th>
+            <th class="px-4 py-3 font-medium">Name</th>
+            <th class="px-4 py-3 font-medium">Category</th>
+            <th class="px-4 py-3 font-medium">Price</th>
+            <th class="px-4 py-3 font-medium">Stock</th>
+            <th class="px-4 py-3 font-medium">Active</th>
+          </tr>
+        </thead>
+        <tbody id="products-tbody">
+          {{range .Products}}
+          <tr id="product-{{.ID}}" class="border-b border-gray-100 hover:bg-gray-50 transition {{if not .IsActive}}opacity-50{{end}}">
+            <td class="px-4 py-3 text-sm text-gray-500">{{.ID}}</td>
+            <td class="px-4 py-3 text-sm font-medium text-gray-900">{{.Name}}</td>
+            <td class="px-4 py-3 text-sm text-gray-600">{{.Category}}</td>
+            <td class="px-4 py-3">
+              <input type="number" name="price" value="{{.Price}}" min="0"
+                class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet"
+                hx-post="/admin/products/{{.ID}}" hx-trigger="change" hx-target="#product-{{.ID}}" hx-swap="outerHTML">
+            </td>
+            <td class="px-4 py-3">
+              <input type="number" name="stock_quantity" value="{{.StockQuantity}}" min="0"
+                class="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet"
+                hx-post="/admin/products/{{.ID}}" hx-trigger="change" hx-target="#product-{{.ID}}" hx-swap="outerHTML">
+            </td>
+            <td class="px-4 py-3">
+              <button hx-post="/admin/products/{{.ID}}/toggle" hx-target="#product-{{.ID}}" hx-swap="outerHTML"
+                class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none {{if .IsActive}}bg-garnet{{else}}bg-gray-300{{end}}">
+                <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out {{if .IsActive}}translate-x-5{{else}}translate-x-0{{end}}"></span>
+              </button>
+            </td>
+          </tr>
+          {{else}}
+          <tr><td colspan="6" class="px-4 py-12 text-center text-gray-400">No products yet.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('[data-tab]');
+  if (!btn) return;
+  var tab = btn.getAttribute('data-tab');
+  document.querySelectorAll('[data-tab-panel]').forEach(function(el) { el.classList.add('hidden'); });
+  document.querySelectorAll('[data-tab]').forEach(function(el) {
+    el.classList.remove('bg-garnet', 'text-white');
+    el.classList.add('bg-white', 'text-gray-700', 'ring-1', 'ring-gray-300');
+  });
+  document.querySelector('[data-tab-panel="' + tab + '"]').classList.remove('hidden');
+  btn.classList.remove('bg-white', 'text-gray-700', 'ring-1', 'ring-gray-300');
+  btn.classList.add('bg-garnet', 'text-white');
+});
+</script>
+{{end}}

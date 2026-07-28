@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Toodej — {{block "title" .}}Farm Fresh Goodness{{end}}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            garnet: '#8B263E',
+            forest: '#2D4A3E',
+            cream: '#FBF9F5',
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+        },
+      },
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+</head>
+<body class="h-full bg-cream font-sans text-gray-800 antialiased flex flex-col">
+  <nav class="bg-garnet shadow-md">
+    <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+      <a href="/" class="text-2xl font-bold tracking-tight text-white">Toodej</a>
+      <div class="flex items-center gap-6">
+        <a href="/" class="text-sm font-medium text-white/90 hover:text-white transition">Store</a>
+        <a href="/#products" class="text-sm font-medium text-white/90 hover:text-white transition">Our Story</a>
+        <a href="/cart" class="relative text-white/90 hover:text-white transition">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+          </svg>
+          <span id="cart-count" class="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-forest text-xs font-bold text-white"
+            hx-get="/cart/count" hx-trigger="load, cartUpdated from:body" hx-target="this" hx-swap="innerHTML">0</span>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="flex-1">
+    {{block "content" .}}{{end}}
+  </main>
+
+  <footer class="bg-forest text-white">
+    <div class="mx-auto max-w-6xl px-4 py-8">
+      <div class="grid gap-6 sm:grid-cols-3">
+        <div>
+          <h3 class="mb-2 text-lg font-semibold">Toodej</h3>
+          <p class="text-sm text-white/70">Farm-fresh figs, pomegranates & artisanal products — straight from the grove to your door.</p>
+        </div>
+        <div>
+          <h3 class="mb-2 text-lg font-semibold">Contact</h3>
+          <p class="text-sm text-white/70">hello@toodej.com<br>+1 (555) 123-4567</p>
+        </div>
+        <div>
+          <h3 class="mb-2 text-lg font-semibold">Location</h3>
+          <p class="text-sm text-white/70">42 Orchard Lane<br>Fig Valley, CA 95001</p>
+          <a href="/admin" class="mt-2 inline-block text-sm text-white/50 hover:text-white/80 transition">Admin</a>
+        </div>
+      </div>
+      <div class="mt-6 border-t border-white/20 pt-4 text-center text-xs text-white/50">
+        &copy; 2026 Toodej. All rights reserved.
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
