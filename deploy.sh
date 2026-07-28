@@ -98,9 +98,9 @@ if [[ "$SETUP_CADDY" =~ ^[Yy] ]]; then
     if [[ "$APPEND_NOW" =~ ^[Yy] ]]; then
       printf "\n  ${CADDY_DOMAIN} {\n    reverse_proxy 127.0.0.1:${APP_PORT}\n  }\n" | sudo tee -a "$CADDY_CONF" > /dev/null
       ok "Block appended to ${CADDY_CONF}"
-      sudo caddy reload 2>/dev/null && ok "Caddy reloaded" || warn "Run 'sudo caddy reload' manually"
+      sudo systemctl restart caddy 2>/dev/null && ok "Caddy restarted" || warn "Run 'sudo systemctl restart caddy' manually"
     fi
   fi
 fi
 
-printf "\n${info} Done — Toodej is running on port ${APP_PORT}\n"
+info "Done — Toodej is running on port ${APP_PORT}"
