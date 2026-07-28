@@ -7,13 +7,13 @@
       <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
     </svg>
   </div>
-  <h1 class="mt-4 text-3xl font-bold text-gray-900">سفارش با موفقیت ثبت شد!</h1>
+  <h1 class="mt-4 text-3xl font-bold text-gray-900 font-serif">سفارش با موفقیت ثبت شد!</h1>
   <p class="mt-2 text-gray-500">{{.Order.CustomerName}} عزیز، سفارش شما با موفقیت ثبت شد.</p>
   <p class="mt-1 text-sm text-gray-400">شماره سفارش: #{{.Order.ID}} &middot; {{.Order.CreatedAt.Format "Jan 2, 2006 at 3:04 PM"}}</p>
 
   <div class="mt-8 text-right">
     <div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-gray-100">
-      <h2 class="text-lg font-semibold text-gray-900">خلاصه سفارش</h2>
+      <h2 class="text-lg font-bold text-gray-900 font-serif">خلاصه سفارش</h2>
       <div class="mt-4 divide-y divide-gray-100">
         {{range .Items}}
         <div class="flex items-center justify-between py-3">
@@ -32,7 +32,7 @@
     </div>
 
     <div class="mt-4 rounded-xl bg-white p-6 shadow-sm ring-1 ring-gray-100">
-      <h3 class="font-semibold text-gray-900">اطلاعات تحویل</h3>
+      <h3 class="font-bold text-gray-900 font-serif">اطلاعات تحویل</h3>
       <p class="mt-2 text-sm text-gray-600">{{.Order.CustomerName}}<br>{{.Order.CustomerPhone}}<br>{{.Order.CustomerAddress}}</p>
     </div>
   </div>
