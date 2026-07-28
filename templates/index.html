@@ -11,57 +11,63 @@
 </section>
 
 <section id="products" class="mx-auto max-w-6xl px-4 py-12">
-  <div class="mb-8 flex flex-wrap items-center justify-center gap-3">
-    <a href="/"
-      class="rounded-full px-5 py-2 text-sm font-medium transition {{if eq .CurrentFilter "all"}}bg-garnet text-white{{else}}bg-white text-gray-700 ring-1 ring-gray-300 hover:ring-garnet{{end}}"
-      hx-get="/" hx-target="#product-grid" hx-swap="outerHTML" hx-push-url="true">All</a>
-    <a href="/?category=fresh"
-      class="rounded-full px-5 py-2 text-sm font-medium transition {{if eq .CurrentFilter "fresh"}}bg-garnet text-white{{else}}bg-white text-gray-700 ring-1 ring-gray-300 hover:ring-garnet{{end}}"
-      hx-get="/?category=fresh" hx-target="#product-grid" hx-swap="outerHTML" hx-push-url="true">Fresh</a>
-    <a href="/?category=derived"
-      class="rounded-full px-5 py-2 text-sm font-medium transition {{if eq .CurrentFilter "derived"}}bg-garnet text-white{{else}}bg-white text-gray-700 ring-1 ring-gray-300 hover:ring-garnet{{end}}"
-      hx-get="/?category=derived" hx-target="#product-grid" hx-swap="outerHTML" hx-push-url="true">Derived</a>
-  </div>
+  {{template "product-section" .}}
+</section>
+{{end}}
 
-  <div id="product-grid" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-    {{range .Products}}
-    <div class="flex flex-col overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-gray-100">
-      <div class="flex h-48 items-center justify-center bg-gradient-to-br from-garnet/10 to-forest/10">
-        {{if .ImageURL}}
-        <img src="{{.ImageURL}}" alt="{{.Name}}" class="h-full w-full object-cover">
-        {{else}}
-        <div class="text-center">
-          <svg class="mx-auto h-12 w-12 text-garnet/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
-          </svg>
-          <span class="mt-1 block text-xs text-gray-400">Farm Fresh</span>
+{{define "product-section"}}
+<div id="product-section">
+<div class="mb-8 flex flex-wrap items-center justify-center gap-3">
+  <a href="/"
+    class="rounded-full px-5 py-2 text-sm font-medium transition {{if eq .CurrentFilter "all"}}bg-garnet text-white{{else}}bg-white text-gray-700 ring-1 ring-gray-300 hover:ring-garnet{{end}}"
+    hx-get="/" hx-target="#product-section" hx-swap="outerHTML" hx-push-url="true">All</a>
+  <a href="/?category=fresh"
+    class="rounded-full px-5 py-2 text-sm font-medium transition {{if eq .CurrentFilter "fresh"}}bg-garnet text-white{{else}}bg-white text-gray-700 ring-1 ring-gray-300 hover:ring-garnet{{end}}"
+    hx-get="/?category=fresh" hx-target="#product-section" hx-swap="outerHTML" hx-push-url="true">Fresh</a>
+  <a href="/?category=derived"
+    class="rounded-full px-5 py-2 text-sm font-medium transition {{if eq .CurrentFilter "derived"}}bg-garnet text-white{{else}}bg-white text-gray-700 ring-1 ring-gray-300 hover:ring-garnet{{end}}"
+    hx-get="/?category=derived" hx-target="#product-section" hx-swap="outerHTML" hx-push-url="true">Derived</a>
+</div>
+
+<div id="product-grid" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+  {{range .Products}}
+  <div class="flex flex-col overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-gray-100">
+    <div class="flex h-48 items-center justify-center bg-gradient-to-br from-garnet/10 to-forest/10">
+      {{if .ImageURL}}
+      <img src="{{.ImageURL}}" alt="{{.Name}}" class="h-full w-full object-cover">
+      {{else}}
+      <div class="text-center">
+        <svg class="mx-auto h-12 w-12 text-garnet/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
+        </svg>
+        <span class="mt-1 block text-xs text-gray-400">Farm Fresh</span>
+      </div>
+      {{end}}
+    </div>
+    <div class="flex flex-1 flex-col p-4">
+      <div class="mb-1 flex items-center gap-2">
+        <span class="rounded-full bg-forest/10 px-2.5 py-0.5 text-xs font-medium text-forest">{{.Category}}</span>
+      </div>
+      <h3 class="text-lg font-semibold text-gray-900">{{.Name}}</h3>
+      <p class="mt-1 text-sm text-gray-500 line-clamp-2">{{.Description}}</p>
+      <div class="mt-auto flex items-center justify-between pt-4">
+        <div>
+          <span class="text-xl font-bold text-garnet">{{formatPrice .Price}}</span>
+          <span class="text-sm text-gray-400">/{{.Unit}}</span>
         </div>
+        {{if gt .StockQuantity 0}}
+        <button hx-post="/cart/add" hx-vals='{"product_id": "{{.ID}}"}' hx-target="#cart-count" hx-swap="innerHTML" hx-trigger="click" class="rounded-lg bg-garnet px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-garnet/90 transition">
+          Add to Cart
+        </button>
+        {{else}}
+        <span class="text-sm font-medium text-red-500">Out of Stock</span>
         {{end}}
       </div>
-      <div class="flex flex-1 flex-col p-4">
-        <div class="mb-1 flex items-center gap-2">
-          <span class="rounded-full bg-forest/10 px-2.5 py-0.5 text-xs font-medium text-forest">{{.Category}}</span>
-        </div>
-        <h3 class="text-lg font-semibold text-gray-900">{{.Name}}</h3>
-        <p class="mt-1 text-sm text-gray-500 line-clamp-2">{{.Description}}</p>
-        <div class="mt-auto flex items-center justify-between pt-4">
-          <div>
-            <span class="text-xl font-bold text-garnet">{{formatPrice .Price}}</span>
-            <span class="text-sm text-gray-400">/{{.Unit}}</span>
-          </div>
-          {{if gt .StockQuantity 0}}
-          <button hx-post="/cart/add" hx-vals='{"product_id": "{{.ID}}"}' hx-target="#cart-count" hx-swap="innerHTML" hx-trigger="click" class="rounded-lg bg-garnet px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-garnet/90 transition">
-            Add to Cart
-          </button>
-          {{else}}
-          <span class="text-sm font-medium text-red-500">Out of Stock</span>
-          {{end}}
-        </div>
-      </div>
     </div>
-    {{else}}
-    <p class="col-span-full py-12 text-center text-gray-400">No products found.</p>
-    {{end}}
   </div>
-</section>
+  {{else}}
+  <p class="col-span-full py-12 text-center text-gray-400">No products found.</p>
+  {{end}}
+</div>
+</div>
 {{end}}

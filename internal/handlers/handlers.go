@@ -112,7 +112,7 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
-		if err := h.templates["index"].ExecuteTemplate(w, "content", data); err != nil {
+		if err := h.templates["index"].ExecuteTemplate(w, "product-section", data); err != nil {
 			log.Printf("render product grid: %v", err)
 		}
 		return
