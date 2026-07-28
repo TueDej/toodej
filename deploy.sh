@@ -73,12 +73,14 @@ info "Elevating privileges for system deployment..."
 sudo mkdir -p /var/lib/farmstore
 sudo cp ./bin/farmstore /usr/local/bin/farmstore
 sudo chmod +x /usr/local/bin/farmstore
-sudo rm -rf /var/lib/farmstore/templates
+sudo rm -rf /var/lib/farmstore/templates /var/lib/farmstore/assets
 sudo cp -r templates /var/lib/farmstore/templates
+sudo cp -r assets /var/lib/farmstore/assets
 sudo chmod 755 /var/lib/farmstore
 sudo chmod -R 755 /var/lib/farmstore/templates
+sudo chmod -R 755 /var/lib/farmstore/assets
 ok "Binary installed to /usr/local/bin/farmstore"
-ok "Data directory /var/lib/farmstore ready (with templates)"
+ok "Data directory /var/lib/farmstore ready (with templates & assets)"
 
 info "Creating systemd service..."
 sudo tee /etc/systemd/system/farmstore.service > /dev/null << UNIT
