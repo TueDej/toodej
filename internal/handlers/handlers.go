@@ -495,7 +495,7 @@ func (h *Handler) UserOrders(w http.ResponseWriter, r *http.Request) {
 }
 
 func formatToman(cents int) string {
-	s := strconv.Itoa(cents * 1000)
+	s := strconv.Itoa(cents)
 	n := len(s)
 	var parts []string
 	for i := n; i > 0; i -= 3 {
