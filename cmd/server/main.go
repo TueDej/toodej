@@ -62,6 +62,8 @@ func main() {
 	r.Post("/auth/verify-otp", h.VerifyOTP)
 	r.Get("/logout", h.Logout)
 	r.Get("/orders", h.UserOrders)
+	r.Get("/sitemap.xml", h.ServeSitemap)
+	r.Get("/robots.txt", handlers.ServeRobotsTXT)
 
 	// Admin routes (protected by HTTP Basic Auth)
 	r.Route("/admin", func(r chi.Router) {
