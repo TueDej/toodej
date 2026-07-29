@@ -9,6 +9,7 @@
     <button data-tab="products" class="tab-btn rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 shadow-sm">مدیریت محصولات</button>
   </div>
 
+  <!-- ORDERS TAB PANEL — orders table with inline status <select> that posts on change -->
   <div data-tab-panel="orders">
     <div class="overflow-x-auto rounded-xl bg-parchment shadow-sm border border-[#E7DDCD]">
       <table class="w-full text-right text-sm">
@@ -51,6 +52,7 @@
     </div>
   </div>
 
+  <!-- PRODUCTS TAB PANEL — inline editable price/stock fields and toggle switches -->
   <div data-tab-panel="products" class="hidden">
     <div class="mb-4">
       <button onclick="document.getElementById('new-product-form').classList.toggle('hidden')"

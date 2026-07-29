@@ -12,6 +12,7 @@
   <div class="mt-4 rounded-sm bg-red-50 p-4 text-sm text-red-700 border border-red-200">{{.Error}}</div>
   {{end}}
 
+  <!-- CHECKOUT FORM — POSTs to /checkout; redirects to /checkout/confirmation/{id} on success -->
   <form action="/checkout" method="POST" class="mt-8 space-y-5">
     <div>
       <label for="name" class="block text-sm font-medium text-charcoal">نام و نام خانوادگی</label>

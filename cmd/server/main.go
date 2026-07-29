@@ -1,3 +1,5 @@
+// Command server is the entry point for the Toodej farm store e-commerce application.
+// It wires together the database, handler, and Chi router, then starts the HTTP server.
 package main
 
 import (
@@ -13,6 +15,7 @@ import (
 )
 
 func main() {
+	// ── Database ──────────────────────────────────────
 	dbPath := "farmstore.db"
 	if p := os.Getenv("DB_PATH"); p != "" {
 		dbPath = p
@@ -24,12 +27,14 @@ func main() {
 	}
 	defer db.Close()
 
+	// ── Handler ───────────────────────────────────────
 	cartStore := handlers.NewCartStore()
 	h, err := handlers.NewHandler(db, cartStore)
 	if err != nil {
 		log.Fatalf("handler init: %v", err)
 	}
 
+	// ── Router ────────────────────────────────────────
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -37,6 +42,7 @@ func main() {
 	adminUser := getEnv("ADMIN_USER", "admin")
 	adminPass := getEnv("ADMIN_PASS", "admin123")
 
+	// Public routes
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))
@@ -57,6 +63,7 @@ func main() {
 	r.Get("/logout", h.Logout)
 	r.Get("/orders", h.UserOrders)
 
+	// Admin routes (protected by HTTP Basic Auth)
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(handlers.BasicAuth(adminUser, adminPass))
 		r.Get("/", h.AdminDashboard)
@@ -66,6 +73,7 @@ func main() {
 		r.Post("/products", h.AdminCreateProduct)
 	})
 
+	// ── Start ─────────────────────────────────────────
 	port := getEnv("PORT", "8080")
 	log.Printf("server starting on :%s", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
@@ -73,6 +81,8 @@ func main() {
 	}
 }
 
+// getEnv returns the value of an environment variable, or a fallback default if
+// the variable is empty or not set.
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

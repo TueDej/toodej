@@ -28,12 +28,14 @@
   </div>
 </div>
 
+<!-- PRODUCT SECTION — HTMX swap target for category filtering (hx-target="#product-section") -->
 <section id="products" class="mx-auto max-w-6xl px-4 py-12">
   {{template "product-section" .}}
 </section>
 {{end}}
 
 {{define "product-section"}}
+<!-- PRODUCT SECTION PARTIAL — the outer div is the HTMX swap target for category filter links -->
 <div id="product-section">
 <div class="mb-8 flex flex-wrap items-center justify-center gap-3">
   <a href="/"
@@ -47,6 +49,7 @@
     hx-get="/?category=derived" hx-target="#product-section" hx-swap="outerHTML" hx-push-url="true">فرآوری‌های سنتی</a>
 </div>
 
+<!-- PRODUCT GRID — rendered by range .Products; each card has an "Add to cart" button with hx-post -->
 <div id="product-grid" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
   {{range .Products}}
   <div class="flex flex-col overflow-hidden rounded-sm bg-parchment shadow-sm border border-[#E7DDCD] hover:border-garnet transition-colors duration-200">

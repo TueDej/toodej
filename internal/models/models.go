@@ -1,7 +1,11 @@
+// Package models defines the core domain types shared across the application:
+// Product, Order, OrderItem, User, and OTPCode.
 package models
 
 import "time"
 
+// Product represents a sellable item in the farm store. Price is stored as an
+// integer in the smallest currency unit (Iranian Rial) to avoid floating-point issues.
 type Product struct {
 	ID            int64     `json:"id"`
 	Name          string    `json:"name"`
@@ -16,6 +20,8 @@ type Product struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
+// Order represents a customer order with a TDJ-XXXXXX ID, customer details,
+// total amount, and current processing status.
 type Order struct {
 	ID              string    `json:"id"`
 	CustomerName    string    `json:"customer_name"`
@@ -27,6 +33,7 @@ type Order struct {
 	UserID          int64     `json:"user_id"`
 }
 
+// OrderItem maps a product to its quantity and price-at-purchase within an order.
 type OrderItem struct {
 	ID           int64  `json:"id"`
 	OrderID      string `json:"order_id"`
@@ -35,6 +42,8 @@ type OrderItem struct {
 	PricePerUnit int   `json:"price_per_unit"`
 }
 
+// OrderItemView is a read-only projection that joins order_items with product names
+// and includes a pre-computed subtotal.
 type OrderItemView struct {
 	Name     string
 	Quantity int
@@ -42,17 +51,20 @@ type OrderItemView struct {
 	Subtotal int
 }
 
+// OrderSummary pairs an Order with its human-readable OrderItemViews.
 type OrderSummary struct {
 	Order Order
 	Items []OrderItemView
 }
 
+// User represents an authenticated customer identified by their phone number.
 type User struct {
 	ID          int64     `json:"id"`
 	PhoneNumber string    `json:"phone_number"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// OTPCode stores a one-time password for phone-based authentication.
 type OTPCode struct {
 	ID          int64     `json:"id"`
 	PhoneNumber string    `json:"phone_number"`

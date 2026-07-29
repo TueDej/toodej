@@ -1,3 +1,5 @@
+// Package database provides SQLite database initialisation, schema migration,
+// data seeding, and all query functions for products, orders, users, and OTP codes.
 package database
 
 import (
@@ -14,18 +16,22 @@ import (
 	"farmstore/internal/models"
 )
 
-// category constants for filtering
+// CategoryFresh and CategoryDerived are the two product categories used for
+// filtering on the storefront.
 const (
 	CategoryFresh   = "میوه تازه"
 	CategoryDerived = "محصولات فرآوری‌شده"
 )
 
+// Init opens (or creates) the SQLite database at dbPath, enables WAL mode and
+// foreign keys, runs migrations, and seeds initial data if the database is empty.
 func Init(dbPath string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 
+	// WAL mode improves concurrent read performance and is safe in a single-server deployment.
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		return nil, fmt.Errorf("enable wal: %w", err)
 	}
@@ -44,6 +50,9 @@ func Init(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
+// migrate creates all tables if they do not already exist.
+// It uses a best-effort ALTER TABLE to add the user_id column to orders for
+// backward-compatibility with databases created before that column existed.
 func migrate(db *sql.DB) error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS products (
@@ -108,6 +117,8 @@ func migrate(db *sql.DB) error {
 	return nil
 }
 
+// seed populates the products table with initial inventory when the table is empty.
+// This runs once per fresh database so the storefront is never empty on first launch.
 func seed(db *sql.DB) error {
 	var count int
 	if err := db.QueryRow("SELECT COUNT(*) FROM products").Scan(&count); err != nil {
@@ -145,6 +156,8 @@ func seed(db *sql.DB) error {
 	return nil
 }
 
+// GetProducts returns active products, optionally filtered by category.
+// An empty or "all" category returns every active product.
 func GetProducts(db *sql.DB, category string) ([]models.Product, error) {
 	query := "SELECT id, name, slug, category, description, price, stock_quantity, unit, image_url, is_active, created_at FROM products WHERE is_active = 1"
 	args := []interface{}{}
@@ -171,6 +184,7 @@ func GetProducts(db *sql.DB, category string) ([]models.Product, error) {
 	return products, rows.Err()
 }
 
+// GetProduct returns a single product by its primary key.
 func GetProduct(db *sql.DB, id int64) (*models.Product, error) {
 	row := db.QueryRow("SELECT id, name, slug, category, description, price, stock_quantity, unit, image_url, is_active, created_at FROM products WHERE id = ?", id)
 	p, err := scanProductRow(row)
@@ -180,6 +194,7 @@ func GetProduct(db *sql.DB, id int64) (*models.Product, error) {
 	return &p, nil
 }
 
+// GetOrders returns all orders ordered by newest first.
 func GetOrders(db *sql.DB) ([]models.Order, error) {
 	rows, err := db.Query("SELECT id, customer_name, customer_phone, customer_address, total_amount, status, created_at FROM orders ORDER BY created_at DESC")
 	if err != nil {
@@ -200,6 +215,8 @@ func GetOrders(db *sql.DB) ([]models.Order, error) {
 	return orders, rows.Err()
 }
 
+// UpdateOrderStatus changes the status of an order by its TDJ-XXXXXX ID.
+// Valid statuses are: pending, processing, completed, cancelled.
 func UpdateOrderStatus(db *sql.DB, orderID string, status string) error {
 	res, err := db.Exec("UPDATE orders SET status = ? WHERE id = ?", status, orderID)
 	if err != nil {
@@ -212,6 +229,8 @@ func UpdateOrderStatus(db *sql.DB, orderID string, status string) error {
 	return nil
 }
 
+// GetAllProducts returns every product (including inactive ones), ordered by name.
+// Used by the admin panel.
 func GetAllProducts(db *sql.DB) ([]models.Product, error) {
 	rows, err := db.Query("SELECT id, name, slug, category, description, price, stock_quantity, unit, image_url, is_active, created_at FROM products ORDER BY name")
 	if err != nil {
@@ -230,6 +249,7 @@ func GetAllProducts(db *sql.DB) ([]models.Product, error) {
 	return products, rows.Err()
 }
 
+// UpdateProduct updates price, stock_quantity, and is_active for a given product.
 func UpdateProduct(db *sql.DB, p *models.Product) error {
 	active := 0
 	if p.IsActive {
@@ -247,6 +267,7 @@ func UpdateProduct(db *sql.DB, p *models.Product) error {
 	return nil
 }
 
+// CreateProduct inserts a new product and returns its auto-generated ID.
 func CreateProduct(db *sql.DB, p *models.Product) (int64, error) {
 	active := 0
 	if p.IsActive {
@@ -260,6 +281,8 @@ func CreateProduct(db *sql.DB, p *models.Product) (int64, error) {
 	return res.LastInsertId()
 }
 
+// scanProductRow is a helper that scans a product row from either a *sql.Row or *sql.Rows
+// into a models.Product, converting the integer is_active flag to bool.
 func scanProductRow(s interface{ Scan(dest ...interface{}) error }) (models.Product, error) {
 	var p models.Product
 	var isActive int
@@ -272,6 +295,8 @@ func scanProductRow(s interface{ Scan(dest ...interface{}) error }) (models.Prod
 	return p, nil
 }
 
+// parseTime parses an SQLite datetime string into time.Time.
+// Returns time.Now() on parse failure so templates never receive a zero time.
 func parseTime(s string) time.Time {
 	t, err := time.Parse("2006-01-02 15:04:05", s)
 	if err != nil {
@@ -280,6 +305,9 @@ func parseTime(s string) time.Time {
 	return t
 }
 
+// randomOrderID generates a cryptographically random order ID in the format
+// TDJ-XXXXXX where each X is A-Z or 0-9. The ID is unpredictable (used crypto/rand)
+// so customers cannot enumerate orders.
 func randomOrderID() string {
 	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, 6)
@@ -290,6 +318,8 @@ func randomOrderID() string {
 	return "TDJ-" + string(b)
 }
 
+// CreateOrder inserts an order and its items inside a single transaction.
+// The order ID is auto-generated via randomOrderID.
 func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string, error) {
 	o.ID = randomOrderID()
 
@@ -323,6 +353,8 @@ func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string,
 	return o.ID, nil
 }
 
+// GetOrderWithItems retrieves a single order by ID along with its items and the
+// corresponding product data. Product names are mapped back from products table.
 func GetOrderWithItems(db *sql.DB, orderID string) (*models.Order, []models.OrderItem, []models.Product, error) {
 	var o models.Order
 	var createdAt string
@@ -367,6 +399,7 @@ func GetOrderWithItems(db *sql.DB, orderID string) (*models.Order, []models.Orde
 
 // ── Users ────────────────────────────────────────────
 
+// GetUserByPhone looks up a user by their phone number.
 func GetUserByPhone(db *sql.DB, phone string) (*models.User, error) {
 	var u models.User
 	var createdAt string
@@ -379,6 +412,7 @@ func GetUserByPhone(db *sql.DB, phone string) (*models.User, error) {
 	return &u, nil
 }
 
+// CreateUser inserts a new user with the given phone number.
 func CreateUser(db *sql.DB, phone string) (*models.User, error) {
 	res, err := db.Exec("INSERT INTO users (phone_number) VALUES (?)", phone)
 	if err != nil {
@@ -391,6 +425,8 @@ func CreateUser(db *sql.DB, phone string) (*models.User, error) {
 	return &models.User{ID: id, PhoneNumber: phone, CreatedAt: time.Now()}, nil
 }
 
+// GetOrCreateUser returns the existing user for a phone number or creates one.
+// This avoids a separate registration step — users are auto-created on first OTP request.
 func GetOrCreateUser(db *sql.DB, phone string) (*models.User, error) {
 	user, err := GetUserByPhone(db, phone)
 	if err == nil {
@@ -401,11 +437,14 @@ func GetOrCreateUser(db *sql.DB, phone string) (*models.User, error) {
 
 // ── OTP ──────────────────────────────────────────────
 
+// CreateOTP stores a one-time password with a 2-minute expiry window.
 func CreateOTP(db *sql.DB, phone, code string, expiresAt time.Time) error {
 	_, err := db.Exec("INSERT INTO otp_codes (phone_number, code, expires_at) VALUES (?, ?, ?)", phone, code, expiresAt.Format("2006-01-02 15:04:05"))
 	return err
 }
 
+// VerifyOTP checks that a code matches the latest unused OTP for the given phone
+// and that it has not expired. On success the OTP is marked as used.
 func VerifyOTP(db *sql.DB, phone, code string) (bool, error) {
 	var id int64
 	var expiresAt string
@@ -433,6 +472,7 @@ func VerifyOTP(db *sql.DB, phone, code string) (bool, error) {
 
 // ── User Orders ──────────────────────────────────────
 
+// GetOrdersByUser returns all orders placed by a specific user, newest first.
 func GetOrdersByUser(db *sql.DB, userID int64) ([]models.Order, error) {
 	rows, err := db.Query("SELECT id, customer_name, customer_phone, customer_address, total_amount, status, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC", userID)
 	if err != nil {
@@ -454,6 +494,8 @@ func GetOrdersByUser(db *sql.DB, userID int64) ([]models.Order, error) {
 	return orders, rows.Err()
 }
 
+// GetUserOrdersWithItems returns a user's orders enriched with product names
+// and computed subtotals. It batches all order IDs into a single IN query.
 func GetUserOrdersWithItems(db *sql.DB, userID int64) ([]models.OrderSummary, error) {
 	orders, err := GetOrdersByUser(db, userID)
 	if err != nil {

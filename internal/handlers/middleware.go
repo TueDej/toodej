@@ -2,6 +2,9 @@ package handlers
 
 import "net/http"
 
+// BasicAuth returns an HTTP middleware that protects routes with HTTP Basic
+// Authentication. Credentials are compared against the provided username and
+// password (typically loaded from environment variables ADMIN_USER / ADMIN_PASS).
 func BasicAuth(username, password string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

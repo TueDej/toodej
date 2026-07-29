@@ -11,6 +11,8 @@ import (
 	"farmstore/internal/database"
 )
 
+// LoginPage renders the OTP login form. If the user is already logged in they
+// are redirected to the home page.
 func (h *Handler) LoginPage(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
 	if userID != 0 {
@@ -24,6 +26,11 @@ func (h *Handler) LoginPage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// SendOTP handles the first step of OTP authentication. It creates or retrieves
+// the user, generates a random 5-digit code, stores it in the database with a
+// 2-minute expiry, and sends it via Kavenegar Verify.Lookup (or stdout in DEV_MODE).
+//
+// The response replaces the login form with a code-input form via HTMX outerHTML swap.
 func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -52,6 +59,7 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Bind the phone number to this session for the verification step.
 	sid := h.getOrCreateSessionID(w, r)
 	h.sessionMu.Lock()
 	if h.pendingLogins == nil {
@@ -81,6 +89,9 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 </form>`, phone, devBox, phone, valueFill)
 }
 
+// VerifyOTP validates the OTP code against the database. On success it creates
+// a server-side session mapping the session cookie to the user ID, then redirects
+// to the home page via the HX-Redirect header (HTMX client-side redirect).
 func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -132,6 +143,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// Logout removes the session mapping and redirects to the home page.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	sid := h.getOrCreateSessionID(w, r)
 	h.sessionMu.Lock()
@@ -140,6 +152,8 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// generateOTP5 returns a cryptographically random 5-digit zero-padded string.
+// If crypto/rand fails it falls back to "12345" rather than crashing.
 func generateOTP5() string {
 	n, err := rand.Int(rand.Reader, big.NewInt(100000))
 	if err != nil {

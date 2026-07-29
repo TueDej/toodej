@@ -16,15 +16,19 @@ import (
 	"farmstore/internal/utils"
 )
 
+// Handler is the central HTTP handler. It wires together the database connection,
+// HTML template map, in-memory cart store, and session management state.
 type Handler struct {
 	db            *sql.DB
 	templates     map[string]*template.Template
 	cartStore     *CartStore
-	userSessions  map[string]int64
-	pendingLogins map[string]string
+	userSessions  map[string]int64   // session ID → user ID (for authenticated users)
+	pendingLogins map[string]string  // session ID → phone number (during OTP flow)
 	sessionMu     sync.RWMutex
 }
 
+// NewHandler initialises the Handler, parsing all HTML templates with a shared
+// function map (formatPrice, persianDate, etc.) from the templates/ directory.
 func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 	funcMap := template.FuncMap{
 		"formatPrice": func(cents int) string {
@@ -71,7 +75,7 @@ func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 		"now": time.Now,
 	}
 
-	layouts := []string{"templates/layout.html"}
+	layoutFiles := []string{"templates/layout.html"}
 	pages := map[string][]string{
 		"index":        {"templates/index.html"},
 		"cart":         {"templates/cart.html"},
@@ -84,7 +88,7 @@ func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 
 	templates := make(map[string]*template.Template, len(pages))
 	for name, files := range pages {
-		t, err := template.New("layout.html").Funcs(funcMap).ParseFiles(append(layouts, files...)...)
+		t, err := template.New("layout.html").Funcs(funcMap).ParseFiles(append(layoutFiles, files...)...)
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", name, err)
 		}
@@ -100,6 +104,9 @@ func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 	}, nil
 }
 
+// getUserID returns the authenticated user ID for the current request, or 0 if
+// the user is not logged in. It reads the session cookie and looks up the
+// in-memory session map.
 func (h *Handler) getUserID(r *http.Request) int64 {
 	cookie, err := r.Cookie("session")
 	if err != nil {
@@ -110,6 +117,8 @@ func (h *Handler) getUserID(r *http.Request) int64 {
 	return h.userSessions[cookie.Value]
 }
 
+// commonData returns template data that is shared across all pages — currently
+// just the "LoggedIn" boolean used to show/hide login/logout/orders links.
 func (h *Handler) commonData(r *http.Request) map[string]any {
 	sid, err := r.Cookie("session")
 	loggedIn := false
@@ -123,6 +132,8 @@ func (h *Handler) commonData(r *http.Request) map[string]any {
 	}
 }
 
+// mergeData merges common template data into the page-specific data map.
+// Page-specific keys take precedence over common keys.
 func (h *Handler) mergeData(r *http.Request, data map[string]any) map[string]any {
 	if data == nil {
 		data = make(map[string]any)
@@ -135,6 +146,8 @@ func (h *Handler) mergeData(r *http.Request, data map[string]any) map[string]any
 	return data
 }
 
+// getOrCreateSessionID returns the existing session cookie value for this request,
+// or creates a new session, sets the cookie, and returns the new ID.
 func (h *Handler) getOrCreateSessionID(w http.ResponseWriter, r *http.Request) string {
 	cookie, err := r.Cookie("session")
 	if err == nil && cookie.Value != "" {
@@ -151,6 +164,11 @@ func (h *Handler) getOrCreateSessionID(w http.ResponseWriter, r *http.Request) s
 	return sid
 }
 
+// ── Storefront ────────────────────────────────────────
+
+// Home renders the main storefront page. It supports category filtering via
+// the "category" query parameter ("fresh" or "derived" mapped to Persian category
+// names). HTMX partial requests only render the product grid section.
 func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 	category := r.URL.Query().Get("category")
 	if category == "fresh" {
@@ -180,6 +198,7 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 		"CurrentFilter": currentFilter,
 	})
 
+	// HTMX partial: only re-render the product section.
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
 		if err := h.templates["index"].ExecuteTemplate(w, "product-section", data); err != nil {
@@ -193,6 +212,10 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ── Cart ──────────────────────────────────────────────
+
+// CartCount returns the total number of units in the cart as plain text (used
+// by the cart badge in the navbar via HTMX).
 func (h *Handler) CartCount(w http.ResponseWriter, r *http.Request) {
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
@@ -200,6 +223,8 @@ func (h *Handler) CartCount(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, toPersianDigits(strconv.Itoa(cart.Count())))
 }
 
+// AddToCart adds a product to the cart (or increments its quantity by 1). It
+// triggers a cartUpdated event on the client so the cart badge updates.
 func (h *Handler) AddToCart(w http.ResponseWriter, r *http.Request) {
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
@@ -231,6 +256,8 @@ func (h *Handler) AddToCart(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, cart.Count())
 }
 
+// UpdateCart adjusts the quantity of a cart item by a positive or negative delta.
+// If the resulting quantity is zero or negative the item is removed.
 func (h *Handler) UpdateCart(w http.ResponseWriter, r *http.Request) {
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
@@ -263,6 +290,7 @@ func (h *Handler) UpdateCart(w http.ResponseWriter, r *http.Request) {
 	h.renderCartContent(w, r, event)
 }
 
+// RemoveFromCart removes a product line from the cart entirely.
 func (h *Handler) RemoveFromCart(w http.ResponseWriter, r *http.Request) {
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
@@ -283,6 +311,8 @@ func (h *Handler) RemoveFromCart(w http.ResponseWriter, r *http.Request) {
 	h.renderCartContent(w, r, "removed")
 }
 
+// renderCartContent renders the "cart-content" template partial and fires a
+// cart event so the badge and toast are updated on the client.
 func (h *Handler) renderCartContent(w http.ResponseWriter, r *http.Request, event string) {
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
@@ -302,6 +332,7 @@ func (h *Handler) renderCartContent(w http.ResponseWriter, r *http.Request, even
 	}
 }
 
+// ViewCart renders the full cart page.
 func (h *Handler) ViewCart(w http.ResponseWriter, r *http.Request) {
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
@@ -320,6 +351,10 @@ func (h *Handler) ViewCart(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ── Checkout ──────────────────────────────────────────
+
+// CheckoutForm renders the checkout page. Requires authentication and a non-empty
+// cart; otherwise redirects to login or cart respectively.
 func (h *Handler) CheckoutForm(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
 	if userID == 0 {
@@ -352,6 +387,8 @@ func (h *Handler) CheckoutForm(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// PlaceOrder validates the checkout form, creates an order and order items in a
+// database transaction, clears the cart, and redirects to the confirmation page.
 func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
 	if userID == 0 {
@@ -428,6 +465,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/checkout/confirmation/%s", orderID), http.StatusSeeOther)
 }
 
+// Confirmation displays the order confirmation page after a successful checkout.
 func (h *Handler) Confirmation(w http.ResponseWriter, r *http.Request) {
 	orderID := r.PathValue("id")
 	if orderID == "" {
@@ -472,6 +510,9 @@ func (h *Handler) Confirmation(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ── User Orders ───────────────────────────────────────
+
+// UserOrders renders the authenticated user's order history page.
 func (h *Handler) UserOrders(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
 	if userID == 0 {
@@ -494,6 +535,11 @@ func (h *Handler) UserOrders(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ── Helpers ───────────────────────────────────────────
+
+// formatToman formats an integer price (in the smallest currency unit) as a
+// human-readable Persian price string with thousand separators, Persian digits,
+// and the "تومان" suffix.
 func formatToman(cents int) string {
 	s := strconv.Itoa(cents)
 	n := len(s)
@@ -508,6 +554,8 @@ func formatToman(cents int) string {
 	return toPersianDigits(strings.Join(parts, ",")) + " تومان"
 }
 
+// toPersianDigits converts Western digits (0-9) in a string to their Persian
+// Unicode equivalents (۰-۹). Non-digit runes pass through unchanged.
 func toPersianDigits(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -521,6 +569,8 @@ func toPersianDigits(s string) string {
 	return b.String()
 }
 
+// renderCenteredError is a utility for rendering error pages (unused currently
+// but kept for future error-page rendering).
 func (h *Handler) renderCenteredError(w http.ResponseWriter, status int, msg string) {
 	w.WriteHeader(status)
 	data := map[string]any{
@@ -531,5 +581,3 @@ func (h *Handler) renderCenteredError(w http.ResponseWriter, status int, msg str
 		http.Error(w, msg, status)
 	}
 }
-
-

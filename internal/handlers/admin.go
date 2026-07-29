@@ -11,6 +11,10 @@ import (
 	"farmstore/internal/models"
 )
 
+// ── Dashboard ─────────────────────────────────────────
+
+// AdminDashboard renders the admin panel showing all orders and all products
+// (including inactive ones) for management.
 func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 	orders, err := database.GetOrders(h.db)
 	if err != nil {
@@ -35,6 +39,11 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ── Order Management ──────────────────────────────────
+
+// AdminUpdateOrderStatus updates the status of an order via an HTMX POST from
+// the admin panel's inline <select>. It returns the new <td> with the updated
+// <select> so the page does not need a full reload.
 func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
 	orderID := r.PathValue("id")
 	if orderID == "" {
@@ -86,6 +95,10 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 	fmt.Fprint(w, tmpl)
 }
 
+// ── Product Management ────────────────────────────────
+
+// AdminToggleProduct toggles the active/inactive state of a product and re-renders
+// its table row via HTMX.
 func (h *Handler) AdminToggleProduct(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	productID, err := strconv.ParseInt(idStr, 10, 64)
@@ -110,6 +123,8 @@ func (h *Handler) AdminToggleProduct(w http.ResponseWriter, r *http.Request) {
 	h.renderProductRow(w, *product)
 }
 
+// AdminUpdateProduct updates the price and/or stock quantity of a product via
+// HTMX inline editing and re-renders its table row.
 func (h *Handler) AdminUpdateProduct(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	productID, err := strconv.ParseInt(idStr, 10, 64)
@@ -148,6 +163,8 @@ func (h *Handler) AdminUpdateProduct(w http.ResponseWriter, r *http.Request) {
 	h.renderProductRow(w, *product)
 }
 
+// AdminCreateProduct creates a new product from the admin form and prepends its
+// row to the products table via HTMX.
 func (h *Handler) AdminCreateProduct(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -203,6 +220,8 @@ func (h *Handler) AdminCreateProduct(w http.ResponseWriter, r *http.Request) {
 	h.renderProductRow(w, *product)
 }
 
+// renderProductRow returns the HTML for a single <tr> in the admin products table.
+// This is used as the HTMX response for all product CRUD operations.
 func (h *Handler) renderProductRow(w http.ResponseWriter, p models.Product) {
 	w.Header().Set("Content-Type", "text/html")
 	inactiveClass := ""
@@ -241,6 +260,7 @@ func (h *Handler) renderProductRow(w http.ResponseWriter, p models.Product) {
 	fmt.Fprint(w, row)
 }
 
+// toggleBg returns the background colour class for the toggle switch based on active state.
 func toggleBg(active bool) string {
 	if active {
 		return "bg-garnet"
@@ -248,6 +268,7 @@ func toggleBg(active bool) string {
 	return "bg-gray-300"
 }
 
+// toggleTranslate returns the translate-x class for the toggle switch knob.
 func toggleTranslate(active bool) string {
 	if active {
 		return "translate-x-5"
@@ -255,6 +276,7 @@ func toggleTranslate(active bool) string {
 	return "translate-x-0"
 }
 
+// commaInt formats an integer with comma thousand separators (e.g., 129900 → "129,900").
 func commaInt(v int) string {
 	s := strconv.Itoa(v)
 	n := len(s)
@@ -269,6 +291,7 @@ func commaInt(v int) string {
 	return strings.Join(parts, ",")
 }
 
+// htmlEscape performs standard HTML entity escaping to prevent XSS in admin templates.
 func htmlEscape(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")
@@ -277,5 +300,3 @@ func htmlEscape(s string) string {
 	s = strings.ReplaceAll(s, "'", "&#39;")
 	return s
 }
-
-
