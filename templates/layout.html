@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>تودج — {{block "title" .}}محصولات تازه باغ{{end}}</title>
+  <title>تودج — {{block "title" .}}محصولات تازه و ارگانیک{{end}}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -11,8 +11,11 @@
         extend: {
           colors: {
             garnet: '#8B263E',
+            'garnet-dark': '#85243C',
             forest: '#2D4A3E',
             cream: '#FBF9F5',
+            parchment: '#F4EFE6',
+            charcoal: '#2C302E',
           },
           fontFamily: {
             sans: ['Estedad', 'system-ui', 'sans-serif'],
@@ -27,30 +30,54 @@
   <link href="https://fonts.googleapis.com/css2?family=Alyamama:wght@400;700&family=Estedad:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 </head>
-</head>
-<body class="h-full bg-cream font-sans text-gray-800 antialiased flex flex-col">
-  <nav class="bg-garnet shadow-md">
+<body class="min-h-screen bg-cream font-sans text-charcoal antialiased flex flex-col">
+  <nav class="sticky top-0 z-40 bg-garnet border-b border-white/20">
     <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
       <a href="/" class="text-2xl font-bold tracking-tight text-white font-serif">تودج</a>
-      <div class="flex items-center gap-4">
-        <a href="/" class="text-sm font-medium text-white/90 hover:text-white transition">فروشگاه</a>
-        <a href="/#products" class="text-sm font-medium text-white/90 hover:text-white transition">داستان ما</a>
+      <ul class="hidden md:flex items-center gap-4">
+        <li><a href="/" class="text-sm font-medium text-white/90 hover:text-white transition">فروشگاه</a></li>
+        <li><a href="/#products" class="text-sm font-medium text-white/90 hover:text-white transition">درباره ما</a></li>
         {{if .LoggedIn}}
-        <a href="/orders" class="text-sm font-medium text-white/90 hover:text-white transition">سفارش‌های من</a>
-        <a href="/logout" class="text-sm font-medium text-white/70 hover:text-white transition">خروج</a>
+        <li><a href="/orders" class="text-sm font-medium text-white/90 hover:text-white transition">سفارش‌های من</a></li>
+        <li><a href="/logout" class="text-sm font-medium text-white/70 hover:text-white transition">خروج</a></li>
         {{else}}
-        <a href="/login" class="text-sm font-medium text-white/90 hover:text-white transition">ورود / ثبت‌نام</a>
+        <li><a href="/login" class="text-sm font-medium text-white/90 hover:text-white transition">ورود / ثبت‌نام</a></li>
         {{end}}
-        <a href="/cart" class="relative text-white/90 hover:text-white transition">
+      </ul>
+      <div class="flex items-center gap-2">
+        <button id="menu-btn" class="md:hidden text-white/90 hover:text-white transition p-1" aria-label="منو">
+          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path id="menu-icon" stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+        </button>
+        <a href="/cart" class="relative text-white/90 hover:text-white transition flex-shrink-0">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
           </svg>
-          <span id="cart-count" class="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-forest text-xs font-bold text-white"
+          <span id="cart-count" class="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-md bg-forest text-xs font-bold text-white"
             hx-get="/cart/count" hx-trigger="load, cartUpdated from:body" hx-target="this" hx-swap="innerHTML">0</span>
         </a>
       </div>
     </div>
+    <div id="menu-drawer" class="hidden md:hidden border-t border-white/20 bg-garnet-dark px-4 py-3 space-y-2">
+      <a href="/" class="block text-sm font-medium text-white/90 hover:text-white transition">فروشگاه</a>
+      <a href="/#products" class="block text-sm font-medium text-white/90 hover:text-white transition">درباره ما</a>
+      {{if .LoggedIn}}
+      <a href="/orders" class="block text-sm font-medium text-white/90 hover:text-white transition">سفارش‌های من</a>
+      <a href="/logout" class="block text-sm font-medium text-white/70 hover:text-white transition">خروج</a>
+      {{else}}
+      <a href="/login" class="block text-sm font-medium text-white/90 hover:text-white transition">ورود / ثبت‌نام</a>
+      {{end}}
+    </div>
   </nav>
+  <script>
+    document.getElementById('menu-btn').addEventListener('click',function(){
+      var d=document.getElementById('menu-drawer'),i=document.getElementById('menu-icon');
+      d.classList.toggle('hidden');
+      if(d.classList.contains('hidden')){i.setAttribute('d','M4 6h16M4 12h16M4 18h16')}
+      else{i.setAttribute('d','M6 6l12 12M6 18L18 6')}
+    });
+  </script>
 
   <main class="flex-1">
     {{block "content" .}}{{end}}
@@ -61,16 +88,15 @@
       <div class="grid gap-6 sm:grid-cols-3">
         <div>
           <h3 class="mb-2 text-lg font-bold font-serif">تودج</h3>
-          <p class="text-sm text-white/70">انجیر و انار تازه باغ و محصولات فرآوری‌شده - مستقیم از باغ تا منزل شما.</p>
+          <p class="text-sm text-white/70">انجیر، انار و فرآوری‌های سنتی.</p>
         </div>
         <div>
           <h3 class="mb-2 text-lg font-bold font-serif">ارتباط با ما</h3>
-          <p class="text-sm text-white/70" dir="ltr">hello@toodej.com<br>+1 (555) 123-4567</p>
+          <p class="text-sm text-white/70" dir="ltr">support@toodej.shop<br>+989175553981</p>
         </div>
         <div>
           <h3 class="mb-2 text-lg font-bold font-serif">آدرس</h3>
-          <p class="text-sm text-white/70">42 Orchard Lane<br>Fig Valley, CA 95001</p>
-          <a href="/admin" class="mt-2 inline-block text-sm text-white/50 hover:text-white/80 transition">مدیریت</a>
+          <p class="text-sm text-white/70">فارس، ایران</p>
         </div>
       </div>
       <div class="mt-6 border-t border-white/20 pt-4 text-center text-xs text-white/50">
@@ -79,19 +105,32 @@
     </div>
   </footer>
 
-  <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col-reverse gap-2 pointer-events-none"></div>
+  <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col-reverse gap-3 pointer-events-none"></div>
   <script>
-    var m = {added:'محصول به سبد خرید اضافه شد',removed:'محصول از سبد خرید حذف شد'};
+    var c = {
+      added:{msg:'به سبد خرید اضافه شد',bg:'bg-[#E3EBE6]',txt:'text-[#2D4A3E]'},
+      removed:{msg:'از سبد خرید حذف شد',bg:'bg-[#FCE7EB]',txt:'text-[#8B263E]'}
+    };
     document.addEventListener('cartEvent',function(e){
-      var msg = m[e.detail] || 'سبد خرید بروزرسانی شد';
-      var t = document.createElement('div');
-      t.className = 'rounded-lg bg-forest px-6 py-3 text-sm font-medium text-white shadow-lg transition-all duration-300 translate-y-2 opacity-0';
-      t.textContent = msg;
-      document.getElementById('toast-container').appendChild(t);
-      requestAnimationFrame(function(){t.classList.remove('translate-y-2','opacity-0');t.classList.add('translate-y-0','opacity-100')});
+      var t = c[e.detail] || {msg:'سبد خرید بروزرسانی شد',bg:'bg-[#F4EFE6]',txt:'text-[#2C302E]'};
+      var el = document.createElement('div');
+      el.className = t.bg+' '+t.txt+' rounded-sm shadow-md border-r-4 border-green-600 px-5 py-3 text-sm font-medium duration-300 ease-out opacity-0';
+      el.textContent = t.msg;
+      el.style.transform = 'translateX(100%)';
+      var container = document.getElementById('toast-container');
+      container.appendChild(el);
+      el.offsetHeight;
+      el.style.transition = 'all 300ms ease-out';
+      el.style.transform = '';
+      el.style.opacity = '1';
       setTimeout(function(){
-        t.classList.remove('translate-y-0','opacity-100');t.classList.add('translate-y-2','opacity-0');
-        setTimeout(function(){t.remove()},300);
+        var h = el.offsetHeight;
+        el.style.transition = 'all 350ms ease-in';
+        el.style.transform = 'translateY(calc(100% + 0.75rem))';
+        el.style.opacity = '0';
+        el.style.marginBottom = -(h + 12) + 'px';
+        el.style.pointerEvents = 'none';
+        setTimeout(function(){el.remove()},350);
       },2500);
     });
   </script>

@@ -5,6 +5,7 @@ go 1.24
 require (
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/kavenegar/kavenegar-go v0.0.0-20240205151018-77039f51467d
+	github.com/yaa110/go-persian-calendar v1.2.1
 	modernc.org/sqlite v1.36.0
 )
 

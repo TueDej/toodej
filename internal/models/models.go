@@ -17,7 +17,7 @@ type Product struct {
 }
 
 type Order struct {
-	ID              int64     `json:"id"`
+	ID              string    `json:"id"`
 	CustomerName    string    `json:"customer_name"`
 	CustomerPhone   string    `json:"customer_phone"`
 	CustomerAddress string    `json:"customer_address"`
@@ -28,8 +28,8 @@ type Order struct {
 }
 
 type OrderItem struct {
-	ID           int64 `json:"id"`
-	OrderID      int64 `json:"order_id"`
+	ID           int64  `json:"id"`
+	OrderID      string `json:"order_id"`
 	ProductID    int64 `json:"product_id"`
 	Quantity     int   `json:"quantity"`
 	PricePerUnit int   `json:"price_per_unit"`

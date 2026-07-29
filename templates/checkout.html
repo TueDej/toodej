@@ -2,31 +2,34 @@
 
 {{define "content"}}
 <div class="mx-auto max-w-2xl px-4 py-12">
-  <h1 class="text-3xl font-bold text-gray-900 font-serif">تکمیل سفارش</h1>
-  <p class="mt-2 text-gray-500">مبلغ قابل پرداخت: <span class="font-semibold text-garnet">{{formatPrice .Total}}</span></p>
+  <div class="w-fit">
+    <h1 class="text-3xl font-bold text-forest font-serif">تکمیل سفارش</h1>
+    <div class="mt-2 h-0.5 bg-garnet rounded-full"></div>
+  </div>
+  <p class="mt-4 text-charcoal/70">مبلغ قابل پرداخت: <span class="font-black text-garnet tracking-tight">{{formatPrice .Total}}</span></p>
 
   {{if .Error}}
-  <div class="mt-4 rounded-lg bg-red-50 p-4 text-sm text-red-700 ring-1 ring-red-200">{{.Error}}</div>
+  <div class="mt-4 rounded-sm bg-red-50 p-4 text-sm text-red-700 border border-red-200">{{.Error}}</div>
   {{end}}
 
   <form action="/checkout" method="POST" class="mt-8 space-y-5">
     <div>
-      <label for="name" class="block text-sm font-medium text-gray-700">نام و نام خانوادگی</label>
+      <label for="name" class="block text-sm font-medium text-charcoal">نام و نام خانوادگی</label>
       <input type="text" id="name" name="name" required
-        class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-garnet focus:ring-1 focus:ring-garnet">
+        class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-charcoal shadow-sm placeholder:text-charcoal/40 focus:border-garnet focus:ring-1 focus:ring-garnet">
     </div>
     <div>
-      <label for="phone" class="block text-sm font-medium text-gray-700">شماره تماس</label>
+      <label for="phone" class="block text-sm font-medium text-charcoal">شماره تماس</label>
       <input type="tel" id="phone" name="phone" value="{{.Phone}}" required dir="ltr"
-        class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-garnet focus:ring-1 focus:ring-garnet">
+        class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-charcoal shadow-sm placeholder:text-charcoal/40 focus:border-garnet focus:ring-1 focus:ring-garnet">
     </div>
     <div>
-      <label for="address" class="block text-sm font-medium text-gray-700">آدرس تحویل</label>
+      <label for="address" class="block text-sm font-medium text-charcoal">آدرس تحویل</label>
       <textarea id="address" name="address" rows="3" required
-        class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-garnet focus:ring-1 focus:ring-garnet"></textarea>
+        class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-charcoal shadow-sm placeholder:text-charcoal/40 focus:border-garnet focus:ring-1 focus:ring-garnet"></textarea>
     </div>
     <button type="submit"
-      class="w-full rounded-lg bg-forest px-6 py-3 font-semibold text-white shadow-sm hover:bg-forest/90 transition">
+      class="w-full rounded-md bg-forest px-6 py-3 font-semibold text-white hover:bg-[#1F3C30] ring-1 ring-inset ring-white/10 transition">
       ثبت سفارش — {{formatPrice .Total}}
     </button>
   </form>

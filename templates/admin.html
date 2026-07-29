@@ -2,7 +2,7 @@
 
 {{define "content"}}
 <div class="mx-auto max-w-6xl px-4 py-8">
-  <h1 class="mb-6 text-2xl font-bold text-gray-900 font-serif">پنل مدیریت</h1>
+  <h1 class="mb-6 text-2xl font-bold text-forest font-serif">پنل مدیریت</h1>
 
   <div class="mb-6 flex flex-wrap gap-2">
     <button data-tab="orders" class="tab-btn rounded-lg bg-garnet px-4 py-2 text-sm font-medium text-white shadow-sm">مدیریت سفارشات</button>
@@ -10,9 +10,9 @@
   </div>
 
   <div data-tab-panel="orders">
-    <div class="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-gray-100">
+    <div class="overflow-x-auto rounded-xl bg-parchment shadow-sm border border-[#E7DDCD]">
       <table class="w-full text-right text-sm">
-        <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+        <thead class="bg-gray-50 text-xs uppercase tracking-wide text-charcoal/60">
           <tr>
             <th class="px-4 py-3 font-medium">شناسه</th>
             <th class="px-4 py-3 font-medium">تاریخ</th>
@@ -25,21 +25,21 @@
         </thead>
         <tbody>
           {{range .Orders}}
-          <tr class="border-b border-gray-100 hover:bg-gray-50 transition">
-            <td class="px-4 py-3 text-gray-500">#{{.ID}}</td>
-            <td class="px-4 py-3 text-gray-700">{{.CreatedAt.Format "Jan 2, 2006"}}</td>
-            <td class="px-4 py-3 font-medium text-gray-900">{{.CustomerName}}</td>
-            <td class="px-4 py-3 text-gray-600">{{.CustomerPhone}}</td>
-            <td class="px-4 py-3 max-w-[200px] truncate text-gray-600" title="{{.CustomerAddress}}">{{.CustomerAddress}}</td>
-            <td class="px-4 py-3 font-medium text-gray-900">{{formatPrice .TotalAmount}}</td>
+          <tr class="border-b border-[#E7DDCD] hover:bg-[#E7DDCD]/30 transition">
+            <td class="px-4 py-3 text-charcoal/60 font-mono tracking-wider">{{.ID}}</td>
+            <td class="px-4 py-3 text-charcoal/70">{{.CreatedAt | persianDate}}</td>
+            <td class="px-4 py-3 font-medium text-forest">{{.CustomerName}}</td>
+            <td class="px-4 py-3 text-charcoal/70">{{.CustomerPhone}}</td>
+            <td class="px-4 py-3 max-w-[200px] truncate text-charcoal/70" title="{{.CustomerAddress}}">{{.CustomerAddress}}</td>
+            <td class="px-4 py-3 font-medium text-forest">{{formatPrice .TotalAmount}}</td>
             <td id="order-{{.ID}}-status" class="px-4 py-3">
               <select name="status"
                 class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet {{statusColor .Status}}"
                 hx-post="/admin/orders/{{.ID}}/status" hx-trigger="change" hx-target="#order-{{.ID}}-status" hx-swap="outerHTML">
-                <option value="pending" {{if eq .Status "pending"}}selected{{end}}>در انتظار بررسی</option>
-                <option value="processing" {{if eq .Status "processing"}}selected{{end}}>در حال پردازش</option>
-                <option value="completed" {{if eq .Status "completed"}}selected{{end}}>تکمیل شده</option>
-                <option value="cancelled" {{if eq .Status "cancelled"}}selected{{end}}>لغو شده</option>
+                <option value="pending" style="color:black" {{if eq .Status "pending"}}selected{{end}}>در انتظار بررسی</option>
+                <option value="processing" style="color:black" {{if eq .Status "processing"}}selected{{end}}>در حال پردازش</option>
+                <option value="completed" style="color:black" {{if eq .Status "completed"}}selected{{end}}>تکمیل شده</option>
+                <option value="cancelled" style="color:black" {{if eq .Status "cancelled"}}selected{{end}}>لغو شده</option>
               </select>
             </td>
           </tr>
@@ -59,7 +59,7 @@
       </button>
     </div>
 
-    <div id="new-product-form" class="mb-6 hidden rounded-xl bg-white p-6 shadow-sm ring-1 ring-gray-100">
+    <div id="new-product-form" class="mb-6 hidden rounded-xl bg-parchment p-6 shadow-sm border border-[#E7DDCD]">
       <h3 class="mb-4 text-lg font-bold text-gray-900 font-serif">محصول جدید</h3>
       <form hx-post="/admin/products" hx-target="#products-tbody" hx-swap="afterbegin" hx-on::after-request="this.reset()">
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -78,8 +78,8 @@
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-600">قیمت (تومان) *</label>
-            <input type="number" name="price" min="0" required
-              class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet">
+            <input type="text" inputmode="numeric" name="price" required
+              class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet thousand-sep">
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-600">موجودی</label>
@@ -104,9 +104,9 @@
       </form>
     </div>
 
-    <div class="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-gray-100">
+    <div class="overflow-x-auto rounded-xl bg-parchment shadow-sm border border-[#E7DDCD]">
       <table class="w-full text-right text-sm">
-        <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+        <thead class="bg-gray-50 text-xs uppercase tracking-wide text-charcoal/60">
           <tr>
             <th class="px-4 py-3 font-medium">شناسه</th>
             <th class="px-4 py-3 font-medium">نام</th>
@@ -118,22 +118,22 @@
         </thead>
         <tbody id="products-tbody">
           {{range .Products}}
-          <tr id="product-{{.ID}}" class="border-b border-gray-100 hover:bg-gray-50 transition {{if not .IsActive}}opacity-50{{end}}">
-            <td class="px-4 py-3 text-sm text-gray-500">{{.ID}}</td>
-            <td class="px-4 py-3 text-sm font-medium text-gray-900">{{.Name}}</td>
-            <td class="px-4 py-3 text-sm text-gray-600">{{.Category}}</td>
+          <tr id="product-{{.ID}}" class="border-b border-[#E7DDCD] hover:bg-[#E7DDCD]/30 transition {{if not .IsActive}}opacity-50{{end}}">
+            <td class="px-4 py-3 text-sm text-charcoal/60">{{.ID}}</td>
+            <td class="px-4 py-3 text-sm font-medium text-forest">{{.Name}}</td>
+            <td class="px-4 py-3 text-sm text-charcoal/70">{{.Category}}</td>
             <td class="px-4 py-3">
-              <input type="number" name="price" value="{{.Price}}" min="0"
-                class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet"
+              <input type="text" inputmode="numeric" name="price" value="{{.Price | comma}}"
+                class="w-40 rounded-md border border-gray-300 px-2 py-1 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet thousand-sep"
                 hx-post="/admin/products/{{.ID}}" hx-trigger="change" hx-target="#product-{{.ID}}" hx-swap="outerHTML">
             </td>
             <td class="px-4 py-3">
               <input type="number" name="stock_quantity" value="{{.StockQuantity}}" min="0"
-                class="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet"
+                class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet"
                 hx-post="/admin/products/{{.ID}}" hx-trigger="change" hx-target="#product-{{.ID}}" hx-swap="outerHTML">
             </td>
             <td class="px-4 py-3">
-              <button hx-post="/admin/products/{{.ID}}/toggle" hx-target="#product-{{.ID}}" hx-swap="outerHTML"
+              <button dir="ltr" hx-post="/admin/products/{{.ID}}/toggle" hx-target="#product-{{.ID}}" hx-swap="outerHTML"
                 class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none {{if .IsActive}}bg-garnet{{else}}bg-gray-300{{end}}">
                 <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out {{if .IsActive}}translate-x-5{{else}}translate-x-0{{end}}"></span>
               </button>
@@ -161,6 +161,24 @@ document.addEventListener('click', function(e) {
   document.querySelector('[data-tab-panel="' + tab + '"]').classList.remove('hidden');
   btn.classList.remove('bg-white', 'text-gray-700', 'ring-1', 'ring-gray-300');
   btn.classList.add('bg-garnet', 'text-white');
+});
+
+document.addEventListener('input', function(e) {
+  var el = e.target.closest('.thousand-sep');
+  if (!el) return;
+  var raw = el.value.replace(/,/g, '');
+  if (raw && !isNaN(raw)) {
+    el.value = Number(raw).toLocaleString('en-US');
+  } else {
+    el.value = raw;
+  }
+});
+
+document.addEventListener('htmx:beforeRequest', function(e) {
+  e.detail.requestConfig.parameters && Object.keys(e.detail.requestConfig.parameters).forEach(function(k) {
+    var v = e.detail.requestConfig.parameters[k];
+    if (typeof v === 'string') e.detail.requestConfig.parameters[k] = v.replace(/,/g, '');
+  });
 });
 </script>
 {{end}}

@@ -96,7 +96,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 
 	if phone == "" || code == "" {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<div class="space-y-4"><p class="text-red-600 text-sm text-center">کد نامعتبر است.</p><a href="/login" class="block text-center text-sm text-garnet hover:underline">تلاش مجدد</a></div>`)
+		fmt.Fprintf(w, `<div class="space-y-4"><p class="text-red-600 text-sm text-center">کد نامعتبر است.</p><a href="/login" class="block text-center text-sm text-garnet hover:underline">دریافت دوباره کد</a></div>`)
 		return
 	}
 
@@ -109,7 +109,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 
 	if !valid {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<div class="space-y-4"><p class="text-red-600 text-sm text-center">کد اشتباه است یا منقضی شده.</p><a href="/login" class="block text-center text-sm text-garnet hover:underline">تلاش مجدد</a></div>`)
+		fmt.Fprintf(w, `<div class="space-y-4"><p class="text-red-600 text-sm text-center">کد اشتباه است یا منقضی شده.</p><a href="/login" class="block text-center text-sm text-garnet hover:underline">دریافت دوباره کد</a></div>`)
 		return
 	}
 

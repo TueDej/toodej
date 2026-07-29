@@ -1,9 +1,11 @@
 package database
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"fmt"
 	"log"
+	"math/big"
 	"strings"
 	"time"
 
@@ -65,7 +67,7 @@ func migrate(db *sql.DB) error {
 	);
 
 	CREATE TABLE IF NOT EXISTS orders (
-		id              INTEGER PRIMARY KEY AUTOINCREMENT,
+		id              TEXT    PRIMARY KEY,
 		customer_name    TEXT    NOT NULL,
 		customer_phone   TEXT    NOT NULL DEFAULT '',
 		customer_address TEXT    NOT NULL DEFAULT '',
@@ -78,7 +80,7 @@ func migrate(db *sql.DB) error {
 
 	CREATE TABLE IF NOT EXISTS order_items (
 		id             INTEGER PRIMARY KEY AUTOINCREMENT,
-		order_id       INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+		order_id       TEXT    NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
 		product_id     INTEGER NOT NULL REFERENCES products(id),
 		quantity       INTEGER NOT NULL DEFAULT 1,
 		price_per_unit INTEGER NOT NULL,
@@ -198,14 +200,14 @@ func GetOrders(db *sql.DB) ([]models.Order, error) {
 	return orders, rows.Err()
 }
 
-func UpdateOrderStatus(db *sql.DB, orderID int64, status string) error {
+func UpdateOrderStatus(db *sql.DB, orderID string, status string) error {
 	res, err := db.Exec("UPDATE orders SET status = ? WHERE id = ?", status, orderID)
 	if err != nil {
-		return fmt.Errorf("update order %d status: %w", orderID, err)
+		return fmt.Errorf("update order %s status: %w", orderID, err)
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return fmt.Errorf("order %d not found", orderID)
+		return fmt.Errorf("order %s not found", orderID)
 	}
 	return nil
 }
@@ -278,49 +280,56 @@ func parseTime(s string) time.Time {
 	return t
 }
 
-func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (int64, error) {
+func randomOrderID() string {
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, 6)
+	for i := range b {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		b[i] = chars[n.Int64()]
+	}
+	return "TDJ-" + string(b)
+}
+
+func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string, error) {
+	o.ID = randomOrderID()
+
 	tx, err := db.Begin()
 	if err != nil {
-		return 0, fmt.Errorf("begin tx: %w", err)
+		return "", fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec(`INSERT INTO orders (customer_name, customer_phone, customer_address, total_amount, status, user_id) VALUES (?, ?, ?, ?, ?, ?)`,
-		o.CustomerName, o.CustomerPhone, o.CustomerAddress, o.TotalAmount, o.Status, o.UserID)
+	_, err = tx.Exec(`INSERT INTO orders (id, customer_name, customer_phone, customer_address, total_amount, status, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		o.ID, o.CustomerName, o.CustomerPhone, o.CustomerAddress, o.TotalAmount, o.Status, o.UserID)
 	if err != nil {
-		return 0, fmt.Errorf("insert order: %w", err)
-	}
-
-	orderID, err := res.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("last insert id: %w", err)
+		return "", fmt.Errorf("insert order: %w", err)
 	}
 
 	stmt, err := tx.Prepare(`INSERT INTO order_items (order_id, product_id, quantity, price_per_unit) VALUES (?, ?, ?, ?)`)
 	if err != nil {
-		return 0, fmt.Errorf("prepare order_items: %w", err)
+		return "", fmt.Errorf("prepare order_items: %w", err)
 	}
 	defer stmt.Close()
 
 	for _, item := range items {
-		if _, err := stmt.Exec(orderID, item.ProductID, item.Quantity, item.PricePerUnit); err != nil {
-			return 0, fmt.Errorf("insert order_item: %w", err)
+		if _, err := stmt.Exec(o.ID, item.ProductID, item.Quantity, item.PricePerUnit); err != nil {
+			return "", fmt.Errorf("insert order_item: %w", err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("commit tx: %w", err)
+		return "", fmt.Errorf("commit tx: %w", err)
 	}
-	return orderID, nil
+	return o.ID, nil
 }
 
-func GetOrderWithItems(db *sql.DB, orderID int64) (*models.Order, []models.OrderItem, []models.Product, error) {
+func GetOrderWithItems(db *sql.DB, orderID string) (*models.Order, []models.OrderItem, []models.Product, error) {
 	var o models.Order
 	var createdAt string
 	err := db.QueryRow("SELECT id, customer_name, customer_phone, customer_address, total_amount, status, created_at FROM orders WHERE id = ?", orderID).
 		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.TotalAmount, &o.Status, &createdAt)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("get order %d: %w", orderID, err)
+		return nil, nil, nil, fmt.Errorf("get order %s: %w", orderID, err)
 	}
 	o.CreatedAt = parseTime(createdAt)
 
@@ -454,7 +463,7 @@ func GetUserOrdersWithItems(db *sql.DB, userID int64) ([]models.OrderSummary, er
 		return nil, nil
 	}
 
-	orderIDs := make([]int64, len(orders))
+	orderIDs := make([]string, len(orders))
 	for i, o := range orders {
 		orderIDs[i] = o.ID
 	}
@@ -473,9 +482,9 @@ func GetUserOrdersWithItems(db *sql.DB, userID int64) ([]models.OrderSummary, er
 	}
 	defer rows.Close()
 
-	itemsByOrder := make(map[int64][]models.OrderItemView)
+	itemsByOrder := make(map[string][]models.OrderItemView)
 	for rows.Next() {
-		var orderID int64
+		var orderID string
 		var quantity, price int
 		var name string
 		if err := rows.Scan(&orderID, &quantity, &price, &name); err != nil {

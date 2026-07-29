@@ -13,6 +13,7 @@ import (
 
 	"farmstore/internal/database"
 	"farmstore/internal/models"
+	"farmstore/internal/utils"
 )
 
 type Handler struct {
@@ -28,6 +29,28 @@ func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 	funcMap := template.FuncMap{
 		"formatPrice": func(cents int) string {
 			return formatToman(cents)
+		},
+		"persianDigits": func(v any) string {
+			return toPersianDigits(fmt.Sprint(v))
+		},
+		"persianDate": func(t time.Time) string {
+			return utils.FormatPersianDate(t)
+		},
+		"persianDateTime": func(t time.Time) string {
+			return utils.FormatPersianDateTime(t)
+		},
+		"comma": func(v int) string {
+			s := strconv.Itoa(v)
+			n := len(s)
+			var parts []string
+			for i := n; i > 0; i -= 3 {
+				start := i - 3
+				if start < 0 {
+					start = 0
+				}
+				parts = append([]string{s[start:i]}, parts...)
+			}
+			return strings.Join(parts, ",")
 		},
 		"multiply": func(a, b int) int {
 			return a * b
@@ -174,7 +197,7 @@ func (h *Handler) CartCount(w http.ResponseWriter, r *http.Request) {
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
 	w.Header().Set("Content-Type", "text/plain")
-	fmt.Fprint(w, cart.Count())
+	fmt.Fprint(w, toPersianDigits(strconv.Itoa(cart.Count())))
 }
 
 func (h *Handler) AddToCart(w http.ResponseWriter, r *http.Request) {
@@ -237,9 +260,7 @@ func (h *Handler) UpdateCart(w http.ResponseWriter, r *http.Request) {
 	if delta < 0 {
 		event = "removed"
 	}
-	w.Header().Set("HX-Trigger", `{"cartUpdated":"", "cartEvent":"`+event+`"}`)
-	w.Header().Set("HX-Redirect", "/cart")
-	w.WriteHeader(http.StatusOK)
+	h.renderCartContent(w, r, event)
 }
 
 func (h *Handler) RemoveFromCart(w http.ResponseWriter, r *http.Request) {
@@ -259,9 +280,26 @@ func (h *Handler) RemoveFromCart(w http.ResponseWriter, r *http.Request) {
 
 	cart.RemoveItem(productID)
 
-	w.Header().Set("HX-Trigger", `{"cartUpdated":"", "cartEvent":"removed"}`)
-	w.Header().Set("HX-Redirect", "/cart")
-	w.WriteHeader(http.StatusOK)
+	h.renderCartContent(w, r, "removed")
+}
+
+func (h *Handler) renderCartContent(w http.ResponseWriter, r *http.Request, event string) {
+	sid := h.getOrCreateSessionID(w, r)
+	cart := h.cartStore.Get(sid)
+
+	cart.mu.Lock()
+	items := make([]CartItem, len(cart.Items))
+	copy(items, cart.Items)
+	cart.mu.Unlock()
+
+	data := h.mergeData(r, map[string]any{
+		"Items": items,
+		"Total": cart.Total(),
+	})
+	w.Header().Set("HX-Trigger", `{"cartUpdated":"", "cartEvent":"`+event+`"}`)
+	if err := h.templates["cart"].ExecuteTemplate(w, "cart-content", data); err != nil {
+		log.Printf("render cart-content: %v", err)
+	}
 }
 
 func (h *Handler) ViewCart(w http.ResponseWriter, r *http.Request) {
@@ -387,13 +425,12 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 
 	cart.Clear()
 	w.Header().Set("HX-Trigger", "cartUpdated")
-	http.Redirect(w, r, fmt.Sprintf("/checkout/confirmation/%d", orderID), http.StatusSeeOther)
+	http.Redirect(w, r, fmt.Sprintf("/checkout/confirmation/%s", orderID), http.StatusSeeOther)
 }
 
 func (h *Handler) Confirmation(w http.ResponseWriter, r *http.Request) {
-	orderIDStr := r.PathValue("id")
-	orderID, err := strconv.ParseInt(orderIDStr, 10, 64)
-	if err != nil {
+	orderID := r.PathValue("id")
+	if orderID == "" {
 		http.NotFound(w, r)
 		return
 	}
@@ -458,7 +495,7 @@ func (h *Handler) UserOrders(w http.ResponseWriter, r *http.Request) {
 }
 
 func formatToman(cents int) string {
-	s := strconv.Itoa(cents)
+	s := strconv.Itoa(cents * 1000)
 	n := len(s)
 	var parts []string
 	for i := n; i > 0; i -= 3 {
@@ -468,7 +505,20 @@ func formatToman(cents int) string {
 		}
 		parts = append([]string{s[start:i]}, parts...)
 	}
-	return strings.Join(parts, ",") + " تومان"
+	return toPersianDigits(strings.Join(parts, ",")) + " تومان"
+}
+
+func toPersianDigits(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r - '0' + 0x06F0)
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func (h *Handler) renderCenteredError(w http.ResponseWriter, status int, msg string) {

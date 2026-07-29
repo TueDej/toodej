@@ -36,9 +36,8 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
-	orderIDStr := r.PathValue("id")
-	orderID, err := strconv.ParseInt(orderIDStr, 10, 64)
-	if err != nil {
+	orderID := r.PathValue("id")
+	if orderID == "" {
 		http.Error(w, "invalid order id", http.StatusBadRequest)
 		return
 	}
@@ -57,13 +56,13 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	tmpl := fmt.Sprintf(`<td id="order-%d-status" class="px-4 py-3">
+	tmpl := fmt.Sprintf(`<td id="order-%s-status" class="px-4 py-3">
     <select name="status" class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet %%s"
-      hx-post="/admin/orders/%d/status" hx-trigger="change" hx-target="#order-%d-status" hx-swap="outerHTML">
-      <option value="pending" %%s>در انتظار بررسی</option>
-      <option value="processing" %%s>در حال پردازش</option>
-      <option value="completed" %%s>تکمیل شده</option>
-      <option value="cancelled" %%s>لغو شده</option>
+      hx-post="/admin/orders/%s/status" hx-trigger="change" hx-target="#order-%s-status" hx-swap="outerHTML">
+      <option value="pending" style="color:black" %%s>در انتظار بررسی</option>
+      <option value="processing" style="color:black" %%s>در حال پردازش</option>
+      <option value="completed" style="color:black" %%s>تکمیل شده</option>
+      <option value="cancelled" style="color:black" %%s>لغو شده</option>
     </select>
   </td>`, orderID, orderID, orderID)
 
@@ -126,12 +125,14 @@ func (h *Handler) AdminUpdateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if priceStr := r.FormValue("price"); priceStr != "" {
+		priceStr = strings.ReplaceAll(priceStr, ",", "")
 		price, err := strconv.Atoi(priceStr)
 		if err == nil && price >= 0 {
 			product.Price = price
 		}
 	}
 	if stockStr := r.FormValue("stock_quantity"); stockStr != "" {
+		stockStr = strings.ReplaceAll(stockStr, ",", "")
 		stock, err := strconv.Atoi(stockStr)
 		if err == nil && stock >= 0 {
 			product.StockQuantity = stock
@@ -165,6 +166,7 @@ func (h *Handler) AdminCreateProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	priceStr = strings.ReplaceAll(priceStr, ",", "")
 	price, err := strconv.Atoi(priceStr)
 	if err != nil || price < 0 {
 		http.Error(w, "invalid price", http.StatusBadRequest)
@@ -173,6 +175,7 @@ func (h *Handler) AdminCreateProduct(w http.ResponseWriter, r *http.Request) {
 
 	stock := 0
 	if stockStr != "" {
+		stockStr = strings.ReplaceAll(stockStr, ",", "")
 		stock, _ = strconv.Atoi(stockStr)
 	}
 
@@ -208,21 +211,21 @@ func (h *Handler) renderProductRow(w http.ResponseWriter, p models.Product) {
 	}
 
 	row := fmt.Sprintf(`<tr id="product-%d" class="border-b border-gray-100 %s hover:bg-gray-50 transition">
-    <td class="px-4 py-3 text-sm text-gray-500">%d</td>
+    <td class="px-4 py-3 text-sm text-gray-500 font-mono tracking-wider">%d</td>
     <td class="px-4 py-3 text-sm font-medium text-gray-900">%s</td>
     <td class="px-4 py-3 text-sm text-gray-600">%s</td>
     <td class="px-4 py-3">
-      <input type="number" name="price" value="%d" min="0"
-        class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet"
+      <input type="text" inputmode="numeric" name="price" value="%s"
+        class="w-40 rounded-md border border-gray-300 px-2 py-1 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet thousand-sep"
         hx-post="/admin/products/%d" hx-trigger="change" hx-target="#product-%d" hx-swap="outerHTML">
     </td>
     <td class="px-4 py-3">
       <input type="number" name="stock_quantity" value="%d" min="0"
-        class="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet"
+        class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet"
         hx-post="/admin/products/%d" hx-trigger="change" hx-target="#product-%d" hx-swap="outerHTML">
     </td>
     <td class="px-4 py-3">
-      <button hx-post="/admin/products/%d/toggle" hx-target="#product-%d" hx-swap="outerHTML"
+      <button dir="ltr" hx-post="/admin/products/%d/toggle" hx-target="#product-%d" hx-swap="outerHTML"
         class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none %s">
         <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out %s"></span>
       </button>
@@ -230,7 +233,7 @@ func (h *Handler) renderProductRow(w http.ResponseWriter, p models.Product) {
   </tr>`,
 		p.ID, inactiveClass,
 		p.ID, htmlEscape(p.Name), htmlEscape(p.Category),
-		p.Price, p.ID, p.ID,
+		commaInt(p.Price), p.ID, p.ID,
 		p.StockQuantity, p.ID, p.ID,
 		p.ID, p.ID,
 		toggleBg(p.IsActive), toggleTranslate(p.IsActive))
@@ -250,6 +253,20 @@ func toggleTranslate(active bool) string {
 		return "translate-x-5"
 	}
 	return "translate-x-0"
+}
+
+func commaInt(v int) string {
+	s := strconv.Itoa(v)
+	n := len(s)
+	var parts []string
+	for i := n; i > 0; i -= 3 {
+		start := i - 3
+		if start < 0 {
+			start = 0
+		}
+		parts = append([]string{s[start:i]}, parts...)
+	}
+	return strings.Join(parts, ",")
 }
 
 func htmlEscape(s string) string {

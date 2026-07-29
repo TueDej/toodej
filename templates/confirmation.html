@@ -7,33 +7,33 @@
       <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
     </svg>
   </div>
-  <h1 class="mt-4 text-3xl font-bold text-gray-900 font-serif">سفارش با موفقیت ثبت شد!</h1>
-  <p class="mt-2 text-gray-500">{{.Order.CustomerName}} عزیز، سفارش شما با موفقیت ثبت شد.</p>
-  <p class="mt-1 text-sm text-gray-400">شماره سفارش: #{{.Order.ID}} &middot; {{.Order.CreatedAt.Format "Jan 2, 2006 at 3:04 PM"}}</p>
+  <h1 class="mt-4 text-3xl font-bold text-forest font-serif">سفارش با موفقیت ثبت شد!</h1>
+  <p class="mt-2 text-charcoal/70">{{.Order.CustomerName}} عزیز، سفارش شما با موفقیت ثبت شد.</p>
+  <p class="mt-1 text-sm text-charcoal/50">کد پیگیری: <bdi>{{.Order.ID}}</bdi> &middot; {{.Order.CreatedAt | persianDateTime}}</p>
 
   <div class="mt-8 text-right">
-    <div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-gray-100">
-      <h2 class="text-lg font-bold text-gray-900 font-serif">خلاصه سفارش</h2>
-      <div class="mt-4 divide-y divide-gray-100">
+    <div class="rounded-xl bg-parchment p-6 shadow-sm border border-[#E7DDCD]">
+      <h2 class="text-lg font-bold text-forest font-serif">خلاصه سفارش</h2>
+      <div class="mt-4 divide-y divide-[#E7DDCD]">
         {{range .Items}}
         <div class="flex items-center justify-between py-3">
           <div>
-            <p class="font-medium text-gray-900">{{.Name}}</p>
-            <p class="text-sm text-gray-500">تعداد: {{.Quantity}} &times; {{formatPrice .Price}}</p>
+            <p class="font-medium text-forest">{{.Name}}</p>
+            <p class="text-sm text-charcoal/70">تعداد: {{.Quantity}} &times; {{formatPrice .Price}}</p>
           </div>
-          <span class="font-semibold text-gray-900">{{formatPrice .Subtotal}}</span>
+          <span class="font-semibold text-forest">{{formatPrice .Subtotal}}</span>
         </div>
         {{end}}
       </div>
-      <div class="mt-4 flex items-center justify-between border-t border-gray-200 pt-4">
-        <span class="text-lg font-semibold text-gray-900">جمع کل</span>
+      <div class="mt-4 flex items-center justify-between border-t border-[#E7DDCD] pt-4">
+        <span class="text-lg font-semibold text-forest">جمع کل</span>
         <span class="text-2xl font-bold text-garnet">{{formatPrice .Order.TotalAmount}}</span>
       </div>
     </div>
 
-    <div class="mt-4 rounded-xl bg-white p-6 shadow-sm ring-1 ring-gray-100">
-      <h3 class="font-bold text-gray-900 font-serif">اطلاعات تحویل</h3>
-      <p class="mt-2 text-sm text-gray-600">{{.Order.CustomerName}}<br>{{.Order.CustomerPhone}}<br>{{.Order.CustomerAddress}}</p>
+    <div class="mt-4 rounded-xl bg-parchment p-6 shadow-sm border border-[#E7DDCD]">
+      <h3 class="font-bold text-forest font-serif">اطلاعات تحویل</h3>
+      <p class="mt-2 text-sm text-charcoal/70">{{.Order.CustomerName}}<br>{{.Order.CustomerPhone}}<br>{{.Order.CustomerAddress}}</p>
     </div>
   </div>
 
