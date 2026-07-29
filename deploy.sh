@@ -61,14 +61,27 @@ go build -ldflags="-s -w" -o ./bin/farmstore ./cmd/server
 chmod +x ./bin/farmstore
 ok "Binary built at ./bin/farmstore"
 
-# --------------- 3. stop running service ---------------
+# --------------- 3. database reset prompt ---------------
+DB_PATH="/var/lib/farmstore/farmstore.db"
+if sudo test -f "$DB_PATH"; then
+  warn "Existing database found at ${DB_PATH}"
+  read -rp "Erase it and start fresh? [y/N]: " ERASE_DB
+  if [[ "$ERASE_DB" =~ ^[Yy] ]]; then
+    sudo rm -f "$DB_PATH"
+    ok "Database erased"
+  else
+    info "Keeping existing database"
+  fi
+fi
+
+# --------------- 4. stop running service ---------------
 if systemctl is-active --quiet farmstore.service 2>/dev/null; then
   info "Stopping running service..."
   sudo systemctl stop farmstore.service
   ok "Previous service stopped"
 fi
 
-# --------------- 4. elevate and deploy ---------------
+# --------------- 5. elevate and deploy ---------------
 info "Elevating privileges for system deployment..."
 sudo mkdir -p /var/lib/farmstore
 sudo cp ./bin/farmstore /usr/local/bin/farmstore
@@ -112,7 +125,7 @@ sudo systemctl enable farmstore.service
 sudo systemctl restart farmstore.service
 ok "farmstore.service created, enabled, and started"
 
-# --------------- 5. verify ---------------
+# --------------- 6. verify ---------------
 sleep 1
 if sudo systemctl is-active --quiet farmstore.service; then
   ok "Service is running"
@@ -126,7 +139,7 @@ printf "${GREEN}═════════════════════�
 
 sudo systemctl status farmstore.service --no-pager 2>&1 | head -14
 
-# --------------- 6. caddy prompt ---------------
+# --------------- 7. caddy prompt ---------------
 printf "\n${CYAN}─── Caddy Reverse Proxy ─────────────────────${NC}\n"
 read -rp "Do you want to configure a Caddy reverse proxy? [y/N]: " SETUP_CADDY
 if [[ "$SETUP_CADDY" =~ ^[Yy] ]]; then
