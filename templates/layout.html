@@ -29,6 +29,28 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Alyamama:wght@400;700&family=Estedad:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <style>
+    /* ---- Trust Seals --------------------------------------------------- */
+    .trust-seals { } /* hook for custom overrides */
+    .seal-box {
+      line-height: 0;             /* remove inline spacing under the image */
+    }
+    .seal-img {
+      width: auto;                /* let aspect ratio drive height */
+      max-width: 120px;           /* caps the logo on desktop */
+      height: auto;
+    }
+    /* e-Namad dynamic iframe wrapper (uncomment when using the official script) */
+    .seal-wrapper {
+      display: flex;
+      justify-content: center;
+    }
+    .seal-wrapper iframe,
+    .seal-wrapper > div { max-width: 120px; }
+    @media (max-width: 640px) {
+      .seal-img { max-width: 100px; } /* slightly smaller on mobile */
+    }
+  </style>
 </head>
 <body class="min-h-screen bg-cream font-sans text-charcoal antialiased flex flex-col">
   <nav class="sticky top-0 z-40 bg-garnet border-b border-white/20">
@@ -101,8 +123,53 @@
           <p class="text-sm text-white/70">فارس، ایران</p>
         </div>
       </div>
-      <div class="mt-6 border-t border-white/20 pt-4 text-center text-xs text-white/50">
-        &copy; ۲۰۲۶ تودج. تمامی حقوق محفوظ است.
+      <!-- ============================================================
+           TRUST SEALS — e-Namad (نماد اعتماد الکترونیکی)
+           ------------------------------------------------------------
+           This section hosts your official trust seals. You can use
+           either of the two methods below.
+
+           1) STATIC IMAGE LINK (already wired up below) — works without
+              any extra script.
+           2) DYNAMIC SCRIPT / IFRAME (official) — replace the image
+              markup below with the code block provided by the e-Namad
+              portal. Paste it here:
+
+              <!-- ENTER YOUR OFFICIAL E-NAMAD SCRIPT/IFRAME SNIPPET HERE
+              <div id="enamad-trust-seal">
+                ... your iframe / script code from trustseal.enamad.ir ...
+                <script>...</script>
+              </div>
+              -->
+           ============================================================ -->
+      <div class="mt-8 flex flex-col items-center justify-center gap-6 sm:flex-row sm:justify-between">
+        <div class="trust-seals" aria-label="نمادهای اعتماد">
+          <h3 class="mb-3 text-center text-sm font-bold tracking-wide text-white/80 sm:text-right">نهادهای اعتماد</h3>
+          <div class="flex flex-wrap items-center justify-center gap-4">
+            <a
+              referrerpolicy="origin"
+              target="_blank"
+              href="https://trustseal.enamad.ir/?id=769838&Code=5NjZah6MLvOMO7yVXo8vQDS5mjIcMf5L"
+              class="seal-box inline-flex items-center justify-center rounded-md border border-white/15 bg-white p-2 shadow-sm transition hover:bg-parchment hover:shadow-md"
+              title="مجوزهای نماد اعتماد الکترونیکی"
+            >
+              <img
+                referrerpolicy="origin"
+                src="https://trustseal.enamad.ir/logo.aspx?id=769838&Code=5NjZah6MLvOM7yVXo8vQDS5mjIcMf5L"
+                alt="نماد اعتماد الکترونیکی"
+                code="5NjZah6MLvOM7yVXo8vQDS5mjIcMf5L"
+                class="seal-img block h-auto w-auto cursor-pointer"
+                loading="lazy"
+              >
+            </a>
+            <!-- More badge slots can be added here (e.g. Samandehi). -->
+          </div>
+        </div>
+
+        <!-- COPYRIGHT TEXT — keeps centered and aligned next to seals -->
+        <p class="text-center text-xs leading-relaxed text-white/50">
+          &copy; ۲۰۲۶ تودج. تمامی حقوق محفوظ است.
+        </p>
       </div>
     </div>
   </footer>
