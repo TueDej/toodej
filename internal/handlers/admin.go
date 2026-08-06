@@ -30,10 +30,10 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := map[string]any{
+	data := h.mergeData(r, map[string]any{
 		"Orders":   orders,
 		"Products": products,
-	}
+	})
 	if err := h.templates["admin"].Execute(w, data); err != nil {
 		log.Printf("render admin: %v", err)
 	}
@@ -46,7 +46,7 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 // <select> so the page does not need a full reload.
 func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
 	orderID := r.PathValue("id")
-	if orderID == "" {
+	if !validOrderID(orderID) {
 		http.Error(w, "invalid order id", http.StatusBadRequest)
 		return
 	}

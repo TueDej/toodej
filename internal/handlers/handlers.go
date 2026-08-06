@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -16,15 +17,45 @@ import (
 	"farmstore/internal/utils"
 )
 
+// sessionTTL is how long an authenticated session lives (server-side), matching
+// the session cookie's 7-day MaxAge. Pending-login (OTP) bindings and saved
+// post-login destinations expire on a shorter timer so stale entries cannot
+// accumulate in the in-memory maps indefinitely.
+const (
+	sessionTTL = 7 * 24 * time.Hour
+	otpTTL     = 2 * time.Minute
+)
+
+// session is an authenticated session entry with its server-side expiry.
+type session struct {
+	userID    int64
+	expiresAt time.Time
+}
+
+// pendingLogin binds a phone number to a session during the OTP exchange.
+type pendingLogin struct {
+	phone     string
+	expiresAt time.Time
+}
+
+// pendingReturn is a sanitized post-login destination saved against a session.
+type pendingReturn struct {
+	url       string
+	expiresAt time.Time
+}
+
 // Handler is the central HTTP handler. It wires together the database connection,
 // HTML template map, in-memory cart store, and session management state.
 type Handler struct {
-	db            *sql.DB
-	templates     map[string]*template.Template
-	cartStore     *CartStore
-	userSessions  map[string]int64   // session ID → user ID (for authenticated users)
-	pendingLogins map[string]string  // session ID → phone number (during OTP flow)
-	sessionMu     sync.RWMutex
+	db               *sql.DB
+	templates        map[string]*template.Template
+	cartStore        *CartStore
+	userSessions     map[string]session       // session ID → authenticated session
+	pendingLogins    map[string]pendingLogin  // session ID → phone during OTP flow
+	pendingNext      map[string]pendingReturn // session ID → post-login destination
+	otpLimiter       *RateLimiter             // per-phone cap on OTP sends
+	otpVerifyLimiter *RateLimiter             // per-phone cap on OTP verification attempts
+	sessionMu        sync.RWMutex
 }
 
 // NewHandler initialises the Handler, parsing all HTML templates with a shared
@@ -95,13 +126,18 @@ func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 		templates[name] = t
 	}
 
-	return &Handler{
-		db:            db,
-		templates:     templates,
-		cartStore:     cartStore,
-		userSessions:  make(map[string]int64),
-		pendingLogins: make(map[string]string),
-	}, nil
+	h := &Handler{
+		db:               db,
+		templates:        templates,
+		cartStore:        cartStore,
+		userSessions:     make(map[string]session),
+		pendingLogins:    make(map[string]pendingLogin),
+		pendingNext:      make(map[string]pendingReturn),
+		otpLimiter:       NewRateLimiter(5, time.Minute),
+		otpVerifyLimiter: NewRateLimiter(10, time.Minute),
+	}
+	h.startSessionJanitor()
+	return h, nil
 }
 
 // getUserID returns the authenticated user ID for the current request, or 0 if
@@ -109,12 +145,16 @@ func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 // in-memory session map.
 func (h *Handler) getUserID(r *http.Request) int64 {
 	cookie, err := r.Cookie("session")
-	if err != nil {
+	if err != nil || !validSessionID(cookie.Value) {
 		return 0
 	}
 	h.sessionMu.RLock()
 	defer h.sessionMu.RUnlock()
-	return h.userSessions[cookie.Value]
+	s, ok := h.userSessions[cookie.Value]
+	if !ok || time.Now().After(s.expiresAt) {
+		return 0
+	}
+	return s.userID
 }
 
 // commonData returns template data that is shared across all pages — currently
@@ -122,13 +162,52 @@ func (h *Handler) getUserID(r *http.Request) int64 {
 func (h *Handler) commonData(r *http.Request) map[string]any {
 	sid, err := r.Cookie("session")
 	loggedIn := false
-	if err == nil {
+	cartCount := 0
+	if err == nil && validSessionID(sid.Value) {
 		h.sessionMu.RLock()
-		_, loggedIn = h.userSessions[sid.Value]
+		if s, ok := h.userSessions[sid.Value]; ok && time.Now().Before(s.expiresAt) {
+			loggedIn = true
+		}
 		h.sessionMu.RUnlock()
+		cartCount = h.cartStore.Get(sid.Value).Count()
 	}
 	return map[string]any{
-		"LoggedIn": loggedIn,
+		"LoggedIn":  loggedIn,
+		"CartCount": cartCount,
+	}
+}
+
+// startSessionJanitor launches a background goroutine that periodically purges
+// expired session, pending-login, and pending-return entries so the in-memory
+// maps cannot grow without bound.
+func (h *Handler) startSessionJanitor() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			h.purgeExpiredSessions(time.Now())
+		}
+	}()
+}
+
+// purgeExpiredSessions removes every entry whose expiry has passed.
+func (h *Handler) purgeExpiredSessions(now time.Time) {
+	h.sessionMu.Lock()
+	defer h.sessionMu.Unlock()
+	for sid, s := range h.userSessions {
+		if now.After(s.expiresAt) {
+			delete(h.userSessions, sid)
+		}
+	}
+	for sid, pl := range h.pendingLogins {
+		if now.After(pl.expiresAt) {
+			delete(h.pendingLogins, sid)
+		}
+	}
+	for sid, pr := range h.pendingNext {
+		if now.After(pr.expiresAt) {
+			delete(h.pendingNext, sid)
+		}
 	}
 }
 
@@ -150,7 +229,7 @@ func (h *Handler) mergeData(r *http.Request, data map[string]any) map[string]any
 // or creates a new session, sets the cookie, and returns the new ID.
 func (h *Handler) getOrCreateSessionID(w http.ResponseWriter, r *http.Request) string {
 	cookie, err := r.Cookie("session")
-	if err == nil && cookie.Value != "" {
+	if err == nil && validSessionID(cookie.Value) {
 		return cookie.Value
 	}
 	sid := generateSessionID()
@@ -159,7 +238,9 @@ func (h *Handler) getOrCreateSessionID(w http.ResponseWriter, r *http.Request) s
 		Value:    sid,
 		Path:     "/",
 		HttpOnly: true,
-		MaxAge:   86400 * 7,
+		Secure:   requestIsSecure(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(sessionTTL.Seconds()),
 	})
 	return sid
 }
@@ -356,9 +437,8 @@ func (h *Handler) ViewCart(w http.ResponseWriter, r *http.Request) {
 // CheckoutForm renders the checkout page. Requires authentication and a non-empty
 // cart; otherwise redirects to login or cart respectively.
 func (h *Handler) CheckoutForm(w http.ResponseWriter, r *http.Request) {
-	userID := h.getUserID(r)
-	if userID == 0 {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	userID, ok := h.requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -390,9 +470,8 @@ func (h *Handler) CheckoutForm(w http.ResponseWriter, r *http.Request) {
 // PlaceOrder validates the checkout form, creates an order and order items in a
 // database transaction, clears the cart, and redirects to the confirmation page.
 func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
-	userID := h.getUserID(r)
-	if userID == 0 {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	userID, ok := h.requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -401,15 +480,15 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := r.FormValue("name")
-	phone := r.FormValue("phone")
-	address := r.FormValue("address")
+	name := strings.TrimSpace(r.FormValue("name"))
+	phone := strings.TrimSpace(r.FormValue("phone"))
+	address := strings.TrimSpace(r.FormValue("address"))
 
-	if name == "" || phone == "" || address == "" {
+	if name == "" || len(name) > 80 || !validIranianPhone(phone) || len(address) < 5 || len(address) > 300 {
 		sid := h.getOrCreateSessionID(w, r)
 		cart := h.cartStore.Get(sid)
 		data := h.mergeData(r, map[string]any{
-			"Error": "تمامی فیلدها الزامی هستند.",
+			"Error": "اطلاعات تماس و آدرس را بهدرستی وارد کنید.",
 			"Total": cart.Total(),
 			"Phone": phone,
 		})
@@ -455,6 +534,10 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 
 	orderID, err := database.CreateOrder(h.db, order, orderItems)
 	if err != nil {
+		if errors.Is(err, database.ErrInsufficientStock) {
+			http.Error(w, "موجودی برخی محصولات کافی نیست؛ لطفاً سبد را بهروز کنید.", http.StatusConflict)
+			return
+		}
 		log.Printf("create order: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -466,9 +549,17 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 // Confirmation displays the order confirmation page after a successful checkout.
+// Access is restricted to the authenticated user who owns the order (IDOR guard):
+// unauthenticated visitors are redirected to login and requests for another
+// user's order return 404 so order IDs cannot be probed or enumerated.
 func (h *Handler) Confirmation(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.requireAuth(w, r)
+	if !ok {
+		return
+	}
+
 	orderID := r.PathValue("id")
-	if orderID == "" {
+	if !validOrderID(orderID) {
 		http.NotFound(w, r)
 		return
 	}
@@ -476,6 +567,11 @@ func (h *Handler) Confirmation(w http.ResponseWriter, r *http.Request) {
 	order, items, products, err := database.GetOrderWithItems(h.db, orderID)
 	if err != nil {
 		log.Printf("get order: %v", err)
+		http.NotFound(w, r)
+		return
+	}
+
+	if order.UserID != userID {
 		http.NotFound(w, r)
 		return
 	}
@@ -514,9 +610,8 @@ func (h *Handler) Confirmation(w http.ResponseWriter, r *http.Request) {
 
 // UserOrders renders the authenticated user's order history page.
 func (h *Handler) UserOrders(w http.ResponseWriter, r *http.Request) {
-	userID := h.getUserID(r)
-	if userID == 0 {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	userID, ok := h.requireAuth(w, r)
+	if !ok {
 		return
 	}
 

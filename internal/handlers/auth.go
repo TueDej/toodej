@@ -3,21 +3,45 @@ package handlers
 import (
 	"crypto/rand"
 	"fmt"
+	"html"
 	"log"
 	"math/big"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"farmstore/internal/database"
+	"farmstore/internal/services"
 )
 
 // LoginPage renders the OTP login form. If the user is already logged in they
-// are redirected to the home page.
+// are redirected to their saved destination (if any) or the home page. The
+// "next" query parameter, set by the central auth guard, is validated and stored
+// against the session so the destination survives the OTP exchange.
 func (h *Handler) LoginPage(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
 	if userID != 0 {
+		if next := h.takeReturnURL(w, r); next != "" {
+			http.Redirect(w, r, next, http.StatusSeeOther)
+			return
+		}
+		if next := sanitizeReturnURL(r.URL.Query().Get("next")); next != "" {
+			http.Redirect(w, r, next, http.StatusSeeOther)
+			return
+		}
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
+	}
+
+	if next := r.URL.Query().Get("next"); next != "" {
+		sid := h.getOrCreateSessionID(w, r)
+		h.sessionMu.Lock()
+		if h.pendingNext == nil {
+			h.pendingNext = make(map[string]pendingReturn)
+		}
+		h.pendingNext[sid] = pendingReturn{url: sanitizeReturnURL(next), expiresAt: time.Now().Add(sessionTTL)}
+		h.sessionMu.Unlock()
 	}
 
 	data := h.mergeData(r, map[string]any{})
@@ -37,10 +61,32 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	phone := r.FormValue("phone")
-	if phone == "" {
+	phone := strings.TrimSpace(r.FormValue("phone"))
+	if !validIranianPhone(phone) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<p class="text-red-600 text-sm">شماره تماس را وارد کنید.</p>`))
+		// Retarget into the #login-error slot so the form stays on screen.
+		w.Header().Set("HX-Retarget", "#login-error")
+		w.Header().Set("HX-Reswap", "innerHTML")
+		w.Write([]byte(`<div class="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+      <svg class="mt-0.5 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+      </svg>
+      <span>شماره تماس معتبر وارد کنید؛ شماره باید با ۰۹ شروع شده و ۱۱ رقم باشد (مثلاً ۰۹۱۲۳۴۵۶۷۸۹).</span>
+    </div>`))
+		return
+	}
+
+	// Per-phone rate limit on top of the per-IP limit applied by the router.
+	if !h.otpLimiter.Allow("phone:" + phone) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("HX-Retarget", "#login-error")
+		w.Header().Set("HX-Reswap", "innerHTML")
+		w.Write([]byte(`<div class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700" role="alert">
+      <svg class="mt-0.5 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+      </svg>
+      <span>درخواستهای زیادی ارسال کردهاید؛ لطفاً کمی بعد دوباره تلاش کنید.</span>
+    </div>`))
 		return
 	}
 
@@ -53,8 +99,14 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 
 	code := generateOTP5()
 
-	if err := database.CreateOTP(h.db, phone, code, time.Now().Add(2*time.Minute)); err != nil {
+	if err := database.CreateOTP(h.db, phone, code, time.Now().Add(otpTTL)); err != nil {
 		log.Printf("create otp: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := services.SendOTP(phone, code); err != nil {
+		log.Printf("send otp: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -63,13 +115,24 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 	sid := h.getOrCreateSessionID(w, r)
 	h.sessionMu.Lock()
 	if h.pendingLogins == nil {
-		h.pendingLogins = make(map[string]string)
+		h.pendingLogins = make(map[string]pendingLogin)
 	}
-	h.pendingLogins[sid] = phone
+	h.pendingLogins[sid] = pendingLogin{phone: phone, expiresAt: time.Now().Add(otpTTL)}
 	h.sessionMu.Unlock()
 
-	devBox := fmt.Sprintf(`<div class="rounded-lg bg-blue-50 p-3 text-center text-xs text-blue-700" dir="ltr">Dev: %s</div>`, code)
-	valueFill := fmt.Sprintf(` value="%s"`, code)
+	// The dev-only code box and pre-filled value must never be rendered in
+	// production: doing so would leak the OTP to anyone with access to the
+	// client side.
+	devBox := ""
+	valueFill := ""
+	if os.Getenv("DEV_MODE") == "true" {
+		devBox = fmt.Sprintf(`<div class="rounded-lg bg-blue-50 p-3 text-center text-xs text-blue-700" dir="ltr">Dev: %s</div>`, code)
+		valueFill = fmt.Sprintf(` value="%s"`, code)
+	}
+
+	// phone is validated to ^09\d{9}$, and is additionally HTML-escaped before
+	// reflection into the fragment to defeat any injection attempt.
+	escPhone := html.EscapeString(phone)
 
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<form id="login-form" class="space-y-4" method="post" action="/auth/verify-otp"
@@ -86,7 +149,7 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 		تایید کد
 	</button>
 	<p class="text-xs text-gray-400 text-center">کد ۵ رقمی را وارد کنید.</p>
-</form>`, phone, devBox, phone, valueFill)
+</form>`, escPhone, devBox, escPhone, valueFill)
 }
 
 // VerifyOTP validates the OTP code against the database. On success it creates
@@ -98,20 +161,36 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	code := r.FormValue("code")
+	code := strings.TrimSpace(r.FormValue("code"))
 
 	sid := h.getOrCreateSessionID(w, r)
 	h.sessionMu.RLock()
-	phone := h.pendingLogins[sid]
+	pl, ok := h.pendingLogins[sid]
 	h.sessionMu.RUnlock()
 
-	if phone == "" || code == "" {
+	if !ok || pl.phone == "" || code == "" {
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprintf(w, `<div class="space-y-4"><p class="text-red-600 text-sm text-center">کد نامعتبر است.</p><a href="/login" class="block text-center text-sm text-garnet hover:underline">دریافت دوباره کد</a></div>`)
 		return
 	}
 
-	valid, err := database.VerifyOTP(h.db, phone, code)
+	if time.Now().After(pl.expiresAt) {
+		h.sessionMu.Lock()
+		delete(h.pendingLogins, sid)
+		h.sessionMu.Unlock()
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<div class="space-y-4"><p class="text-red-600 text-sm text-center">کد منقضی شده است.</p><a href="/login" class="block text-center text-sm text-garnet hover:underline">دریافت دوباره کد</a></div>`)
+		return
+	}
+
+	// Per-phone attempt limit on top of the per-IP limit applied by the router.
+	if !h.otpVerifyLimiter.Allow("phone:" + pl.phone) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<div class="space-y-4"><p class="text-red-600 text-sm text-center">تعداد تلاشها زیاد است؛ کمی بعد دوباره تلاش کنید.</p></div>`)
+		return
+	}
+
+	valid, err := database.VerifyOTP(h.db, pl.phone, code)
 	if err != nil {
 		log.Printf("verify otp: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -124,7 +203,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := database.GetUserByPhone(h.db, phone)
+	user, err := database.GetUserByPhone(h.db, pl.phone)
 	if err != nil {
 		log.Printf("get user: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -133,13 +212,23 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 
 	h.sessionMu.Lock()
 	if h.userSessions == nil {
-		h.userSessions = make(map[string]int64)
+		h.userSessions = make(map[string]session)
 	}
-	h.userSessions[sid] = user.ID
+	h.userSessions[sid] = session{userID: user.ID, expiresAt: time.Now().Add(sessionTTL)}
 	delete(h.pendingLogins, sid)
+	next := ""
+	if pr, ok := h.pendingNext[sid]; ok {
+		next = pr.url
+	}
+	delete(h.pendingNext, sid)
 	h.sessionMu.Unlock()
 
-	w.Header().Set("HX-Redirect", "/")
+	dest := sanitizeReturnURL(next)
+	if dest == "" {
+		dest = "/"
+	}
+
+	w.Header().Set("HX-Redirect", dest)
 	w.WriteHeader(http.StatusOK)
 }
 
