@@ -5,6 +5,7 @@ package database
 import (
 	"crypto/rand"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -22,6 +23,11 @@ const (
 	CategoryFresh   = "میوه تازه"
 	CategoryDerived = "محصولات فرآوری‌شده"
 )
+
+// ErrInsufficientStock is returned by CreateOrder when an ordered quantity
+// exceeds the remaining stock of a product. The enclosing transaction is rolled
+// back, so no partial stock changes or order rows are persisted.
+var ErrInsufficientStock = errors.New("insufficient stock")
 
 // Init opens (or creates) the SQLite database at dbPath, enables WAL mode and
 // foreign keys, runs migrations, and seeds initial data if the database is empty.
@@ -133,11 +139,11 @@ func seed(db *sql.DB) error {
 		Price, Stock                      int
 		Unit                              string
 	}{
-		{"انجیر تازه ارگانیک", "انجیر-تازه-ارگانیک", "میوه تازه", "انجیر ارگانیک درجه یک، چیده‌شده در اوج رسیدگی.", 129900, 50, "۱ کیلوگرم"},
-		{"انار تازه ملس", "انار-تازه-ملس", "میوه تازه", "انارهای آبدار و یاقوتی مستقیماً از باغ.", 89900, 60, "۱ کیلوگرم"},
-		{"مربای انجیر خانگی", "مربای-انجیر-خانگی", "محصولات فرآوری‌شده", "مربای انجیر آرام‌پز شده با انجیر ارگانیک و کمی لیمو.", 95000, 30, "شیشه ۲۵۰ گرمی"},
-		{"رب انار خالص", "رب-انار-خالص", "محصولات فرآوری‌شده", "رب انار غلیظ و ترش - عالی برای سس و ماریناد.", 120000, 25, "بطری ۵۰۰ میلی‌لیتر"},
-		{"آب انار طبیعی", "آب-انار-طبیعی", "محصولات فرآوری‌شده", "آب انار تازه و طبیعی، بدون شکر افزوده.", 79000, 40, "بطری ۵۰۰ میلی‌لیتر"},
+		{"انجیر تازه ارگانیک", "انجیر-تازه-ارگانیک", "میوه تازه", "انجیر ارگانیک درجه یک، چیده‌شده در اوج رسیدگی.", 1299000, 50, "۱ کیلوگرم"},
+		{"انار تازه ملس", "انار-تازه-ملس", "میوه تازه", "انارهای آبدار و یاقوتی مستقیماً از باغ.", 899000, 60, "۱ کیلوگرم"},
+		{"مربای انجیر خانگی", "مربای-انجیر-خانگی", "محصولات فرآوری‌شده", "مربای انجیر آرام‌پز شده با انجیر ارگانیک و کمی لیمو.", 950000, 30, "شیشه ۲۵۰ گرمی"},
+		{"رب انار خالص", "رب-انار-خالص", "محصولات فرآوری‌شده", "رب انار غلیظ و ترش - عالی برای سس و ماریناد.", 1200000, 25, "بطری ۵۰۰ میلی‌لیتر"},
+		{"آب انار طبیعی", "آب-انار-طبیعی", "محصولات فرآوری‌شده", "آب انار تازه و طبیعی، بدون شکر افزوده.", 790000, 40, "بطری ۵۰۰ میلی‌لیتر"},
 	}
 
 	stmt, err := db.Prepare(`INSERT INTO products (name, slug, category, description, price, stock_quantity, unit) VALUES (?, ?, ?, ?, ?, ?, ?)`)
@@ -283,7 +289,9 @@ func CreateProduct(db *sql.DB, p *models.Product) (int64, error) {
 
 // scanProductRow is a helper that scans a product row from either a *sql.Row or *sql.Rows
 // into a models.Product, converting the integer is_active flag to bool.
-func scanProductRow(s interface{ Scan(dest ...interface{}) error }) (models.Product, error) {
+func scanProductRow(s interface {
+	Scan(dest ...interface{}) error
+}) (models.Product, error) {
 	var p models.Product
 	var isActive int
 	var createdAt string
@@ -335,14 +343,30 @@ func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string,
 		return "", fmt.Errorf("insert order: %w", err)
 	}
 
-	stmt, err := tx.Prepare(`INSERT INTO order_items (order_id, product_id, quantity, price_per_unit) VALUES (?, ?, ?, ?)`)
+	itemStmt, err := tx.Prepare(`INSERT INTO order_items (order_id, product_id, quantity, price_per_unit) VALUES (?, ?, ?, ?)`)
 	if err != nil {
 		return "", fmt.Errorf("prepare order_items: %w", err)
 	}
-	defer stmt.Close()
+	defer itemStmt.Close()
+
+	// Atomically reserve stock: the guarded UPDATE only decrements when enough
+	// inventory remains, so concurrent orders cannot oversell a product or drive
+	// stock below zero. Any failure rolls the whole order back.
+	stockStmt, err := tx.Prepare(`UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ? AND stock_quantity >= ?`)
+	if err != nil {
+		return "", fmt.Errorf("prepare stock update: %w", err)
+	}
+	defer stockStmt.Close()
 
 	for _, item := range items {
-		if _, err := stmt.Exec(o.ID, item.ProductID, item.Quantity, item.PricePerUnit); err != nil {
+		res, err := stockStmt.Exec(item.Quantity, item.ProductID, item.Quantity)
+		if err != nil {
+			return "", fmt.Errorf("decrement stock: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return "", fmt.Errorf("%w (product id %d)", ErrInsufficientStock, item.ProductID)
+		}
+		if _, err := itemStmt.Exec(o.ID, item.ProductID, item.Quantity, item.PricePerUnit); err != nil {
 			return "", fmt.Errorf("insert order_item: %w", err)
 		}
 	}
@@ -358,12 +382,14 @@ func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string,
 func GetOrderWithItems(db *sql.DB, orderID string) (*models.Order, []models.OrderItem, []models.Product, error) {
 	var o models.Order
 	var createdAt string
-	err := db.QueryRow("SELECT id, customer_name, customer_phone, customer_address, total_amount, status, created_at FROM orders WHERE id = ?", orderID).
-		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.TotalAmount, &o.Status, &createdAt)
+	var userID sql.NullInt64
+	err := db.QueryRow("SELECT id, customer_name, customer_phone, customer_address, total_amount, status, user_id, created_at FROM orders WHERE id = ?", orderID).
+		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.TotalAmount, &o.Status, &userID, &createdAt)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("get order %s: %w", orderID, err)
 	}
 	o.CreatedAt = parseTime(createdAt)
+	o.UserID = userID.Int64
 
 	rows, err := db.Query("SELECT id, order_id, product_id, quantity, price_per_unit FROM order_items WHERE order_id = ?", orderID)
 	if err != nil {
