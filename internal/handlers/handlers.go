@@ -268,13 +268,13 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 			Slug:  "fresh",
 			Label: database.CategoryFresh,
 			Bg:    "#2D4A3E",
-			Desc:  "انجیر و انار تازه، چیده‌شده در اوج رسیدگی — مستقیم از باغ.",
+			Desc:  "انجیر و انار تازه، چیده‌شده در اوج رسیدگی",
 		},
 		{
 			Slug:  "derived",
 			Label: database.CategoryDerived,
 			Bg:    "#8B263E",
-			Desc:  "مربا، رب و آب انار خانگی — آرام‌پز شده با محصولات مزرعه.",
+			Desc:  "مربا، رب و آب انار خانگی، آرام‌پز شده با محصولات مزرعه",
 		},
 	}
 
@@ -316,9 +316,9 @@ func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 
 	data := h.mergeData(r, map[string]any{
 		"Products":      products,
-		"CurrentFilter":  currentFilter,
-		"CategoryLabel":  label,
-		"CategorySlug":   currentFilter,
+		"CurrentFilter": currentFilter,
+		"CategoryLabel": label,
+		"CategorySlug":  currentFilter,
 	})
 
 	if err := h.templates["products"].Execute(w, data); err != nil {
