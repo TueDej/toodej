@@ -76,9 +76,9 @@
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
           </svg>
-          <!-- CART COUNT BADGE — HTMX swap target: auto-updates on page load and on cartUpdated event -->
+          <!-- CART COUNT BADGE — server-rendered so the first paint is correct (no 0-flash); HTMX refreshes it on cartUpdated -->
           <span id="cart-count" class="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-md bg-forest text-xs font-bold text-white"
-            hx-get="/cart/count" hx-trigger="load, cartUpdated from:body" hx-target="this" hx-swap="innerHTML">0</span>
+            hx-get="/cart/count" hx-trigger="load, cartUpdated from:body" hx-target="this" hx-swap="innerHTML">{{.CartCount | persianDigits}}</span>
         </a>
       </div>
     </div>
@@ -109,7 +109,7 @@
 
   <footer class="bg-forest text-white">
     <div class="mx-auto max-w-6xl px-4 py-8">
-      <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="grid gap-6 sm:grid-cols-3">
         <div>
           <h3 class="mb-2 text-lg font-bold font-serif">تودج</h3>
           <p class="text-sm text-white/70">انجیر، انار و فرآوری‌های سنتی.</p>
@@ -117,10 +117,6 @@
         <div>
           <h3 class="mb-2 text-lg font-bold font-serif">ارتباط با ما</h3>
           <p class="text-sm text-white/70" dir="ltr">support@toodej.shop<br>+989904196349</p>
-        </div>
-        <div>
-          <h3 class="mb-2 text-lg font-bold font-serif">آدرس</h3>
-          <p class="text-sm text-white/70">فارس، ایران</p>
         </div>
         <div class="trust-seals" aria-label="نمادهای اعتماد">
           <h3 class="mb-2 text-lg font-bold font-serif">نمادهای اعتماد</h3>

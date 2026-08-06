@@ -14,7 +14,7 @@
     <div class="rounded-sm bg-parchment shadow-sm border border-[#E7DDCD] overflow-hidden hover:border-garnet transition-colors duration-200">
       <div class="flex items-center justify-between border-b border-[#E7DDCD] bg-[#F4EFE6] px-6 py-3">
         <div class="text-sm">
-          <span class="font-medium text-forest">کد پیگیری: <bdi>{{.Order.ID | persianDigits}}</bdi></span>
+          <span class="font-medium text-forest">کد پیگیری: <bdi dir="ltr" class="font-mono tracking-wider">{{.Order.ID}}</bdi></span>
           <span class="text-charcoal/40 mx-1">·</span>
           <span class="text-charcoal/60">{{.Order.CreatedAt | persianDate}}</span>
         </div>

@@ -9,21 +9,23 @@
     </div>
     <p class="mt-2 text-sm text-charcoal/70 text-center">شماره همراه خود را وارد کنید تا کد تأیید دریافت کنید.</p>
 
-    <!-- LOGIN FORM — HTMX swap target: replaced on OTP send (outerHTML) and on verify -->
-    <div id="login-form" class="mt-6 space-y-4">
+    <!-- LOGIN FORM — real <form> so Enter + button click both submit via htmx (same pattern as the code form).
+         Errors are retargeted into #login-error (HX-Retarget) so the form stays on screen. -->
+    <form id="login-form" class="mt-6 space-y-4" method="post" action="/auth/send-otp"
+      hx-post="/auth/send-otp" hx-target="#login-form" hx-swap="outerHTML">
       <div>
         <label for="phone" class="block text-sm font-medium text-gray-700">شماره همراه</label>
         <input type="tel" name="phone" id="phone" inputmode="numeric" required autocomplete="tel"
           class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-left dir-ltr text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-garnet focus:ring-1 focus:ring-garnet"
-          placeholder="09123456789"
-          hx-post="/auth/send-otp" hx-trigger="keydown[key=='Enter']" hx-target="#login-form" hx-swap="outerHTML">
+          placeholder="09123456789">
       </div>
-      <button type="button"
-        class="w-full rounded-md bg-garnet px-6 py-3 font-semibold text-white hover:bg-[#782035] ring-1 ring-inset ring-white/10 transition"
-        hx-post="/auth/send-otp" hx-include="#phone" hx-target="#login-form" hx-swap="outerHTML">
+      <button type="submit"
+        class="w-full rounded-md bg-garnet px-6 py-3 font-semibold text-white hover:bg-[#782035] ring-1 ring-inset ring-white/10 transition">
         دریافت کد تایید
       </button>
-    </div>
+      <!-- ERROR SLOT — SendOTP errors are retargeted here (HX-Retarget), leaving the form intact -->
+      <div id="login-error"></div>
+    </form>
   </div>
 </div>
 {{end}}
