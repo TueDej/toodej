@@ -74,6 +74,8 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 	r.Get("/", h.Home)
+	r.Get("/about", h.About)
+	r.Get("/products/{category}", h.ProductsPage)
 	r.Get("/cart/count", h.CartCount)
 	r.Post("/cart/add", h.AddToCart)
 	r.Post("/cart/update", h.UpdateCart)

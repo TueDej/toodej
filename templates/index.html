@@ -18,77 +18,32 @@
   </div>
 </section>
 
-<div class="relative mx-auto max-w-6xl px-4">
-  <div class="flex items-center justify-center gap-3 py-6">
-    <div class="h-px flex-1 bg-[#E5E0D8]"></div>
-    <svg class="h-4 w-4 text-garnet/60" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 2L14 10L22 12L14 14L12 22L10 14L2 12L10 10Z"/>
-    </svg>
-    <div class="h-px flex-1 bg-[#E5E0D8]"></div>
-  </div>
-</div>
+<!-- CATEGORY BANNERS — full-width tiles that link to the per-category listing pages -->
+<section class="mx-auto max-w-6xl px-4 py-16">
 
-<!-- PRODUCT SECTION — HTMX swap target for category filtering (hx-target="#product-section") -->
-<section id="products" class="mx-auto max-w-6xl px-4 py-12">
-  {{template "product-section" .}}
+  <div class="space-y-6">
+    {{range .Categories}}
+    <a
+      href="/products/{{.Slug}}"
+      class="group relative block w-full overflow-hidden rounded-sm shadow-md ring-1 ring-inset ring-black/5 transition duration-300 hover:-translate-y-1 hover:scale-[1.01] hover:shadow-2xl hover:shadow-garnet/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-garnet"
+      style="background-color:{{.Bg}}">
+      <!-- decorative surface tint -->
+      <div class="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_20%_30%,rgba(255,255,255,0.35),transparent_60%)]"></div>
+      <div class="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-white/5 blur-2xl"></div>
+      <div class="absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-white/5 blur-2xl"></div>
+
+      <div class="relative flex min-h-[14rem] sm:min-h-[18rem] flex-col justify-end p-7 sm:p-10 text-white">
+        <h3 class="text-3xl font-bold font-serif sm:text-4xl" style="text-shadow:0 2px 10px rgba(0,0,0,0.35)">{{.Label}}</h3>
+        <p class="mt-3 max-w-2xl text-base sm:text-lg text-white/85" style="text-shadow:0 1px 6px rgba(0,0,0,0.3)">{{.Desc}}</p>
+        <span class="mt-6 inline-flex items-center gap-3 text-base font-semibold text-white transition group-hover:gap-4">
+          مشاهده محصولات
+          <svg class="h-5 w-5 transition-transform group-hover:-translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+          </svg>
+        </span>
+      </div>
+    </a>
+    {{end}}
+  </div>
 </section>
-{{end}}
-
-{{define "product-section"}}
-<!-- PRODUCT SECTION PARTIAL — the outer div is the HTMX swap target for category filter links -->
-<div id="product-section">
-<div class="mb-8 flex flex-wrap items-center justify-center gap-3">
-  <a href="/"
-    class="rounded-md px-5 py-2 text-sm font-medium transition {{if eq .CurrentFilter "all"}}bg-garnet text-white{{else}}bg-white text-gray-700 border border-[#E5E0D8] hover:border-garnet{{end}}"
-    hx-get="/" hx-target="#product-section" hx-swap="outerHTML" hx-push-url="true">همه</a>
-  <a href="/?category=fresh"
-    class="rounded-md px-5 py-2 text-sm font-medium transition {{if eq .CurrentFilter "fresh"}}bg-garnet text-white{{else}}bg-white text-gray-700 border border-[#E5E0D8] hover:border-garnet{{end}}"
-    hx-get="/?category=fresh" hx-target="#product-section" hx-swap="outerHTML" hx-push-url="true">میوه تازه</a>
-  <a href="/?category=derived"
-    class="rounded-md px-5 py-2 text-sm font-medium transition {{if eq .CurrentFilter "derived"}}bg-garnet text-white{{else}}bg-white text-gray-700 border border-[#E5E0D8] hover:border-garnet{{end}}"
-    hx-get="/?category=derived" hx-target="#product-section" hx-swap="outerHTML" hx-push-url="true">فرآوری‌های سنتی</a>
-</div>
-
-<!-- PRODUCT GRID — rendered by range .Products; each card has an "Add to cart" button with hx-post -->
-<div id="product-grid" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-  {{range .Products}}
-  <div class="flex flex-col overflow-hidden rounded-sm bg-parchment shadow-sm border border-[#E7DDCD] hover:border-garnet transition-colors duration-200">
-    <div class="flex h-72 items-center justify-center bg-[#EDE8DD]">
-      {{if .ImageURL}}
-      <img src="{{.ImageURL}}" alt="{{.Name}}" class="h-full w-full object-cover">
-      {{else}}
-      <div class="text-center">
-        <svg class="mx-auto h-12 w-12 text-garnet/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
-        </svg>
-        <span class="mt-1 block text-xs text-charcoal/50">محصول تازه مزرعه</span>
-      </div>
-      {{end}}
-    </div>
-    <div class="flex flex-1 flex-col p-4">
-      <div class="mb-1 flex items-center gap-2">
-        <span class="rounded-sm px-2 py-0.5 text-xs font-medium border border-[#D6CDBC] {{if eq .Category "میوه تازه"}}bg-[#E3EBE6] text-[#2D4A3E]{{else}}bg-[#FCE7EB] text-[#8B263E]{{end}}">{{.Category}}</span>
-      </div>
-      <h3 class="text-lg font-semibold text-forest font-serif">{{.Name}}</h3>
-      <p class="mt-1 text-sm text-charcoal/70 line-clamp-2">{{.Description}}</p>
-      <div class="mt-auto flex items-center justify-between gap-2 pt-4">
-        <div class="text-right">
-          <span class="text-xl font-black text-garnet tracking-tight">{{formatPrice .Price}}</span>
-          <div class="text-sm text-charcoal/50 font-light">/{{.Unit}}</div>
-        </div>
-        {{if gt .StockQuantity 0}}
-        <button hx-post="/cart/add" hx-vals='{"product_id": "{{.ID}}"}' hx-target="#cart-count" hx-swap="innerHTML" hx-trigger="click" class="self-center rounded-md bg-garnet px-6 py-3 text-base font-semibold text-white hover:bg-[#782035] ring-1 ring-inset ring-white/10 transition flex-shrink-0">
-          افزودن به سبد
-        </button>
-        {{else}}
-        <span class="text-sm font-medium text-red-500">اتمام موجودی</span>
-        {{end}}
-      </div>
-    </div>
-  </div>
-  {{else}}
-  <p class="col-span-full py-12 text-center text-charcoal/50">محصولی یافت نشد.</p>
-  {{end}}
-</div>
-</div>
 {{end}}

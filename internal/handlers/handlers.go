@@ -109,6 +109,8 @@ func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 	layoutFiles := []string{"templates/layout.html"}
 	pages := map[string][]string{
 		"index":        {"templates/index.html"},
+		"products":     {"templates/products.html"},
+		"about":        {"templates/about.html"},
 		"cart":         {"templates/cart.html"},
 		"checkout":     {"templates/checkout.html"},
 		"confirmation": {"templates/confirmation.html"},
@@ -247,49 +249,80 @@ func (h *Handler) getOrCreateSessionID(w http.ResponseWriter, r *http.Request) s
 
 // ── Storefront ────────────────────────────────────────
 
-// Home renders the main storefront page. It supports category filtering via
-// the "category" query parameter ("fresh" or "derived" mapped to Persian category
-// names). HTMX partial requests only render the product grid section.
+// catInfo is the lightweight per-category metadata used to render the home page
+// widescreen banners — the Persian label plus a slug used in the URL and a short
+// description shown on the banner.
+type catInfo struct {
+	Slug  string
+	Label string
+	Bg    string // CSS background colour for the banner
+	Desc  string // short Persian description shown on the banner
+}
+
+// Home renders the main storefront page — just a hero plus two widescreen
+// category banners (Fresh & Derived). The product grids themselves now live on
+// dedicated /products/{category} pages.
 func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
-	category := r.URL.Query().Get("category")
-	if category == "fresh" {
+	cats := []catInfo{
+		{
+			Slug:  "fresh",
+			Label: database.CategoryFresh,
+			Bg:    "#2D4A3E",
+			Desc:  "انجیر و انار تازه، چیده‌شده در اوج رسیدگی — مستقیم از باغ.",
+		},
+		{
+			Slug:  "derived",
+			Label: database.CategoryDerived,
+			Bg:    "#8B263E",
+			Desc:  "مربا، رب و آب انار خانگی — آرام‌پز شده با محصولات مزرعه.",
+		},
+	}
+
+	data := h.mergeData(r, map[string]any{
+		"Categories": cats,
+	})
+
+	if err := h.templates["index"].Execute(w, data); err != nil {
+		log.Printf("render home: %v", err)
+	}
+}
+
+// ProductsPage renders the listing for a single category — /products/fresh or
+// /products/derived — reusing the same product card markup as before.
+func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("category")
+
+	var category, currentFilter, label string
+	switch slug {
+	case "fresh":
 		category = database.CategoryFresh
-	} else if category == "derived" {
+		currentFilter = "fresh"
+		label = database.CategoryFresh
+	case "derived":
 		category = database.CategoryDerived
-	} else {
-		category = ""
+		currentFilter = "derived"
+		label = database.CategoryDerived
+	default:
+		http.NotFound(w, r)
+		return
 	}
 
 	products, err := database.GetProducts(h.db, category)
 	if err != nil {
-		log.Printf("home: %v", err)
+		log.Printf("products page: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	currentFilter := "all"
-	if category == database.CategoryFresh {
-		currentFilter = "fresh"
-	} else if category == database.CategoryDerived {
-		currentFilter = "derived"
-	}
-
 	data := h.mergeData(r, map[string]any{
 		"Products":      products,
-		"CurrentFilter": currentFilter,
+		"CurrentFilter":  currentFilter,
+		"CategoryLabel":  label,
+		"CategorySlug":   currentFilter,
 	})
 
-	// HTMX partial: only re-render the product section.
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html")
-		if err := h.templates["index"].ExecuteTemplate(w, "product-section", data); err != nil {
-			log.Printf("render product grid: %v", err)
-		}
-		return
-	}
-
-	if err := h.templates["index"].Execute(w, data); err != nil {
-		log.Printf("render home: %v", err)
+	if err := h.templates["products"].Execute(w, data); err != nil {
+		log.Printf("render products page: %v", err)
 	}
 }
 
@@ -627,6 +660,14 @@ func (h *Handler) UserOrders(w http.ResponseWriter, r *http.Request) {
 	})
 	if err := h.templates["orders"].Execute(w, data); err != nil {
 		log.Printf("render orders: %v", err)
+	}
+}
+
+// About renders the about-us page with a short introduction to the farm.
+func (h *Handler) About(w http.ResponseWriter, r *http.Request) {
+	data := h.mergeData(r, nil)
+	if err := h.templates["about"].Execute(w, data); err != nil {
+		log.Printf("render about: %v", err)
 	}
 }
 
