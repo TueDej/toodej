@@ -141,7 +141,7 @@
                 style="cursor:pointer"
                 code="5NjZah6MLvOMO7yVXo8vQDS5mjIcMf5L"
                 class="seal-img block h-auto w-auto"
-                onerror="this.style.display='none'"
+                onerror="trustSealRetry(this)"
               >
             </a>
           </div>
@@ -200,6 +200,19 @@
         setTimeout(function(){el.remove()},350);
       },2500);
     });
+  </script>
+  <script>
+    // e-Namad seal retry: logo.aspx intermittently returns an empty body.
+    // Retry a few times over ~6s so the seal appears without a manual refresh.
+    function trustSealRetry(img) {
+      if (img && img.dataset && (parseInt(img.dataset.retry || '0', 10) < 5)) {
+        var n = parseInt(img.dataset.retry || '0', 10) + 1;
+        img.dataset.retry = String(n);
+        setTimeout(function () {
+          img.src = img.getAttribute('src') + '&rustle=' + n;
+        }, 1200);
+      }
+    }
   </script>
 </body>
 </html>
