@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -38,9 +39,34 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(handlers.SecurityHeaders)
+	r.Use(handlers.SameOrigin)
 
-	adminUser := getEnv("ADMIN_USER", "admin")
-	adminPass := getEnv("ADMIN_PASS", "admin123")
+	// Admin credentials. In production the default admin/admin123 fallback must
+	// never be used: fail fast unless explicit, non-default credentials (at least
+	// 8 characters) are supplied. In DEV_MODE the defaults are accepted with a
+	// warning so local development stays frictionless.
+	adminUser := os.Getenv("ADMIN_USER")
+	adminPass := os.Getenv("ADMIN_PASS")
+	if os.Getenv("DEV_MODE") != "true" {
+		if adminUser == "" || adminPass == "" || (adminUser == "admin" && adminPass == "admin123") {
+			log.Fatal("production: set explicit, non-default ADMIN_USER and ADMIN_PASS env vars (refusing default credentials)")
+		}
+		if len(adminPass) < 8 {
+			log.Fatal("production: ADMIN_PASS must be at least 8 characters")
+		}
+	} else {
+		if adminUser == "" || adminPass == "" {
+			adminUser, adminPass = "admin", "admin123"
+		}
+		log.Printf("DEV_MODE: admin credentials %s/**** — do not use in production", adminUser)
+	}
+
+	// Rate limiters: per-IP budgets for the auth surface and admin panel.
+	loginLimiter := handlers.NewRateLimiter(20, time.Minute)
+	sendOTPLimiter := handlers.NewRateLimiter(5, time.Minute)
+	verifyOTPLimiter := handlers.NewRateLimiter(10, time.Minute)
+	adminLimiter := handlers.NewRateLimiter(30, time.Minute)
 
 	// Public routes
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -57,9 +83,9 @@ func main() {
 	r.Get("/checkout", h.CheckoutForm)
 	r.Post("/checkout", h.PlaceOrder)
 	r.Get("/checkout/confirmation/{id}", h.Confirmation)
-	r.Get("/login", h.LoginPage)
-	r.Post("/auth/send-otp", h.SendOTP)
-	r.Post("/auth/verify-otp", h.VerifyOTP)
+	r.With(loginLimiter.Middleware).Get("/login", h.LoginPage)
+	r.With(sendOTPLimiter.Middleware).Post("/auth/send-otp", h.SendOTP)
+	r.With(verifyOTPLimiter.Middleware).Post("/auth/verify-otp", h.VerifyOTP)
 	r.Get("/logout", h.Logout)
 	r.Get("/orders", h.UserOrders)
 	r.Get("/sitemap.xml", h.ServeSitemap)
@@ -68,6 +94,7 @@ func main() {
 	// Admin routes (protected by HTTP Basic Auth)
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(handlers.BasicAuth(adminUser, adminPass))
+		r.Use(adminLimiter.Middleware)
 		r.Get("/", h.AdminDashboard)
 		r.Post("/orders/{id}/status", h.AdminUpdateOrderStatus)
 		r.Post("/products/{id}/toggle", h.AdminToggleProduct)
