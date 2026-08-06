@@ -8,6 +8,9 @@ warn()  { printf "${YELLOW}==>${NC} %s\n" "$*"; }
 detail(){ printf "    ${CYAN}%s${NC}\n" "$*"; }
 
 # --------------- defaults ---------------
+# run.sh is the development entry point: default to DEV_MODE (OTP codes shown
+# inline, default admin creds allowed) unless the caller sets it explicitly.
+export DEV_MODE="${DEV_MODE:-true}"
 export PORT="${PORT:-8080}"
 export ADMIN_USER="${ADMIN_USER:-admin}"
 export ADMIN_PASS="${ADMIN_PASS:-admin123}"
