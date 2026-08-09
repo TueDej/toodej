@@ -93,17 +93,18 @@ func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 		"statusColor": func(s string) string {
 			switch s {
 			case "pending":
-				return "text-yellow-600"
-			case "processing":
-				return "text-blue-600"
-			case "completed":
-				return "text-green-600"
+				return "text-[#7A5A2E]"
+			case "preparing":
+				return "text-[#5B3A5C]"
+			case "dispatched":
+				return "text-[#2F5D33]"
 			case "cancelled":
-				return "text-red-600"
+				return "text-[#9E2A2B]"
 			}
-			return "text-gray-600"
+			return "text-clay"
 		},
 		"now": time.Now,
+		"hasSuffix": strings.HasSuffix,
 	}
 
 	layoutFiles := []string{"templates/layout.html"}
@@ -115,6 +116,7 @@ func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 		"checkout":     {"templates/checkout.html"},
 		"confirmation": {"templates/confirmation.html"},
 		"admin":        {"templates/admin.html"},
+		"order-detail": {"templates/order-detail.html"},
 		"login":        {"templates/login.html"},
 		"orders":       {"templates/orders.html"},
 	}
@@ -250,36 +252,151 @@ func (h *Handler) getOrCreateSessionID(w http.ResponseWriter, r *http.Request) s
 // ── Storefront ────────────────────────────────────────
 
 // catInfo is the lightweight per-category metadata used to render the home page
-// widescreen banners — the Persian label plus a slug used in the URL and a short
-// description shown on the banner.
+// showcase tiles — the Persian label plus a slug used in the URL, a widescreen
+// orchard photo for the tile.
 type catInfo struct {
-	Slug  string
-	Label string
-	Bg    string // CSS background colour for the banner
-	Desc  string // short Persian description shown on the banner
+	Slug    string
+	Label   string
+	Image   string // CSS background image URL for the tile
+	Season  string // season key for matching (spring, summer, autumn, or empty)
+	IsSVG   bool   // true if Image is an SVG icon (small centered) vs photo (cover)
 }
 
-// Home renders the main storefront page — just a hero plus two widescreen
-// category banners (Fresh & Derived). The product grids themselves now live on
-// dedicated /products/{category} pages.
+// seasonInfo carries the copy + accent used by the seasonal banner on Home.
+// It flips between fig season and pomegranate season through the year.
+type seasonInfo struct {
+	Key              string // "fig" or "pomegranate"
+	Label            string
+	Tag              string // small stamp label
+	Heading          string // Alyamama headline
+	Tagline          string
+	Accent           string // underline bar colour
+	AccentQuoteColor string // text colour used in the tag stamp
+	Image            string
+	Target           string // category link for the season's produce
+	CTA              string
+}
+
+// currentSeason decides the seasonal banner based on the Gregorian month.
+func currentSeason() seasonInfo {
+	m := time.Now().Month()
+	switch {
+	case m >= 3 && m <= 5:
+		return seasonInfo{
+			Key:              "spring",
+			Label:            "فصل بهار",
+			Tag:              "تازه و سبز",
+			Heading:          "محصولات تازه‌ی بهاری",
+			Tagline:          "سبزی و میوه‌ی بهاری، مستقیم از باغ.",
+			Accent:           "#3F5D42",
+			AccentQuoteColor: "#5A8A60",
+			Image:            "/assets/toodej.webp",
+			Target:           "/products/spring",
+			CTA:              "محصولات بهار را ببین",
+		}
+	case m >= 6 && m <= 8:
+		return seasonInfo{
+			Key:              "summer",
+			Label:            "فصل تابستان",
+			Tag:              "ویژه این فصل",
+			Heading:          "انجیر خشک درجه یک، خوشمزه و طبیعی",
+			Tagline:          "خشک‌شده زیر آفتاب و با کیفیت. سرشار از فیبر، آنتی‌اکسیدان و مواد معدنی.",
+			Accent:           "#C98A2C",
+			AccentQuoteColor: "#E3B65C",
+			Image:            "/assets/fig-showcase.webp",
+			Target:           "/products/summer",
+			CTA:              "محصولات این فصل را ببین",
+		}
+	case m >= 9 && m <= 11:
+		return seasonInfo{
+			Key:              "autumn",
+			Label:            "فصل پاییز",
+			Tag:              "برداشت پاییز",
+			Heading:          "انار یاقوتی، آبدار و پر از آنتی‌اکسیدان",
+			Tagline:          "از دانه‌ی تازه تا رب و آب‌انار؛ بدون هیچ افزودنی.",
+			Accent:           "#C97064",
+			AccentQuoteColor: "#D98C80",
+			Image:            "/assets/pomegranate-showcase.webp",
+			Target:           "/products/autumn",
+			CTA:              "محصولات پاییز را ببین",
+		}
+	default:
+		return seasonInfo{
+			Key:              "dried",
+			Label:            "خشکبار",
+			Tag:              "همیشه موجود",
+			Heading:          "خشکبار با کیفیت، همیشه تازه",
+			Tagline:          "انجیر خشک، پسته، گردو و دیگر خشکبار اعلی.",
+			Accent:           "#8C6F5E",
+			AccentQuoteColor: "#A68B7B",
+			Image:            "/assets/fig-showcase.webp",
+			Target:           "/products/dried",
+			CTA:              "خشکبار را ببین",
+		}
+	}
+}
+
+// featuredProducts flattens a small mixed selection of active products from
+// all categories for the storefront "منتخب این فصل" row.
+func (h *Handler) featuredProducts() []models.Product {
+	const max = 5
+	var out []models.Product
+	for _, cat := range []string{database.CategorySpring, database.CategorySummer, database.CategoryAutumn, database.CategoryDried, database.CategoryProcessed} {
+		ps, err := database.GetProducts(h.db, cat)
+		if err != nil {
+			continue
+		}
+		for _, p := range ps {
+			if len(out) >= max {
+				return out
+			}
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// Home renders the main storefront page — hero, story strip, featured products,
+// seasonal banner, and the five category showcase tiles.
 func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 	cats := []catInfo{
 		{
-			Slug:  "fresh",
-			Label: database.CategoryFresh,
-			Bg:    "#2D4A3E",
-			Desc:  "انجیر و انار تازه، چیده‌شده در اوج رسیدگی",
+			Slug:   "spring",
+			Label:  database.CategorySpring,
+			Image:  "/assets/blossoms-and-sky.webp",
+			Season: "spring",
 		},
 		{
-			Slug:  "derived",
-			Label: database.CategoryDerived,
-			Bg:    "#8B263E",
-			Desc:  "مربا، رب و آب انار خانگی، آرام‌پز شده با محصولات مزرعه",
+			Slug:   "summer",
+			Label:  database.CategorySummer,
+			Image:  "/assets/summer.webp",
+			Season: "summer",
+		},
+		{
+			Slug:   "autumn",
+			Label:  database.CategoryAutumn,
+			Image:  "/assets/autumn.webp",
+			Season: "autumn",
+		},
+		{
+			Slug:  "dried",
+			Label: database.CategoryDried,
+			Image: "/assets/fig.svg?v=2",
+			IsSVG: true,
+		},
+		{
+			Slug:  "processed",
+			Label: database.CategoryProcessed,
+			Image: "/assets/leaf.svg?v=2",
+			IsSVG: true,
 		},
 	}
 
 	data := h.mergeData(r, map[string]any{
-		"Categories": cats,
+		"Categories":    cats,
+		"Featured":      h.featuredProducts(),
+		"Season":        currentSeason(),
+		"CurrentSeason": currentSeason().Key,
 	})
 
 	if err := h.templates["index"].Execute(w, data); err != nil {
@@ -287,21 +404,33 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ProductsPage renders the listing for a single category — /products/fresh or
-// /products/derived — reusing the same product card markup as before.
+// ProductsPage renders the listing for a single category — reusing the same
+// product card markup as before.
 func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("category")
 
 	var category, currentFilter, label string
 	switch slug {
-	case "fresh":
-		category = database.CategoryFresh
-		currentFilter = "fresh"
-		label = database.CategoryFresh
-	case "derived":
-		category = database.CategoryDerived
-		currentFilter = "derived"
-		label = database.CategoryDerived
+	case "spring":
+		category = database.CategorySpring
+		currentFilter = "spring"
+		label = database.CategorySpring
+	case "summer":
+		category = database.CategorySummer
+		currentFilter = "summer"
+		label = database.CategorySummer
+	case "autumn":
+		category = database.CategoryAutumn
+		currentFilter = "autumn"
+		label = database.CategoryAutumn
+	case "dried":
+		category = database.CategoryDried
+		currentFilter = "dried"
+		label = database.CategoryDried
+	case "processed":
+		category = database.CategoryProcessed
+		currentFilter = "processed"
+		label = database.CategoryProcessed
 	default:
 		http.NotFound(w, r)
 		return
@@ -515,13 +644,15 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 
 	name := strings.TrimSpace(r.FormValue("name"))
 	phone := strings.TrimSpace(r.FormValue("phone"))
-	address := strings.TrimSpace(r.FormValue("address"))
+	address := strings.ReplaceAll(strings.TrimSpace(r.FormValue("address")), "\n", " ")
+	address = strings.ReplaceAll(address, "\r", "")
+	postalCode := strings.TrimSpace(r.FormValue("postal_code"))
 
-	if name == "" || len(name) > 80 || !validIranianPhone(phone) || len(address) < 5 || len(address) > 300 {
+	if name == "" || len(name) > 80 || !validIranianPhone(phone) || len(address) < 5 || len(address) > 300 || postalCode == "" {
 		sid := h.getOrCreateSessionID(w, r)
 		cart := h.cartStore.Get(sid)
 		data := h.mergeData(r, map[string]any{
-			"Error": "اطلاعات تماس و آدرس را بهدرستی وارد کنید.",
+			"Error": "اطلاعات تماس، آدرس و کد پستی را به‌درستی وارد کنید.",
 			"Total": cart.Total(),
 			"Phone": phone,
 		})
@@ -551,6 +682,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 		CustomerName:    name,
 		CustomerPhone:   phone,
 		CustomerAddress: address,
+		PostalCode:      postalCode,
 		TotalAmount:     totalAmount,
 		Status:          "pending",
 		UserID:          userID,
@@ -568,7 +700,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	orderID, err := database.CreateOrder(h.db, order, orderItems)
 	if err != nil {
 		if errors.Is(err, database.ErrInsufficientStock) {
-			http.Error(w, "موجودی برخی محصولات کافی نیست؛ لطفاً سبد را بهروز کنید.", http.StatusConflict)
+			http.Error(w, "موجودی برخی محصولات کافی نیست؛ لطفاً سبد را به‌روز کنید.", http.StatusConflict)
 			return
 		}
 		log.Printf("create order: %v", err)

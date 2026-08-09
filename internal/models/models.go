@@ -27,6 +27,7 @@ type Order struct {
 	CustomerName    string    `json:"customer_name"`
 	CustomerPhone   string    `json:"customer_phone"`
 	CustomerAddress string    `json:"customer_address"`
+	PostalCode      string    `json:"postal_code"`
 	TotalAmount     int       `json:"total_amount"`
 	Status          string    `json:"status"`
 	CreatedAt       time.Time `json:"created_at"`
@@ -49,6 +50,7 @@ type OrderItemView struct {
 	Quantity int
 	Price    int
 	Subtotal int
+	Unit     string
 }
 
 // OrderSummary pairs an Order with its human-readable OrderItemViews.

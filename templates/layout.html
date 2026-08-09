@@ -3,23 +3,35 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>تودج — {{block "title" .}}محصولات تازه و ارگانیک{{end}}</title>
+  <title>تودج - فروشگاه — {{block "title" .}}محصولات طبیعی{{end}}</title>
+
+  <!-- ============ DESIGN SYSTEM (see DESIGN.md) ============ -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
           colors: {
-            garnet: '#8B263E',
-            'garnet-dark': '#85243C',
-            forest: '#2D4A3E',
-            cream: '#FBF9F5',
-            parchment: '#F4EFE6',
-            charcoal: '#2C302E',
+            'pomegranate': '#9E2A2B',
+            'pomegranate-dark': '#7F201F',
+            'fig': '#5B3A5C',
+            'forest': '#3F5D42',
+            'forest-dark': '#2E4A38',
+            'parchment': '#F5EEE0',
+            'sand': '#EBDFC9',
+            'walnut': '#3A2B24',
+            'clay': '#8C6F5E',
+            'saffron': '#C98A2C',
+            'rose': '#C97064',
+            'line': '#E2D2B8',
           },
           fontFamily: {
-            sans: ['Estedad', 'system-ui', 'sans-serif'],
-            serif: ['Alyamama', 'serif'],
+            'sans': ['Estedad', 'system-ui', 'sans-serif'],
+            'display': ['Alyamama', 'Estedad', 'serif'],
+          },
+          boxShadow: {
+            'soft': '0 1px 2px rgba(58,43,36,.05), 0 12px 32px -26px rgba(58,43,36,.22)',
+            'lift': '0 2px 4px rgba(58,43,36,.07), 0 26px 52px -28px rgba(58,43,36,.34)',
           },
         },
       },
@@ -27,101 +39,359 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Alyamama:wght@400;700&family=Estedad:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Alyamama:wght@400;600;700;800&family=Estedad:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+
   <style>
-    /* ---- Trust Seals --------------------------------------------------- */
-    .trust-seals { } /* hook for custom overrides */
-    .seal-box {
-      line-height: 0;             /* remove inline spacing under the image */
+    /* ---- tokens ------------------------------------------------------- */
+    :root{
+      --pomegranate:#9E2A2B; --pomegranate-dark:#7F201F;
+      --fig:#5B3A5C; --forest:#3F5D42; --forest-dark:#2E4A38;
+      --parchment:#F5EEE0;       --sand:#EBDFC9; --sand-dark:#E5D8C2;
+      --walnut:#3A2B24; --clay:#8C6F5E;
+      --saffron:#C98A2C; --saffron-dark:#8A5A12; --rose:#C97064; --line:#E2D2B8;
+      --ink:#51443A;
+      /* semantic surface / text tokens */
+      --text-on-dark:#F5EEE0; --surface-warm:#FFFDF6;
+      --overlay-dark:rgba(42,30,24,.75);
+      --bg-seasonal:#2B342B;
+      --toast-success:#E9F0E5; --toast-error:#FAE6E1;
+      /* border tokens */
+      --border-subtle:rgba(58,43,36,.09); --border-default:rgba(58,43,36,.16);
+      --border-fig:rgba(91,58,92,.25);
+      /* radius presets */
+      --radius-card:1.2rem; --radius-btn:1.05rem; --radius-sm:.75rem;
+      /* shadow presets */
+      --shadow-card:0 1px 2px rgba(58,43,36,.05),0 12px 32px -26px rgba(58,43,36,.22);
+      --shadow-card-hover:0 2px 4px rgba(58,43,36,.07),0 26px 52px -28px rgba(58,43,36,.34);
+      /* typography */
+      --leading-body:1.8;
     }
-    .seal-img {
-      width: auto;                /* let aspect ratio drive height */
-      max-width: 120px;           /* caps the logo on desktop */
-      height: auto;
+
+    html{ scroll-behavior:smooth; }
+    body{ background-color:var(--parchment); color:var(--walnut); }
+
+    ::selection{ background:rgba(201,138,44,.28); }
+
+    /* ---- focus states (saffron, WCAG AA) ----------------------------- */
+    :focus{ outline:none; }
+    a:focus-visible, button:focus-visible, [tabindex]:focus-visible{
+      outline:2px solid var(--saffron);
+      outline-offset:3px;
+      border-radius:6px;
     }
-    /* e-Namad dynamic iframe wrapper (uncomment when using the official script) */
-    .seal-wrapper {
-      display: flex;
-      justify-content: center;
+
+    /* ---- paper / linen grain overlay --------------------------------- */
+    .grain{
+      position:fixed; inset:0; z-index:60; pointer-events:none;
+      mix-blend-mode:multiply; opacity:.05;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+      background-size:140px 140px;
     }
-    .seal-wrapper iframe,
-    .seal-wrapper > div { max-width: 120px; }
-    @media (max-width: 640px) {
-      .seal-img { max-width: 100px; } /* slightly smaller on mobile */
+
+    /* ---- generous, unhurried section rhythm -------------------------- */
+    .sec-y{ padding-block: clamp(4.5rem, 9vw, 8rem); }
+    .sec-y-lg{ padding-block: clamp(5.5rem, 12vw, 9rem); }
+
+    /* ---- hand-cut card surface ---------------------------------------- */
+    .paper-card{
+      position:relative;
+      background:linear-gradient(180deg, var(--surface-warm) 0%, var(--parchment) 58%);
+      border:1px solid var(--border-subtle);
+      border-radius:var(--radius-card);
+      box-shadow:var(--shadow-card);
     }
+    .paper-card-sand{
+      background:linear-gradient(165deg, var(--sand) 0%, var(--sand-dark) 100%);
+      border:1px solid var(--border-subtle);
+      border-radius:var(--radius-card);
+      box-shadow:var(--shadow-card);
+    }
+
+    /* ---- product card: laid-back on the shelf, loosens on hover -------- */
+    .product-card{
+      transform: rotate(var(--tilt, 0deg));
+      transition: transform .5s cubic-bezier(.2,.7,.25,1), box-shadow .5s ease, border-color .3s ease;
+      will-change: transform;
+    }
+    /* a couple of the cards sit at slightly different angles — handmade, not grid-perfect */
+    .product-grid > div:nth-child(3n+2) .product-card{ --tilt:.55deg; }
+    .product-grid > div:nth-child(3n+3) .product-card{ --tilt:-.45deg; }
+    .product-card:hover{
+      transform: translateY(-4px) rotate(-.7deg);
+      box-shadow:var(--shadow-card-hover);
+      border-color:var(--border-fig);
+    }
+
+    /* ---- wax-seal stamp (hand-stamped ink mark) ------------------------ */
+    .wax-seal{
+      --seal-ink:var(--forest);
+      display:inline-flex; align-items:center; justify-content:center;
+      min-width:72px; min-height:72px; padding:8px 12px;
+      border-radius:50%; text-align:center;
+      background:
+        radial-gradient(circle at 32% 28%, rgba(255,255,255,.4), transparent 58%),
+        rgba(255,255,255,.55);
+      color:var(--seal-ink);
+      border:1.5px solid var(--seal-ink);
+      box-shadow: 0 0 0 2px rgba(255,255,255,.6), 0 0 0 3.2px var(--seal-ink), inset 0 0 0 1px rgba(255,255,255,.5);
+      transform: rotate(-8deg);
+      font-weight:700; font-size:.6875rem; line-height:1.45; letter-spacing:.02em;
+    }
+    .wax-seal--glass { min-width:60px; min-height:60px; font-size:.625rem; }
+    .wax-seal--fig   { --seal-ink:var(--fig); }
+    .wax-seal--forest{ --seal-ink:var(--forest); }
+
+    /* ---- dash-stamped chip (postage-stamp style tag) ------------------- */
+    .stamp{
+      display:inline-flex; align-items:center; gap:.55em;
+      border-radius:999px; padding:.42em .9em;
+      font-size:.75rem; font-weight:600; line-height:1;
+      color:var(--fig);
+      border:1.5px dashed var(--border-fig);
+      background:rgba(255,255,255,.4);
+      transform:rotate(-1deg);
+    }
+    .stamp--saffron{ color:var(--saffron-dark); border-color:rgba(201,138,44,.6); }
+    .stamp--rose  { color:var(--rose); border-color:rgba(201,112,100,.6); }
+
+    .leaf-mark{ color:var(--forest); }
+
+    /* ---- nav underline (orchard green) --------------------------------- */
+    .navlink{ position:relative; font-weight:500; color:var(--walnut); transition:color .2s ease; }
+    .navlink::after{
+      content:""; position:absolute; inset-inline:0; bottom:-4px; height:3px;
+      border-radius:2px; background:var(--forest);
+      width:0; transition:width .25s ease;
+    }
+    .navlink:hover{ color:var(--fig); }
+    .navlink:hover::after, .navlink.is-active::after{ width:100%; }
+
+    /* ---- buttons -------------------------------------------------------- */
+    .btn{
+      display:inline-flex; align-items:center; justify-content:center; gap:.5rem;
+      font-weight:600; font-size:.9375rem; line-height:1; white-space:nowrap;
+      padding:.95rem 1.7rem;
+      border-radius:var(--radius-btn);
+      transition: transform .25s ease, background .25s ease, box-shadow .25s ease, color .25s ease;
+      cursor:pointer; user-select:none;
+    }
+    .btn:active{ transform:translateY(1px); }
+    .btn-primary{
+      background:var(--pomegranate); color:var(--text-on-dark);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.16), 0 1px 0 rgba(255,255,255,.22) inset;
+    }
+    .btn-primary:hover{ background:var(--pomegranate-dark); transform:translateY(-1px); }
+    .btn-forest{ background:var(--forest); color:var(--text-on-dark); }
+    .btn-forest:hover{ background:var(--forest-dark); transform:translateY(-1px); }
+    .btn-ghost{ background:transparent; color:var(--fig); border:1.5px solid rgba(91,58,92,.45); }
+    .btn-ghost:hover{ background:rgba(91,58,92,.08); transform:translateY(-1px); }
+    .btn:disabled,.btn[disabled]{ opacity:.45; cursor:not-allowed; pointer-events:none; }
+
+    /* ---- admin tabs ----------------------------------------------------- */
+    .tab-btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      font-weight:600; font-size:.875rem; line-height:1;
+      padding:.625rem 1.25rem;
+      border-radius:var(--radius-btn);
+      border:1px solid var(--line); background:var(--sand); color:var(--walnut);
+      box-shadow:var(--shadow-card);
+      transition: transform .2s ease, background .2s ease, color .2s ease, box-shadow .2s ease;
+    }
+    .tab-btn:hover{ background:var(--sand-dark); transform:translateY(-1px); }
+    .tab-active{ background:var(--pomegranate); color:var(--text-on-dark); border-color:var(--pomegranate); }
+    .tab-active:hover{ background:var(--pomegranate-dark); }
+
+    /* ---- form fields ---------------------------------------------------- */
+    .field{
+      width:100%; padding:.85rem 1.05rem;
+      font-family:inherit; color:var(--walnut); background:var(--surface-warm);
+      border:1px solid var(--border-default);
+      border-radius:var(--radius-btn);
+      transition: border-color .2s ease, box-shadow .2s ease;
+    }
+    .field::placeholder{ color:rgba(140,111,94,.6); }
+    .field:focus{ border-color:var(--saffron); box-shadow:0 0 0 3px rgba(201,138,44,.2); outline:none; }
+    label.lbl{ font-weight:600; font-size:.875rem; color:var(--ink); }
+
+    /* ---- compact inline field (admin tables) ---------------------------- */
+    .field-inline{
+      font-family:inherit; color:var(--walnut);
+      padding:.375rem .5rem; font-size:.875rem;
+      border:1px solid var(--line); background:var(--surface-warm);
+      border-radius:var(--radius-sm);
+      transition: border-color .2s ease, box-shadow .2s ease;
+    }
+    .field-inline:focus{ border-color:var(--saffron); box-shadow:0 0 0 3px rgba(201,138,44,.2); outline:none; }
+
+    /* ---- sticky-note / washi tape (scrapbook motif) --------------------- */
+    .tape{
+      position:absolute; top:-13px; left:50%; width:96px; height:24px;
+      transform:translateX(-50%) rotate(-4deg);
+      background:rgba(192,166,112,.30);
+      border:1px dashed rgba(120,100,60,.3);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.35);
+    }
+
+
+
+    /* ---- soft scroll-motion (organic, slow) ------------------------------ */
+    [data-reveal]{ opacity:0; transform:translateY(16px); transition:opacity .45s ease-out, transform .45s ease-out; }
+    [data-reveal].rv{ opacity:1; transform:none; }
+    @media (prefers-reduced-motion: reduce){
+      html{ scroll-behavior:auto; }
+      [data-reveal]{ opacity:1; transform:none; transition:none; }
+      .product-card:hover{ transform:none; }
+    }
+
+    /* ---- step buttons for quantity steppers ------------------------------ */
+    .step-btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      width:2.1rem; height:2.1rem; border-radius:50%;
+      border:1px solid var(--line); background:var(--surface-warm); color:var(--walnut);
+      font-size:1.1rem; line-height:1; transition:.2s ease;
+    }
+    .step-btn:hover{ background:rgba(91,58,92,.09); color:var(--fig); border-color:rgba(91,58,92,.35); }
+    .step-btn:disabled{ opacity:.4; cursor:not-allowed; }
+
+    /* ---- trust seal sizing ----------------------------------------------- */
+    .seal-box{ line-height:0; }
+    .seal-img{ width:auto; max-width:120px; height:auto; }
+    @media (max-width:640px){ .seal-img{ max-width:100px; } }
+
+    /* ---- vis-only ------------------------------------------------------------------ */
+    .skip-link{
+      position:absolute; inset-inline-start:-999px; top:0; z-index:80;
+      background:var(--walnut); color:var(--parchment); padding:.6rem 1rem; border-radius:0 0 12px 12px;
+    }
+    .skip-link:focus{ inset-inline-start:0; }
+    .scrollbar-none::-webkit-scrollbar{ display:none; }
+    .scrollbar-none{ scrollbar-width:none; }
   </style>
 </head>
-<body class="min-h-screen bg-cream font-sans text-charcoal antialiased flex flex-col">
-  <nav class="sticky top-0 z-40 bg-garnet border-b border-white/20">
-    <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-      <a href="/" class="text-2xl font-bold tracking-tight text-white font-serif">تودج</a>
-      <ul class="hidden md:flex items-center gap-4">
-        <li><a href="/about" class="text-sm font-medium text-white/90 hover:text-white transition">درباره ما</a></li>
-        {{if .LoggedIn}}
-        <li><a href="/orders" class="text-sm font-medium text-white/90 hover:text-white transition">سفارش‌های من</a></li>
-        <li><a href="/logout" class="text-sm font-medium text-white/70 hover:text-white transition">خروج</a></li>
-        {{else}}
-        <li><a href="/login" class="text-sm font-medium text-white/90 hover:text-white transition">ورود / ثبت‌نام</a></li>
+
+<body class="min-h-screen bg-parchment font-sans text-walnut antialiased flex flex-col">
+  <a class="skip-link" href="#main">پرش به محتوای اصلی</a>
+  <div class="grain" aria-hidden="true"></div>
+
+  <!-- ============ HEADER ============ -->
+  <header class="sticky top-0 z-40 border-b border-line/80 bg-parchment/95">
+    <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 lg:px-8">
+      <!-- logo + primary nav sit on the right (RTL reading start) -->
+      <div class="flex items-center gap-7">
+        <a href="/" class="group flex items-center gap-2.5">
+          <img src="/assets/mountain.svg" alt="" class="h-8 w-8 transition-transform duration-500 group-hover:-rotate-12">
+          <span class="font-display text-2xl font-bold leading-none text-pomegranate">تودج</span>
+        </a>
+        <nav class="hidden items-center gap-7 lg:flex" aria-label="ناوبری اصلی">
+          <a href="/about" class="navlink text-sm">درباره ما</a>
+          <a href="/products/spring" class="navlink text-sm">بهار</a>
+          <a href="/products/summer" class="navlink text-sm">تابستان</a>
+          <a href="/products/autumn" class="navlink text-sm">پاییز</a>
+          <a href="/products/dried" class="navlink text-sm">خشکبار</a>
+          <a href="/products/processed" class="navlink text-sm">سنتی</a>
+          {{if .LoggedIn}}
+          <a href="/orders" class="navlink text-sm">سفارش‌های من</a>
+          <a href="/logout" class="navlink text-sm text-clay">خروج</a>
+          {{end}}
+        </nav>
+      </div>
+
+      <!-- cart + account / menu (left, RTL reading end) -->
+      <div class="flex items-center gap-3">
+        {{if not .LoggedIn}}
+        <a href="/login"
+          class="hidden md:inline-flex btn btn-ghost rounded-full px-4 py-2 text-sm" aria-label="ورود">ورود</a>
         {{end}}
-      </ul>
-      <div class="flex items-center gap-2">
-        <button id="menu-btn" class="md:hidden text-white/90 hover:text-white transition p-1" aria-label="منو">
-          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path id="menu-icon" stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+        <a href="/cart" class="group relative flex h-11 w-11 items-center justify-center rounded-full border border-line/80 bg-sand/60 text-walnut transition hover:border-fig/40 hover:bg-sand" aria-label="سبد خرید">
+          <svg class="h-5 w-5 transition group-hover:-rotate-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 8h16l-1.3 11.3a1.6 1.6 0 0 1-1.6 1.4H6.9a1.6 1.6 0 0 1-1.6-1.4L4 8Z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.6 10V6.4a3.4 3.4 0 0 1 6.8 0V10"/>
           </svg>
-        </button>
-        <a href="/cart" class="relative text-white/90 hover:text-white transition flex-shrink-0">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
-          </svg>
-          <!-- CART COUNT BADGE — server-rendered so the first paint is correct (no 0-flash); HTMX refreshes it on cartUpdated -->
-          <span id="cart-count" class="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-md bg-forest text-xs font-bold text-white"
+          <!-- CART COUNT badge — server-rendered, refreshed via HTMX on cartUpdated -->
+          <span id="cart-count" class="absolute -top-1.5 -end-1.5 flex h-6 w-6 items-center justify-center rounded-full text-[.6875rem] font-bold text-parchment"
+            style="background:var(--pomegranate); box-shadow:0 0 0 2px var(--parchment);"
             hx-get="/cart/count" hx-trigger="load, cartUpdated from:body" hx-target="this" hx-swap="innerHTML">{{.CartCount | persianDigits}}</span>
         </a>
+        <button id="menu-btn" class="flex h-11 w-11 items-center justify-center rounded-full border border-line bg-sand/60 text-walnut lg:hidden" aria-label="باز کردن منو" aria-expanded="false">
+          <svg id="menu-icon" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+        </button>
       </div>
     </div>
-    <div id="menu-drawer" class="hidden md:hidden border-t border-white/20 bg-garnet-dark px-4 py-3 space-y-2">
-      <a href="/about" class="block text-sm font-medium text-white/90 hover:text-white transition">درباره ما</a>
-      {{if .LoggedIn}}
-      <a href="/orders" class="block text-sm font-medium text-white/90 hover:text-white transition">سفارش‌های من</a>
-      <a href="/logout" class="block text-sm font-medium text-white/70 hover:text-white transition">خروج</a>
-      {{else}}
-      <a href="/login" class="block text-sm font-medium text-white/90 hover:text-white transition">ورود / ثبت‌نام</a>
-      {{end}}
+
+    <!-- mobile drawer -->
+    <div id="menu-drawer" class="hidden border-t border-line/70 bg-parchment px-5 pb-5 pt-3 lg:hidden">
+      <nav class="flex flex-col gap-1" aria-label="ناوبری موبایل">
+        <a href="/about" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">درباره ما</a>
+        <a href="/products/spring" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">بهار</a>
+        <a href="/products/summer" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">تابستان</a>
+        <a href="/products/autumn" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">پاییز</a>
+        <a href="/products/dried" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">خشکبار</a>
+        <a href="/products/processed" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">سنتی</a>
+        {{if .LoggedIn}}
+        <a href="/orders" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">سفارش‌های من</a>
+        <a href="/logout" class="rounded-lg px-3 py-2.5 text-sm font-medium text-clay hover:bg-sand">خروج</a>
+        {{else}}
+        <a href="/login" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">ورود / ثبت‌نام</a>
+        {{end}}
+      </nav>
     </div>
-  </nav>
+  </header>
+
   <script>
-    document.getElementById('menu-btn').addEventListener('click',function(){
-      var d=document.getElementById('menu-drawer'),i=document.getElementById('menu-icon');
-      d.classList.toggle('hidden');
-      if(d.classList.contains('hidden')){i.setAttribute('d','M4 6h16M4 12h16M4 18h16')}
-      else{i.setAttribute('d','M6 6l12 12M6 18L18 6')}
-    });
+    (function(){
+      var btn=document.getElementById('menu-btn'), drawer=document.getElementById('menu-drawer'), icon=document.getElementById('menu-icon');
+      btn.addEventListener('click',function(){
+        var open = !drawer.classList.contains('hidden');
+        drawer.classList.toggle('hidden');
+        btn.setAttribute('aria-expanded', String(!open));
+        icon.setAttribute('d', open ? 'M4 6h16M4 12h16M4 18h16' : 'M6 6l12 12M6 18L18 6');
+      });
+    })();
   </script>
 
-  <!-- MAIN CONTENT BLOCK — each page template defines "content" to fill this area -->
-  <main class="flex-1">
+  <!-- ============ MAIN ============ -->
+  <main id="main" class="flex-1">
     {{block "content" .}}{{end}}
   </main>
 
-  <footer class="bg-forest text-white">
-    <div class="mx-auto max-w-6xl px-4 py-8">
-      <div class="grid gap-6 sm:grid-cols-3">
-        <div>
-          <h3 class="mb-2 text-lg font-bold font-serif">تودج</h3>
-          <p class="text-sm text-white/70">انجیر، انار و فرآوری‌های سنتی.</p>
+  <!-- ============ FOOTER ============ -->
+  <footer class="relative mt-20 overflow-hidden bg-forest" style="color:var(--text-on-dark)">
+    <div class="relative h-4 bg-sand"></div>
+    <div class="mx-auto max-w-7xl px-5 py-14 lg:px-8">
+      <div class="grid gap-12 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="sm:col-span-2 lg:col-span-1">
+          <a href="/" class="flex items-center gap-2.5">
+            <span class="font-display text-2xl font-bold text-sand">تودج</span>
+          </a>
+          <p class="mt-4 max-w-xs text-sm leading-7 text-sand/80 flex items-center gap-2">
+            <img src="/assets/location.svg" alt="" class="h-4 w-4">
+            استهبان، فارس، ایران
+          </p>
         </div>
         <div>
-          <h3 class="mb-2 text-lg font-bold font-serif">ارتباط با ما</h3>
-          <ul class="space-y-2 text-sm">
-            <li class="flex items-center justify-between gap-4 text-right">
-              <span class="text-white/70">شماره تماس</span>
-              <span dir="ltr" class="text-white/90">+989904196349</span>
+          <h3 class="mb-4 border-b border-sand/25 pb-2 font-display text-lg font-semibold text-sand">خرید</h3>
+          <ul class="space-y-2.5 text-sm text-sand/80">
+            <li><a href="/products/spring" class="transition hover:text-saffron">بهار</a></li>
+            <li><a href="/products/summer" class="transition hover:text-saffron">تابستان</a></li>
+            <li><a href="/products/autumn" class="transition hover:text-saffron">پاییز</a></li>
+            <li><a href="/products/dried" class="transition hover:text-saffron">خشکبار</a></li>
+            <li><a href="/products/processed" class="transition hover:text-saffron">سنتی</a></li>
+            <li><a href="/cart" class="transition hover:text-saffron">سبد خرید</a></li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="mb-4 border-b border-sand/25 pb-2 font-display text-lg font-semibold text-sand">ارتباط با ما</h3>
+          <ul class="space-y-2.5 text-sm">
+            <li class="flex items-baseline justify-between gap-4">
+              <span class="text-sand/70">تماس</span>
+              <span dir="ltr" class="text-sand">+989904196349</span>
             </li>
-            <li class="flex items-center justify-between gap-4 text-right">
-              <span class="text-white/70">پست الکترونیکی</span>
-              <span dir="ltr" class="text-white/90">support@toodej.shop</span>
+            <li class="flex items-baseline justify-between gap-4">
+              <span class="text-sand/70">ایمیل</span>
+              <span dir="ltr" class="text-sm text-sand">support@toodej.shop</span>
             </li>
           </ul>
         </div>
@@ -131,7 +401,8 @@
               referrerpolicy="origin"
               target="_blank"
               href="https://trustseal.enamad.ir/?id=769838&Code=5NjZah6MLvOMO7yVXo8vQDS5mjIcMf5L"
-              class="seal-box inline-flex items-center justify-center rounded-md border border-white/15 bg-white p-2 shadow-sm transition hover:bg-parchment hover:shadow-md"
+              class="seal-box inline-flex items-center justify-center rounded-lg border border-sand/25 p-2 shadow-soft transition hover:shadow-lift"
+              style="background:var(--surface-warm)"
               title="مجوزهای نماد اعتماد الکترونیکی"
             >
               <img
@@ -147,72 +418,117 @@
           </div>
         </div>
       </div>
-      <!-- ============================================================
-           TRUST SEALS — e-Namad (نماد اعتماد الکترونیکی)
-           ------------------------------------------------------------
-           This section hosts your official trust seals. You can use
-           either of the two methods below.
 
-           1) STATIC IMAGE LINK (already wired up below) — works without
-              any extra script.
-           2) DYNAMIC SCRIPT / IFRAME (official) — replace the image
-              markup below with the code block provided by the e-Namad
-              portal. Paste it inside #enamad-trust-seal:
+      <div class="mt-12 flex flex-col items-center justify-between gap-3 border-t border-sand/20 pt-6 text-xs leading-relaxed text-sand/60 sm:flex-row">
+        <p>&copy; ۲۰۲۶ تودج. تمامی حقوق محفوظ است.</p>
+      </div>
 
-              <div id="enamad-trust-seal">
-                ... your iframe / script code from trustseal.enamad.ir ...
-                <script>...</script>
-              </div>
-           ============================================================ -->
-      <!-- COPYRIGHT TEXT -->
-      <p class="mt-8 text-center text-xs leading-relaxed text-white/50">
-        &copy; ۲۰۲۶ تودج. تمامی حقوق محفوظ است.
-      </p>
+      <!-- e-Namad retry script -->
+      <script>
+        function trustSealRetry(img) {
+          if (img && img.dataset && (parseInt(img.dataset.retry || '0', 10) < 5)) {
+            var n = parseInt(img.dataset.retry || '0', 10) + 1;
+            img.dataset.retry = String(n);
+            setTimeout(function () {
+              img.src = img.getAttribute('src') + '&rustle=' + n;
+            }, 1200);
+          }
+        }
+      </script>
     </div>
   </footer>
 
-  <!-- TOAST CONTAINER — cartEvent listener appends/removes notification toasts here -->
-  <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col-reverse gap-3 pointer-events-none"></div>
+  <!-- ============ SHARED PATTERNS ============ -->
+
+  <!-- shared product card (fresh / handmade wax badges, Persian price) -->
+  {{define "product-card"}}
+  <article class="product-card paper-card group flex flex-col overflow-hidden">
+    <div class="relative aspect-[4/3] overflow-hidden bg-sand">
+      {{if .ImageURL}}
+      <img src="{{.ImageURL}}" alt="{{.Name}}" class="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-105" loading="lazy">
+      {{else}}
+      <div class="flex h-full items-center justify-center bg-sand" aria-hidden="true">
+        <img src="/assets/fig.svg" alt="" class="h-20 w-20 opacity-45">
+      </div>
+      {{end}}
+      {{if eq .Category "تابستان"}}
+      <span class="wax-seal wax-seal--forest absolute top-3 end-3">بـرداشت<br>امسال</span>
+      {{else if eq .Category "پاییز"}}
+      <span class="wax-seal wax-seal--forest absolute top-3 end-3">بـرداشت<br>امسال</span>
+      {{else if eq .Category "بهار"}}
+      <span class="wax-seal wax-seal--forest absolute top-3 end-3">بـرداشت<br>امسال</span>
+      {{else}}
+      <span class="wax-seal wax-seal--fig absolute top-3 end-3">دست‌ساز<br>خانگی</span>
+      {{end}}
+      <span class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-walnut/25 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100"></span>
+    </div>
+    <div class="flex flex-1 flex-col px-5 pb-5 pt-4">
+      <h3 class="font-display text-xl font-semibold leading-snug text-walnut">{{.Name}}</h3>
+      <p class="mt-1.5 text-sm leading-6 text-clay line-clamp-2">{{.Description}}</p>
+      <div class="mt-4 flex items-end justify-between gap-3 border-t border-line/70 pt-4">
+        <div>
+          <span class="block text-lg font-bold leading-none tracking-tight text-pomegranate">{{formatPrice .Price}}</span>
+          <span class="mt-1 block text-xs text-clay">{{.Unit}}</span>
+        </div>
+        {{if gt .StockQuantity 0}}
+        <button
+          hx-post="/cart/add" hx-vals='{"product_id": "{{.ID}}"}' hx-target="#cart-count" hx-swap="innerHTML" hx-trigger="click"
+          class="btn btn-primary px-4 py-2.5 text-sm" aria-label="افزودن {{.Name}} به سبد خرید">افزودن به سبد</button>
+        {{else}}
+        <span class="text-sm font-semibold text-rose">اتمام موجودی</span>
+        {{end}}
+      </div>
+    </div>
+  </article>
+  {{end}}
+
+  <!-- ============ TOASTS (cart feedback) ============ -->
+  <div id="toast-container" class="pointer-events-none fixed bottom-5 end-5 z-50 flex flex-col-reverse gap-3"></div>
   <script>
     var c = {
-      added:{msg:'به سبد خرید اضافه شد',bg:'bg-[#E3EBE6]',txt:'text-[#2D4A3E]'},
-      removed:{msg:'از سبد خرید حذف شد',bg:'bg-[#FCE7EB]',txt:'text-[#8B263E]'}
+      added:   { msg:'به سبد خرید اضافه شد',  bg:'bg-[var(--toast-success)]',   tint:'var(--forest)' },
+      removed: { msg:'از سبد خرید حذف شد',   bg:'bg-[var(--toast-error)]',   tint:'var(--pomegranate)' }
     };
-    document.addEventListener('cartEvent',function(e){
-      var t = c[e.detail] || {msg:'سبد خرید بروزرسانی شد',bg:'bg-[#F4EFE6]',txt:'text-[#2C302E]'};
+    document.addEventListener('cartEvent', function(e){
+      var d = c[e.detail] || { msg:'سبد خرید بروزرسانی شد', bg:'bg-sand', tint:'var(--walnut)' };
       var el = document.createElement('div');
-      el.className = t.bg+' '+t.txt+' rounded-sm shadow-md border-r-4 border-green-600 px-5 py-3 text-sm font-medium duration-300 ease-out opacity-0';
-      el.textContent = t.msg;
-      el.style.transform = 'translateX(100%)';
+      el.className = d.bg + ' rounded-2xl px-5 py-3 text-sm font-semibold shadow-lift';
+      el.style.borderInlineStart = '3px solid ' + d.tint;
+      el.textContent = d.msg;
+      el.style.opacity = '0';
+      el.style.transform = 'translateX(-12px)';
       var container = document.getElementById('toast-container');
       container.appendChild(el);
       el.offsetHeight;
-      el.style.transition = 'all 300ms ease-out';
-      el.style.transform = '';
+      el.style.transition = 'all 320ms ease-out';
       el.style.opacity = '1';
+      el.style.transform = 'translateX(0)';
       setTimeout(function(){
         var h = el.offsetHeight;
         el.style.transition = 'all 350ms ease-in';
-        el.style.transform = 'translateY(calc(100% + 0.75rem))';
         el.style.opacity = '0';
+        el.style.transform = 'translateY(calc(100% + .75rem))';
         el.style.marginBottom = -(h + 12) + 'px';
-        el.style.pointerEvents = 'none';
-        setTimeout(function(){el.remove()},350);
-      },2500);
+        setTimeout(function(){ el.remove(); }, 350);
+      }, 2600);
     });
   </script>
+
+  <!-- soft scroll reveal: slow and organic (Section 7) -->
   <script>
-    // e-Namad seal retry: logo.aspx intermittently returns an empty body.
-    // Retry a few times over ~6s so the seal appears without a manual refresh.
-    function trustSealRetry(img) {
-      if (img && img.dataset && (parseInt(img.dataset.retry || '0', 10) < 5)) {
-        var n = parseInt(img.dataset.retry || '0', 10) + 1;
-        img.dataset.retry = String(n);
-        setTimeout(function () {
-          img.src = img.getAttribute('src') + '&rustle=' + n;
-        }, 1200);
+    (function () {
+      if (!('IntersectionObserver' in window)) { return; }
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (en.isIntersecting) { en.target.classList.add('rv'); io.unobserve(en.target); }
+        });
+      }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+      function observeReveals() {
+        document.querySelectorAll('[data-reveal]:not(.rv)').forEach(function (el) { io.observe(el); });
       }
-    }
+      observeReveals();
+      document.body.addEventListener('htmx:afterSwap', observeReveals);
+    })();
   </script>
 </body>
 </html>

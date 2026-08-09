@@ -17,11 +17,13 @@ import (
 	"farmstore/internal/models"
 )
 
-// CategoryFresh and CategoryDerived are the two product categories used for
-// filtering on the storefront.
+// Category constants for the five product categories on the storefront.
 const (
-	CategoryFresh   = "میوه تازه"
-	CategoryDerived = "محصولات فرآوری‌شده"
+	CategorySpring    = "بهار"
+	CategorySummer    = "تابستان"
+	CategoryAutumn    = "پاییز"
+	CategoryDried     = "خشکبار"
+	CategoryProcessed = "سنتی"
 )
 
 // ErrInsufficientStock is returned by CreateOrder when an ordered quantity
@@ -86,9 +88,10 @@ func migrate(db *sql.DB) error {
 		customer_name    TEXT    NOT NULL,
 		customer_phone   TEXT    NOT NULL DEFAULT '',
 		customer_address TEXT    NOT NULL DEFAULT '',
+		postal_code      TEXT    NOT NULL DEFAULT '',
 		total_amount    INTEGER NOT NULL DEFAULT 0,
 		status          TEXT    NOT NULL DEFAULT 'pending'
-			CHECK (status IN ('pending','processing','completed','cancelled')),
+			CHECK (status IN ('pending','preparing','dispatched','cancelled')),
 		user_id        INTEGER REFERENCES users(id),
 		created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 	);
@@ -120,6 +123,64 @@ func migrate(db *sql.DB) error {
 		// column may already exist on re-deploy — ignore
 	}
 
+	// Migration: update status CHECK constraint to include new statuses.
+	// SQLite does not support ALTER TABLE for CHECK constraints, so we
+	// recreate the orders table with the updated constraint.
+	var checkSQL string
+	err = db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='orders'").Scan(&checkSQL)
+	if err == nil && !strings.Contains(checkSQL, "preparing") {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+
+		if _, err := tx.Exec(`CREATE TABLE orders_new (
+			id              TEXT    PRIMARY KEY,
+			customer_name    TEXT    NOT NULL,
+			customer_phone   TEXT    NOT NULL DEFAULT '',
+			customer_address TEXT    NOT NULL DEFAULT '',
+			postal_code      TEXT    NOT NULL DEFAULT '',
+			total_amount    INTEGER NOT NULL DEFAULT 0,
+			status          TEXT    NOT NULL DEFAULT 'pending'
+				CHECK (status IN ('pending','preparing','dispatched','cancelled')),
+			user_id        INTEGER REFERENCES users(id),
+			created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+		)`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO orders_new (id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, user_id, created_at)
+			SELECT id, customer_name, customer_phone, customer_address, '', total_amount,
+			CASE status
+				WHEN 'processing' THEN 'preparing'
+				WHEN 'completed' THEN 'dispatched'
+				ELSE status
+			END,
+			user_id, created_at
+			FROM orders`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DROP TABLE orders`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`ALTER TABLE orders_new RENAME TO orders`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id)`); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+
+	// Migration: add postal_code column if missing.
+	var colCheck string
+	err = db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='orders'").Scan(&colCheck)
+	if err == nil && !strings.Contains(colCheck, "postal_code") {
+		_, _ = db.Exec("ALTER TABLE orders ADD COLUMN postal_code TEXT NOT NULL DEFAULT ''")
+	}
+
 	return nil
 }
 
@@ -139,11 +200,22 @@ func seed(db *sql.DB) error {
 		Price, Stock                      int
 		Unit                              string
 	}{
-		{"انجیر تازه ارگانیک", "انجیر-تازه-ارگانیک", "میوه تازه", "انجیر ارگانیک درجه یک، چیده‌شده در اوج رسیدگی.", 1299000, 50, "۱ کیلوگرم"},
-		{"انار تازه ملس", "انار-تازه-ملس", "میوه تازه", "انارهای آبدار و یاقوتی مستقیماً از باغ.", 899000, 60, "۱ کیلوگرم"},
-		{"مربای انجیر خانگی", "مربای-انجیر-خانگی", "محصولات فرآوری‌شده", "مربای انجیر آرام‌پز شده با انجیر ارگانیک و کمی لیمو.", 950000, 30, "شیشه ۲۵۰ گرمی"},
-		{"رب انار خالص", "رب-انار-خالص", "محصولات فرآوری‌شده", "رب انار غلیظ و ترش - عالی برای سس و ماریناد.", 1200000, 25, "بطری ۵۰۰ میلی‌لیتر"},
-		{"آب انار طبیعی", "آب-انار-طبیعی", "محصولات فرآوری‌شده", "آب انار تازه و طبیعی، بدون شکر افزوده.", 790000, 40, "بطری ۵۰۰ میلی‌لیتر"},
+		{"انجیر تازه ارگانیک", "انجیر-تازه-ارگانیک", "تابستان", "شیرین، نرم و پر از فیبر.", 1299000, 50, "۱ کیلوگرم"},
+		{"انار تازه ملس", "انار-تازه-ملس", "پاییز", "شیرین، آبدار و پر از آنتی‌اکسیدان.", 899000, 60, "۱ کیلوگرم"},
+		{"مربای انجیر خانگی", "مربای-انجیر-خانگی", "سنتی", "آهسته‌پز با انجیر طبیعی و بدون افزودنی.", 950000, 30, "شیشه ۲۵۰ گرمی"},
+		{"رب انار خالص", "رب-انار-خالص", "سنتی", "غلیظ و ترش و شیرین؛ عالی برای سس و خورشت.", 1200000, 25, "بطری ۵۰۰ میلی‌لیتر"},
+		{"آب انار طبیعی", "آب-انار-طبیعی", "سنتی", "تازه و بدون شکر و مواد افزودنی.", 790000, 40, "بطری ۵۰۰ میلی‌لیتر"},
+		{"انجیر خشک اعلی", "انجیر-خشک-اعلی", "خشکبار", "خشک شده زیر آفتاب، شیرین و طبیعی.", 1899000, 40, "۵۰۰ گرم"},
+		{"پسته اکبری", "پسته-اکبری", "خشکبار", "مرغوب، خوش‌رنگ و خوش‌طعم.", 3490000, 20, "۲۵۰ گرم"},
+		{"به‌لیمو تازه", "به‌لیمو-تازه", "بهار", "عطر دل‌انگیز بهاری، مناسب دمنوش و غذا.", 450000, 35, "۲۵۰ گرم"},
+		{"نعناع تازه", "نعناع-تازه", "بهار", "سبز، خوش‌عطر و مناسب تزئین و دمنوش.", 350000, 50, "دسته"},
+		{"هلو تازه", "هلو-تازه", "تابستان", "آبدار و شیرین، رسیده از باغ.", 750000, 45, "۱ کیلوگرم"},
+		{"سیب قرمز", "سیب-قرمز", "پاییز", "ترش و شیرین، تازه از باغ‌های شمال.", 650000, 60, "۱ کیلوگرم"},
+		{"مغز گردو", "مغز-گردو", "خشکبار", "تازه و خوش‌طعم، بدون نمک.", 2100000, 30, "۲۵۰ گرم"},
+		{"ترشی مخلوط", "ترشی-مخلوط", "سنتی", "خانگی و آهسته‌پز، طعم اصیل.", 680000, 25, "شیشه ۵۰۰ گرمی"},
+		{"گیلاس تازه", "گیلاس-تازه", "بهار", "شیرین و رسیده، بهترین کیفیت فصل.", 1200000, 30, "۱ کیلوگرم"},
+		{"طالبی", "طالبی", "تابستان", "شیرین و آبدار، مناسب سالاد و دسر.", 550000, 40, "۱ کیلوگرم"},
+		{"کدو حلوایی", "کدو-حلوایی", "پاییز", "شیرین و مناسب پخت و پز.", 480000, 35, "۱ کیلوگرم"},
 	}
 
 	stmt, err := db.Prepare(`INSERT INTO products (name, slug, category, description, price, stock_quantity, unit) VALUES (?, ?, ?, ?, ?, ?, ?)`)
@@ -202,7 +274,7 @@ func GetProduct(db *sql.DB, id int64) (*models.Product, error) {
 
 // GetOrders returns all orders ordered by newest first.
 func GetOrders(db *sql.DB) ([]models.Order, error) {
-	rows, err := db.Query("SELECT id, customer_name, customer_phone, customer_address, total_amount, status, created_at FROM orders ORDER BY created_at DESC")
+	rows, err := db.Query("SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, created_at FROM orders ORDER BY created_at DESC")
 	if err != nil {
 		return nil, fmt.Errorf("query orders: %w", err)
 	}
@@ -212,7 +284,7 @@ func GetOrders(db *sql.DB) ([]models.Order, error) {
 	for rows.Next() {
 		var o models.Order
 		var createdAt string
-		if err := rows.Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.TotalAmount, &o.Status, &createdAt); err != nil {
+		if err := rows.Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan order: %w", err)
 		}
 		o.CreatedAt = parseTime(createdAt)
@@ -337,8 +409,8 @@ func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string,
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`INSERT INTO orders (id, customer_name, customer_phone, customer_address, total_amount, status, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		o.ID, o.CustomerName, o.CustomerPhone, o.CustomerAddress, o.TotalAmount, o.Status, o.UserID)
+	_, err = tx.Exec(`INSERT INTO orders (id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		o.ID, o.CustomerName, o.CustomerPhone, o.CustomerAddress, o.PostalCode, o.TotalAmount, o.Status, o.UserID)
 	if err != nil {
 		return "", fmt.Errorf("insert order: %w", err)
 	}
@@ -383,8 +455,8 @@ func GetOrderWithItems(db *sql.DB, orderID string) (*models.Order, []models.Orde
 	var o models.Order
 	var createdAt string
 	var userID sql.NullInt64
-	err := db.QueryRow("SELECT id, customer_name, customer_phone, customer_address, total_amount, status, user_id, created_at FROM orders WHERE id = ?", orderID).
-		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.TotalAmount, &o.Status, &userID, &createdAt)
+	err := db.QueryRow("SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, user_id, created_at FROM orders WHERE id = ?", orderID).
+		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &userID, &createdAt)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("get order %s: %w", orderID, err)
 	}
@@ -500,7 +572,7 @@ func VerifyOTP(db *sql.DB, phone, code string) (bool, error) {
 
 // GetOrdersByUser returns all orders placed by a specific user, newest first.
 func GetOrdersByUser(db *sql.DB, userID int64) ([]models.Order, error) {
-	rows, err := db.Query("SELECT id, customer_name, customer_phone, customer_address, total_amount, status, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC", userID)
+	rows, err := db.Query("SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC", userID)
 	if err != nil {
 		return nil, fmt.Errorf("query user orders: %w", err)
 	}
@@ -510,7 +582,7 @@ func GetOrdersByUser(db *sql.DB, userID int64) ([]models.Order, error) {
 	for rows.Next() {
 		var o models.Order
 		var createdAt string
-		if err := rows.Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.TotalAmount, &o.Status, &createdAt); err != nil {
+		if err := rows.Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan order: %w", err)
 		}
 		o.CreatedAt = parseTime(createdAt)
@@ -543,7 +615,7 @@ func GetUserOrdersWithItems(db *sql.DB, userID int64) ([]models.OrderSummary, er
 		args[i] = id
 	}
 
-	query := fmt.Sprintf("SELECT oi.order_id, oi.quantity, oi.price_per_unit, p.name FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id IN (%s) ORDER BY oi.order_id", strings.Join(placeholders, ","))
+	query := fmt.Sprintf("SELECT oi.order_id, oi.quantity, oi.price_per_unit, p.name, p.unit FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id IN (%s) ORDER BY oi.order_id", strings.Join(placeholders, ","))
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query order items: %w", err)
@@ -554,8 +626,8 @@ func GetUserOrdersWithItems(db *sql.DB, userID int64) ([]models.OrderSummary, er
 	for rows.Next() {
 		var orderID string
 		var quantity, price int
-		var name string
-		if err := rows.Scan(&orderID, &quantity, &price, &name); err != nil {
+		var name, unit string
+		if err := rows.Scan(&orderID, &quantity, &price, &name, &unit); err != nil {
 			return nil, fmt.Errorf("scan item: %w", err)
 		}
 		itemsByOrder[orderID] = append(itemsByOrder[orderID], models.OrderItemView{
@@ -563,6 +635,7 @@ func GetUserOrdersWithItems(db *sql.DB, userID int64) ([]models.OrderSummary, er
 			Quantity: quantity,
 			Price:    price,
 			Subtotal: quantity * price,
+			Unit:     unit,
 		})
 	}
 	if err := rows.Err(); err != nil {

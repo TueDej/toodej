@@ -41,6 +41,88 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 
 // ── Order Management ──────────────────────────────────
 
+// AdminOrderDetail renders the full detail page for a single order.
+func (h *Handler) AdminOrderDetail(w http.ResponseWriter, r *http.Request) {
+	orderID := r.PathValue("id")
+	if !validOrderID(orderID) {
+		http.Error(w, "invalid order id", http.StatusBadRequest)
+		return
+	}
+
+	order, items, products, err := database.GetOrderWithItems(h.db, orderID)
+	if err != nil {
+		log.Printf("admin order detail: %v", err)
+		http.NotFound(w, r)
+		return
+	}
+
+	// Build OrderItemView slice with product names and subtotals.
+	var itemViews []models.OrderItemView
+	for i, item := range items {
+		name := ""
+		unit := ""
+		if i < len(products) {
+			name = products[i].Name
+			unit = products[i].Unit
+		}
+		itemViews = append(itemViews, models.OrderItemView{
+			Name:     name,
+			Quantity: item.Quantity,
+			Price:    item.PricePerUnit,
+			Subtotal: item.PricePerUnit * item.Quantity,
+			Unit:     unit,
+		})
+	}
+
+	data := h.mergeData(r, map[string]any{
+		"Order": order,
+		"Items": itemViews,
+	})
+	if err := h.templates["order-detail"].Execute(w, data); err != nil {
+		log.Printf("render order-detail: %v", err)
+	}
+}
+
+// AdminUpdateOrderStatusBadge returns just the updated status <span> badge
+// for the order detail page (HTMX target).
+func (h *Handler) AdminUpdateOrderStatusBadge(w http.ResponseWriter, r *http.Request) {
+	orderID := r.PathValue("id")
+	if !validOrderID(orderID) {
+		http.Error(w, "invalid order id", http.StatusBadRequest)
+		return
+	}
+
+	status := r.FormValue("status")
+	valid := map[string]bool{"pending": true, "preparing": true, "dispatched": true, "cancelled": true}
+	if !valid[status] {
+		http.Error(w, "invalid status", http.StatusBadRequest)
+		return
+	}
+
+	if err := database.UpdateOrderStatus(h.db, orderID, status); err != nil {
+		log.Printf("update order status badge: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	statusLabels := map[string]string{
+		"pending":    "در انتظار بررسی",
+		"preparing":  "آماده‌سازی برای ارسال",
+		"dispatched": "تحویل برای ارسال",
+		"cancelled":  "لغو شده",
+	}
+	statusColors := map[string]string{
+		"pending":    "var(--saffron)",
+		"preparing":  "var(--fig)",
+		"dispatched": "var(--forest)",
+		"cancelled":  "var(--pomegranate)",
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `<span class="rounded-full border border-dashed px-3 py-1 text-xs font-semibold" style="background:var(--surface-warm);color:%s">%s</span>`,
+		statusColors[status], statusLabels[status])
+}
+
 // AdminUpdateOrderStatus updates the status of an order via an HTMX POST from
 // the admin panel's inline <select>. It returns the new <td> with the updated
 // <select> so the page does not need a full reload.
@@ -52,7 +134,7 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 	}
 
 	status := r.FormValue("status")
-	valid := map[string]bool{"pending": true, "processing": true, "completed": true, "cancelled": true}
+	valid := map[string]bool{"pending": true, "preparing": true, "dispatched": true, "cancelled": true}
 	if !valid[status] {
 		http.Error(w, "invalid status", http.StatusBadRequest)
 		return
@@ -65,34 +147,36 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	tmpl := fmt.Sprintf(`<td id="order-%s-status" class="px-4 py-3">
-    <select name="status" class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet %%s"
-      hx-post="/admin/orders/%s/status" hx-trigger="change" hx-target="#order-%s-status" hx-swap="outerHTML">
-      <option value="pending" style="color:black" %%s>در انتظار بررسی</option>
-      <option value="processing" style="color:black" %%s>در حال پردازش</option>
-      <option value="completed" style="color:black" %%s>تکمیل شده</option>
-      <option value="cancelled" style="color:black" %%s>لغو شده</option>
-    </select>
-  </td>`, orderID, orderID, orderID)
 
+	statusLabels := map[string]string{
+		"pending":    "در انتظار بررسی",
+		"preparing":  "آماده‌سازی برای ارسال",
+		"dispatched": "تحویل برای ارسال",
+		"cancelled":  "لغو شده",
+	}
 	statusColors := map[string]string{
-		"pending":    "text-yellow-600",
-		"processing": "text-blue-600",
-		"completed":  "text-green-600",
-		"cancelled":  "text-red-600",
+		"pending":    "var(--saffron)",
+		"preparing":  "var(--fig)",
+		"dispatched": "var(--forest)",
+		"cancelled":  "var(--pomegranate)",
+	}
+	order := []string{"pending", "preparing", "dispatched", "cancelled"}
+
+	var opts strings.Builder
+	for _, s := range order {
+		sel := ""
+		if s == status {
+			sel = `selected `
+		}
+		fmt.Fprintf(&opts, `<option value="%s" %s>%s</option>`, s, sel, statusLabels[s])
 	}
 
-	color := statusColors[status]
-	sel := map[string]string{
-		"pending":    "",
-		"processing": "",
-		"completed":  "",
-		"cancelled":  "",
-	}
-	sel[status] = `selected="selected"`
-
-	tmpl = fmt.Sprintf(tmpl, color, sel["pending"], sel["processing"], sel["completed"], sel["cancelled"])
-	fmt.Fprint(w, tmpl)
+	fmt.Fprintf(w, `<td id="order-%s-status" class="px-4 py-3" onclick="event.stopPropagation()">
+    <select name="status" class="field-inline w-40 status-select" data-color="%s"
+      hx-post="/admin/orders/%s/status" hx-trigger="change" hx-target="#order-%s-status" hx-swap="outerHTML">
+      %s
+    </select>
+  </td>`, orderID, statusColors[status], orderID, orderID, opts.String())
 }
 
 // ── Product Management ────────────────────────────────
@@ -229,24 +313,24 @@ func (h *Handler) renderProductRow(w http.ResponseWriter, p models.Product) {
 		inactiveClass = "opacity-50"
 	}
 
-	row := fmt.Sprintf(`<tr id="product-%d" class="border-b border-gray-100 %s hover:bg-gray-50 transition">
-    <td class="px-4 py-3 text-sm text-gray-500 font-mono tracking-wider">%d</td>
-    <td class="px-4 py-3 text-sm font-medium text-gray-900">%s</td>
-    <td class="px-4 py-3 text-sm text-gray-600">%s</td>
+	row := fmt.Sprintf(`<tr id="product-%d" class="border-b border-line/70 %s transition hover:bg-sand/40">
+    <td class="px-4 py-3 text-sm text-clay font-mono tracking-wider">%d</td>
+    <td class="px-4 py-3 text-sm font-medium text-walnut">%s</td>
+    <td class="px-4 py-3 text-sm text-clay">%s</td>
     <td class="px-4 py-3">
       <input type="text" inputmode="numeric" name="price" value="%s"
-        class="w-40 rounded-md border border-gray-300 px-2 py-1 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet thousand-sep"
+        class="field-inline w-40 thousand-sep"
         hx-post="/admin/products/%d" hx-trigger="change" hx-target="#product-%d" hx-swap="outerHTML">
     </td>
     <td class="px-4 py-3">
       <input type="number" name="stock_quantity" value="%d" min="0"
-        class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet"
+        class="field-inline w-20"
         hx-post="/admin/products/%d" hx-trigger="change" hx-target="#product-%d" hx-swap="outerHTML">
     </td>
     <td class="px-4 py-3">
       <button dir="ltr" hx-post="/admin/products/%d/toggle" hx-target="#product-%d" hx-swap="outerHTML"
         class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none %s">
-        <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out %s"></span>
+        <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out %s"></span>
       </button>
     </td>
   </tr>`,
@@ -263,9 +347,9 @@ func (h *Handler) renderProductRow(w http.ResponseWriter, p models.Product) {
 // toggleBg returns the background colour class for the toggle switch based on active state.
 func toggleBg(active bool) string {
 	if active {
-		return "bg-garnet"
+		return "bg-pomegranate"
 	}
-	return "bg-gray-300"
+	return "bg-line"
 }
 
 // toggleTranslate returns the translate-x class for the toggle switch knob.
