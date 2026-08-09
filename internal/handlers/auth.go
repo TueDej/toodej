@@ -67,8 +67,8 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 		// Retarget into the #login-error slot so the form stays on screen.
 		w.Header().Set("HX-Retarget", "#login-error")
 		w.Header().Set("HX-Reswap", "innerHTML")
-		w.Write([]byte(`<div class="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
-      <svg class="mt-0.5 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+		w.Write([]byte(`<div class="flex items-start gap-3 rounded-[1.05rem_1rem_1rem_1.1rem] border border-rose/40 bg-[#FAE6E1] px-4 py-3 text-sm leading-7 text-pomegranate" role="alert">
+      <svg class="mt-1 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
       </svg>
       <span>شماره تماس معتبر وارد کنید؛ شماره باید با ۰۹ شروع شده و ۱۱ رقم باشد (مثلاً ۰۹۱۲۳۴۵۶۷۸۹).</span>
@@ -81,11 +81,11 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.Header().Set("HX-Retarget", "#login-error")
 		w.Header().Set("HX-Reswap", "innerHTML")
-		w.Write([]byte(`<div class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700" role="alert">
-      <svg class="mt-0.5 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+		w.Write([]byte(`<div class="flex items-start gap-3 rounded-[1.05rem_1rem_1rem_1.1rem] border border-[#C98A2C]/45 bg-[#F6E9CD] px-4 py-3 text-sm leading-7 text-[#7A5A2E]" role="alert">
+      <svg class="mt-1 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
       </svg>
-      <span>درخواستهای زیادی ارسال کردهاید؛ لطفاً کمی بعد دوباره تلاش کنید.</span>
+      <span>درخواست‌های زیادی ارسال کرده‌اید؛ لطفاً کمی بعد دوباره تلاش کنید.</span>
     </div>`))
 		return
 	}
@@ -126,7 +126,7 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 	devBox := ""
 	valueFill := ""
 	if os.Getenv("DEV_MODE") == "true" {
-		devBox = fmt.Sprintf(`<div class="rounded-lg bg-blue-50 p-3 text-center text-xs text-blue-700" dir="ltr">Dev: %s</div>`, code)
+		devBox = fmt.Sprintf(`<div class="rounded-lg bg-sand px-3 py-2 text-center text-xs text-clay" dir="ltr">Dev: %s</div>`, code)
 		valueFill = fmt.Sprintf(` value="%s"`, code)
 	}
 
@@ -137,18 +137,17 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<form id="login-form" class="space-y-4" method="post" action="/auth/verify-otp"
 	hx-post="/auth/verify-otp" hx-target="#login-form" hx-swap="outerHTML">
-	<p class="text-sm text-gray-600 text-center">کد تایید به شماره %s ارسال شد.</p>%s
+	<p class="text-center text-sm leading-7 text-clay">کد تایید به شماره %s ارسال شد.</p>%s
 	<input type="hidden" name="phone" value="%s">
 	<div>
-		<label class="block text-sm font-medium text-gray-700">کد تایید</label>
+		<label class="lbl block">کد تایید</label>
 		<input type="text" name="code" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" required autocomplete="one-time-code"%s
-			class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-center text-2xl tracking-widest text-gray-900 shadow-sm focus:border-garnet focus:ring-1 focus:ring-garnet">
+			class="field mt-2 text-center text-2xl tracking-[.35em] dir-ltr">
 	</div>
-	<button type="submit"
-		class="w-full rounded-lg bg-garnet px-6 py-3 font-semibold text-white shadow-sm hover:bg-garnet/90 transition">
+	<button type="submit" class="btn btn-primary w-full">
 		تایید کد
 	</button>
-	<p class="text-xs text-gray-400 text-center">کد ۵ رقمی را وارد کنید.</p>
+	<p class="text-center text-xs text-clay">کد ۵ رقمی را وارد کنید.</p>
 </form>`, escPhone, devBox, escPhone, valueFill)
 }
 
@@ -170,7 +169,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 
 	if !ok || pl.phone == "" || code == "" {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<div class="space-y-4"><p class="text-red-600 text-sm text-center">کد نامعتبر است.</p><a href="/login" class="block text-center text-sm text-garnet hover:underline">دریافت دوباره کد</a></div>`)
+		fmt.Fprintf(w, `<div class="space-y-3"><p class="text-sm leading-7 text-pomegranate text-center">کد نامعتبر است.</p><a href="/login" class="block text-center text-sm font-semibold text-fig underline-offset-4 hover:underline">دریافت دوباره کد</a></div>`)
 		return
 	}
 
@@ -179,14 +178,14 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		delete(h.pendingLogins, sid)
 		h.sessionMu.Unlock()
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<div class="space-y-4"><p class="text-red-600 text-sm text-center">کد منقضی شده است.</p><a href="/login" class="block text-center text-sm text-garnet hover:underline">دریافت دوباره کد</a></div>`)
+		fmt.Fprintf(w, `<div class="space-y-3"><p class="text-sm leading-7 text-pomegranate text-center">کد منقضی شده است.</p><a href="/login" class="block text-center text-sm font-semibold text-fig underline-offset-4 hover:underline">دریافت دوباره کد</a></div>`)
 		return
 	}
 
 	// Per-phone attempt limit on top of the per-IP limit applied by the router.
 	if !h.otpVerifyLimiter.Allow("phone:" + pl.phone) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<div class="space-y-4"><p class="text-red-600 text-sm text-center">تعداد تلاشها زیاد است؛ کمی بعد دوباره تلاش کنید.</p></div>`)
+		fmt.Fprintf(w, `<div class="space-y-3"><p class="text-sm leading-7 text-pomegranate text-center">تعداد تلاش‌ها زیاد است؛ کمی بعد دوباره تلاش کنید.</p><a href="/login" class="block text-center text-sm font-semibold text-fig underline-offset-4 hover:underline">دریافت دوباره کد</a></div>`)
 		return
 	}
 
@@ -199,7 +198,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 
 	if !valid {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<div class="space-y-4"><p class="text-red-600 text-sm text-center">کد اشتباه است یا منقضی شده.</p><a href="/login" class="block text-center text-sm text-garnet hover:underline">دریافت دوباره کد</a></div>`)
+		fmt.Fprintf(w, `<div class="space-y-3"><p class="text-sm leading-7 text-pomegranate text-center">کد اشتباه است یا منقضی شده.</p><a href="/login" class="block text-center text-sm font-semibold text-fig underline-offset-4 hover:underline">دریافت دوباره کد</a></div>`)
 		return
 	}
 

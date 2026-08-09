@@ -1,11 +1,11 @@
 {
-  "page-bg": "#FBF9F5",
-  "card-bg": "#F4EFE6",
-  "card-border": "#E7DDCD",
-  "heading": "#2D4A3E",
-  "body": "#2C302E",
-  "primary": "#8B263E",
-  "primary-hover": "#85243C",
-  "fresh-bg": "#E3EBE6",
-  "derived-bg": "#FCE7EB"
+  "page-bg": "#F5EEE0",
+  "card-bg": "#FFFDF6",
+  "card-border": "#E2D2B8",
+  "heading": "#3A2B24",
+  "body": "#3A2B24",
+  "primary": "#9E2A2B",
+  "primary-hover": "#7F201F",
+  "fresh-bg": "#3F5D42",
+  "derived-bg": "#C97064"
 }

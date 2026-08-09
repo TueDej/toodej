@@ -1,46 +1,120 @@
-{{define "title"}}خانه{{end}}
+{{define "title"}}انجیر خشک و انار باکیفیت{{end}}
 
 {{define "content"}}
-<section class="relative overflow-hidden bg-gradient-to-br from-garnet/90 via-garnet to-forest/80 text-white">
-  <div class="absolute inset-0 bg-cover bg-center" style="background-image:url('/assets/hero-bg-1.webp')"></div>
-  <div class="absolute inset-0 bg-gradient-to-br from-garnet/80 via-garnet/60 to-forest/70"></div>
 
-  <div class="absolute bottom-0 left-0 w-full">
-    <svg viewBox="0 0 1440 80" preserveAspectRatio="none" class="w-full h-16 sm:h-20">
-      <path d="M0,20 C240,55 480,0 720,25 C960,50 1200,5 1440,25 L1440,80 L0,80 Z" fill="#FBF9F5"/>
-      <path d="M0,35 C240,65 480,15 720,35 C960,55 1200,20 1440,35 L1440,80 L0,80 Z" fill="#2D4A3E" opacity="0.08"/>
-    </svg>
-  </div>
-
-  <div class="relative mx-auto max-w-6xl px-4 py-32 text-center">
-    <h1 class="text-4xl font-bold tracking-tight sm:text-5xl font-serif" style="text-shadow:0 2px 12px rgba(0,0,0,0.5)">محصولات تازه و ارگانیک</h1>
-    <p class="mx-auto mt-4 max-w-2xl text-lg text-white/80" style="text-shadow:0 1px 6px rgba(0,0,0,0.4)">مستقیم از تولیدکننده به دست شما</p>
+<!-- ============ HERO — full-bleed orchard photo, walnut-to-transparent overlay ============ -->
+<section class="relative isolate overflow-hidden bg-walnut" style="color:var(--text-on-dark)">
+  <div class="absolute inset-0 bg-cover bg-center" style="background-image:url('/assets/toodej.webp')"></div>
+  <!-- aged walnut → transparent overlay on the text side only (Section 2 rule) -->
+  <div class="absolute inset-0 bg-gradient-to-l from-[rgba(42,30,24,0.72)] via-[rgba(42,30,24,0.38)] to-transparent"></div>
+  <!-- faint golden hour dappling -->
+  <div class="absolute inset-0 opacity-[.18] bg-[radial-gradient(ellipse_at_28%_82%,rgba(201,138,44,.5),transparent_62%)]"></div>
+  <div class="relative mx-auto flex min-h-[70vh] max-w-7xl flex-col justify-center px-5 pb-28 pt-20 lg:px-8" data-reveal>
+    <h1 class="max-w-3xl font-display text-[2.5rem] font-extrabold leading-[1.18] md:text-6xl"
+        style="text-shadow:0 2px 18px rgba(20,14,10,.55)">
+      محصولات طبیعی و ارگانیک، مستقیم به دست شما
+    </h1>
+    <p class="mt-5 max-w-xl text-base leading-8 md:text-lg" style="color:var(--text-on-dark); opacity:.9; text-shadow:0 1px 10px rgba(20,14,10,.5)">
+      طعم اصیل و فاقد افزودنی.
+    </p>
+    <div class="mt-9 flex flex-wrap items-center gap-4">
+      <a href="/products/summer" class="btn btn-primary text-base">مشاهده محصولات</a>
+      <a href="/about" class="btn btn-ghost text-base" style="border-color:rgba(245,238,224,.55); color:var(--text-on-dark)">درباره ما</a>
+    </div>
   </div>
 </section>
 
-<!-- CATEGORY BANNERS — full-width tiles that link to the per-category listing pages -->
-<section class="mx-auto max-w-6xl px-4 py-16">
+<!-- ============ STORY STRIP — scrapbook, not an "about us" card ============ -->
+<section class="sec-y relative mx-auto max-w-7xl px-5 lg:px-8">
+  <div class="grid items-center gap-12 lg:grid-cols-12">
+    <div class="lg:col-span-6">
+      <div class="relative mx-auto max-w-md" data-reveal>
+        <div class="tape" aria-hidden="true"></div>
+        <div class="rotate-[-1.6deg] overflow-hidden rounded-2xl border border-line bg-sand shadow-lift">
+          <img src="/assets/fig-showcase.webp" alt="انجیرها در حال خشک شدن زیر آفتاب" class="aspect-[4/3] w-full object-cover">
+        </div>
+        <p class="absolute -bottom-4 start-3 rounded-2xl bg-parchment px-3 py-1.5 text-xs text-clay shadow-soft" style="transform:rotate(-1.2deg)">
+          انجیر خشک درجه یک
+        </p>
+      </div>
+    </div>
 
-  <div class="space-y-6">
+    <div class="lg:col-span-6">
+      <div data-reveal>
+        <h2 class="font-display text-3xl font-bold leading-[1.3] text-walnut md:text-4xl">
+          ساده و طبیعی
+        </h2>
+      </div>
+      <div class="paper-card-sand overflow-hidden mt-7 max-w-xl px-7 py-6" data-reveal style="transform:rotate(.5deg)">
+        <p class="text-base leading-8 text-walnut">
+          دقیقا همان چیزی که طبیعت ساخته؛ بدون مواد اضافه. تازه، خوشمزه و آماده مصرف.
+        </p>
+        <p class="mt-3 text-sm leading-7 text-clay">— کیفیتی که مزه‌اش گویای آن است</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FEATURED PRODUCTS ============ -->
+{{if .Featured}}
+<section class="sec-y relative bg-sand/60">
+  <div class="absolute inset-x-0 top-0 h-px bg-gradient-to-l from-transparent via-fig/25 to-transparent" aria-hidden="true"></div>
+  <div class="mx-auto max-w-7xl px-5 lg:px-8">
+    <div class="mb-10 flex flex-wrap items-end justify-between gap-4" data-reveal>
+      <div>
+        <h2 class="font-display text-3xl font-bold text-walnut md:text-4xl">منتخب این فصل</h2>
+      </div>
+      <a href="/products/processed" class="group text-sm font-semibold text-fig transition hover:text-pomegranate">
+        همه‌ی محصولات
+        <span class="ms-1 inline-block transition-transform group-hover:-translate-x-1">←</span>
+      </a>
+    </div>
+
+    <div class="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+      {{range .Featured}}
+      <div data-reveal>{{template "product-card" .}}</div>
+      {{end}}
+    </div>
+  </div>
+</section>
+
+{{end}}
+
+<!-- ============ SEASONAL BANNER — flips with the harvest ============ -->
+{{if .Season}}
+<section class="relative overflow-hidden" style="background:var(--bg-seasonal)" data-reveal>
+  <div class="absolute inset-0 bg-cover bg-center opacity-45" style="background-image:url('{{.Season.Image}}')"></div>
+  <div class="absolute inset-0 bg-gradient-to-l from-[rgba(36,28,22,0.82)] via-[rgba(36,28,22,0.5)] to-transparent"></div>
+  <div class="relative mx-auto max-w-7xl px-5 pb-16 pt-20 lg:px-8">
+    <h2 class="max-w-2xl font-display text-3xl font-bold leading-[1.25] md:text-5xl" style="color:var(--text-on-dark)">
+      {{.Season.Heading}}
+    </h2>
+    <div class="mt-4 h-1 w-24 rounded-full" style="background:{{.Season.Accent}}" aria-hidden="true"></div>
+    <p class="mt-4 max-w-xl text-base leading-8" style="color:var(--text-on-dark); opacity:.9">{{.Season.Tagline}}</p>
+    <a href="{{.Season.Target}}" class="btn btn-primary mt-8 text-base">{{.Season.CTA}}</a>
+  </div>
+</section>
+{{end}}
+
+<!-- ============ CATEGORY SHOWCASE ============ -->
+<section class="sec-y relative mx-auto max-w-7xl px-5 lg:px-8">
+  <div class="mb-10 text-center" data-reveal>
+    <h2 class="font-display text-3xl font-bold text-walnut md:text-4xl">هر فصل، محصول خودش</h2>
+  </div>
+
+  <div class="grid gap-8 md:grid-cols-2">
     {{range .Categories}}
-    <a
-      href="/products/{{.Slug}}"
-      class="group relative block w-full overflow-hidden shadow-md ring-1 ring-inset ring-black/5 transition duration-300 hover:-translate-y-1 hover:scale-[1.01] hover:shadow-2xl hover:shadow-garnet/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-garnet"
-      style="background-color:{{.Bg}}">
-      <!-- decorative surface tint -->
-      <div class="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_20%_30%,rgba(255,255,255,0.35),transparent_60%)]"></div>
-      <div class="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-white/5 blur-2xl"></div>
-      <div class="absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-white/5 blur-2xl"></div>
-
-      <div class="relative flex min-h-[14rem] sm:min-h-[18rem] flex-col justify-end p-7 sm:p-10 text-white">
-        <h3 class="text-3xl font-bold font-serif sm:text-4xl" style="text-shadow:0 2px 10px rgba(0,0,0,0.35)">{{.Label}}</h3>
-        <p class="mt-3 max-w-2xl text-base sm:text-lg text-white/85" style="text-shadow:0 1px 6px rgba(0,0,0,0.3)">{{.Desc}}</p>
-        <span class="mt-6 inline-flex items-center gap-3 text-base font-semibold text-white transition group-hover:gap-4">
-          مشاهده محصولات
-          <svg class="h-5 w-5 transition-transform group-hover:-translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
-          </svg>
-        </span>
+    <a href="/products/{{.Slug}}" class="group relative block overflow-hidden rounded-2xl border border-line shadow-soft transition-transform duration-500 hover:-translate-y-1 hover:rotate-[-.5deg] hover:shadow-lift {{if and .Season (ne .Season $.CurrentSeason)}}opacity-50 grayscale{{end}}" data-reveal>
+      {{if .IsSVG}}
+      <div class="aspect-[16/9] w-full bg-sand md:aspect-[16/8] flex items-center justify-center" style="background-image:url('{{.Image}}'); background-size: 80px; background-repeat: no-repeat; background-position: center;"></div>
+      {{else}}
+      <div class="aspect-[16/9] w-full bg-cover bg-center md:aspect-[16/8]" style="background-image:url('{{.Image}}')"></div>
+      {{end}}
+      <div class="absolute inset-0 bg-gradient-to-t from-[rgba(40,28,22,0.78)] via-[rgba(40,28,22,0.28)] to-transparent"></div>
+      <div class="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 px-7 pb-7 pt-24">
+        <div>
+          <h3 class="font-display text-2xl font-bold md:text-3xl" style="color:var(--text-on-dark)">{{.Label}}</h3>
+        </div>
       </div>
     </a>
     {{end}}
