@@ -114,6 +114,7 @@ Environment=ADMIN_PASS=${ADMIN_PASS}
 Environment=DB_PATH=/var/lib/farmstore/farmstore.db
 Environment=KAVENEGAR_API_KEY=${KAVENEGAR_API_KEY}
 Environment=KAVENEGAR_TEMPLATE=${KAVENEGAR_TEMPLATE}
+Environment=DEV_MODE=true
 ExecStart=/usr/local/bin/farmstore
 
 [Install]
