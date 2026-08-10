@@ -74,10 +74,7 @@ type paymentResponse struct {
 		Code      int    `json:"code"`
 		Message   string `json:"message"`
 	} `json:"data"`
-	Errors struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	} `json:"errors"`
+	Errors json.RawMessage `json:"errors"`
 }
 
 // RequestPayment initiates a payment request and returns the authority token
@@ -138,10 +135,7 @@ type verifyResponse struct {
 		FeeType   string `json:"fee_type"`
 		Fee       int    `json:"fee"`
 	} `json:"data"`
-	Errors struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	} `json:"errors"`
+	Errors json.RawMessage `json:"errors"`
 }
 
 // VerifyResult holds the outcome of a payment verification.
