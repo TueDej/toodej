@@ -13,6 +13,7 @@ import (
 
 	"farmstore/internal/database"
 	"farmstore/internal/handlers"
+	"farmstore/internal/payment"
 )
 
 func main() {
@@ -28,9 +29,13 @@ func main() {
 	}
 	defer db.Close()
 
+	// ── Payment ──────────────────────────────────────
+	zarinpal := payment.NewFromEnv()
+	baseURL := getEnv("APP_BASE_URL", "https://toodej.shop")
+
 	// ── Handler ───────────────────────────────────────
 	cartStore := handlers.NewCartStore()
-	h, err := handlers.NewHandler(db, cartStore)
+	h, err := handlers.NewHandler(db, cartStore, zarinpal, baseURL)
 	if err != nil {
 		log.Fatalf("handler init: %v", err)
 	}
@@ -85,6 +90,7 @@ func main() {
 	r.Get("/checkout", h.CheckoutForm)
 	r.Post("/checkout/preview", h.PreviewCheckout)
 	r.Post("/checkout", h.PlaceOrder)
+	r.Get("/checkout/verify", h.VerifyPayment)
 	r.Get("/checkout/confirmation/{id}", h.Confirmation)
 	r.With(loginLimiter.Middleware).Get("/login", h.LoginPage)
 	r.With(sendOTPLimiter.Middleware).Post("/auth/send-otp", h.SendOTP)

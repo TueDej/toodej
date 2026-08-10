@@ -14,6 +14,7 @@ import (
 
 	"farmstore/internal/database"
 	"farmstore/internal/models"
+	"farmstore/internal/payment"
 	"farmstore/internal/utils"
 )
 
@@ -50,6 +51,8 @@ type Handler struct {
 	db               *sql.DB
 	templates        map[string]*template.Template
 	cartStore        *CartStore
+	zarinpal         *payment.Zarinpal
+	baseURL          string
 	userSessions     map[string]session       // session ID → authenticated session
 	pendingLogins    map[string]pendingLogin  // session ID → phone during OTP flow
 	pendingNext      map[string]pendingReturn // session ID → post-login destination
@@ -60,7 +63,7 @@ type Handler struct {
 
 // NewHandler initialises the Handler, parsing all HTML templates with a shared
 // function map (formatPrice, persianDate, etc.) from the templates/ directory.
-func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
+func NewHandler(db *sql.DB, cartStore *CartStore, zarinpal *payment.Zarinpal, baseURL string) (*Handler, error) {
 	funcMap := template.FuncMap{
 		"formatPrice": func(cents int) string {
 			return formatToman(cents)
@@ -100,6 +103,8 @@ func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 				return "text-[#2F5D33]"
 			case "cancelled":
 				return "text-[#9E2A2B]"
+			case "awaiting_payment":
+				return "text-[#C98A2C]"
 			}
 			return "text-clay"
 		},
@@ -134,6 +139,8 @@ func NewHandler(db *sql.DB, cartStore *CartStore) (*Handler, error) {
 		db:               db,
 		templates:        templates,
 		cartStore:        cartStore,
+		zarinpal:         zarinpal,
+		baseURL:          baseURL,
 		userSessions:     make(map[string]session),
 		pendingLogins:    make(map[string]pendingLogin),
 		pendingNext:      make(map[string]pendingReturn),
@@ -800,7 +807,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 		CustomerAddress: address,
 		PostalCode:      postalCode,
 		TotalAmount:     totalAmount,
-		Status:          "pending",
+		Status:          "awaiting_payment",
 		UserID:          userID,
 	}
 
@@ -838,9 +845,92 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Initiate Zarinpal payment.
+	callbackURL := h.baseURL + "/checkout/verify"
+	authority, err := h.zarinpal.RequestPayment(totalAmount, callbackURL, "سفارش تودج "+orderID)
+	if err != nil {
+		log.Printf("zarinpal request payment: %v", err)
+		// Cancel the order and restore stock so the user can retry.
+		database.MarkPaymentFailed(h.db, orderID)
+		sid := h.getOrCreateSessionID(w, r)
+		cart := h.cartStore.Get(sid)
+
+		cart.mu.Lock()
+		cartItems := make([]CartItem, len(cart.Items))
+		copy(cartItems, cart.Items)
+		cart.mu.Unlock()
+
+		data := h.mergeData(r, map[string]any{
+			"Error":    "خطا در اتصال به درگاه پرداخت؛ لطفاً دوباره تلاش کنید.",
+			"Total":    cart.Total(),
+			"Phone":    phone,
+			"Step":     2,
+			"Name":     name,
+			"Address":  address,
+			"PostalCode": postalCode,
+			"Items":    cartItems,
+		})
+		w.WriteHeader(http.StatusBadGateway)
+		if err := h.templates["checkout"].Execute(w, data); err != nil {
+			log.Printf("render checkout error: %v", err)
+		}
+		return
+	}
+
+	if err := database.SetPaymentAuthority(h.db, orderID, authority); err != nil {
+		log.Printf("set payment authority: %v", err)
+	}
+
+	gatewayURL := h.zarinpal.GatewayURL(authority)
+	log.Printf("order %s: redirecting to payment gateway: %s", orderID, gatewayURL)
+
 	cart.Clear()
 	w.Header().Set("HX-Trigger", "cartUpdated")
-	http.Redirect(w, r, fmt.Sprintf("/checkout/confirmation/%s", orderID), http.StatusSeeOther)
+	http.Redirect(w, r, gatewayURL, http.StatusSeeOther)
+}
+
+// VerifyPayment handles the Zarinpal callback after the user completes (or cancels)
+// the payment. It verifies the transaction and updates the order status accordingly.
+func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
+	authority := r.URL.Query().Get("Authority")
+	status := r.URL.Query().Get("Status")
+
+	if authority == "" || status != "OK" {
+		// Payment was cancelled or failed — cancel the order and restore stock.
+		if authority != "" {
+			if order, err := database.GetOrderByAuthority(h.db, authority); err == nil {
+				database.MarkPaymentFailed(h.db, order.ID)
+			}
+		}
+		http.Redirect(w, r, "/cart", http.StatusSeeOther)
+		return
+	}
+
+	order, err := database.GetOrderByAuthority(h.db, authority)
+	if err != nil {
+		log.Printf("verify: order not found for authority: %v", err)
+		http.Redirect(w, r, "/cart", http.StatusSeeOther)
+		return
+	}
+
+	result, err := h.zarinpal.VerifyPayment(order.TotalAmount, authority)
+	if err != nil {
+		log.Printf("zarinpal verify: %v", err)
+		database.MarkPaymentFailed(h.db, order.ID)
+		http.Redirect(w, r, "/cart", http.StatusSeeOther)
+		return
+	}
+
+	if result.OK {
+		if err := database.ConfirmPayment(h.db, order.ID, result.RefID); err != nil {
+			log.Printf("confirm payment: %v", err)
+		}
+	} else {
+		log.Printf("payment not verified for order %s: %s", order.ID, result.Message)
+		database.MarkPaymentFailed(h.db, order.ID)
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/checkout/confirmation/%s", order.ID), http.StatusSeeOther)
 }
 
 // Confirmation displays the order confirmation page after a successful checkout.

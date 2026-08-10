@@ -91,7 +91,9 @@ func migrate(db *sql.DB) error {
 		postal_code      TEXT    NOT NULL DEFAULT '',
 		total_amount    INTEGER NOT NULL DEFAULT 0,
 		status          TEXT    NOT NULL DEFAULT 'pending'
-			CHECK (status IN ('pending','preparing','dispatched','cancelled')),
+			CHECK (status IN ('pending','preparing','dispatched','cancelled','awaiting_payment')),
+		payment_authority TEXT   NOT NULL DEFAULT '',
+		payment_ref_id   INTEGER NOT NULL DEFAULT 0,
 		user_id        INTEGER REFERENCES users(id),
 		created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 	);
@@ -128,7 +130,7 @@ func migrate(db *sql.DB) error {
 	// recreate the orders table with the updated constraint.
 	var checkSQL string
 	err = db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='orders'").Scan(&checkSQL)
-	if err == nil && !strings.Contains(checkSQL, "preparing") {
+	if err == nil && !strings.Contains(checkSQL, "awaiting_payment") {
 		tx, err := db.Begin()
 		if err != nil {
 			return err
@@ -143,7 +145,9 @@ func migrate(db *sql.DB) error {
 			postal_code      TEXT    NOT NULL DEFAULT '',
 			total_amount    INTEGER NOT NULL DEFAULT 0,
 			status          TEXT    NOT NULL DEFAULT 'pending'
-				CHECK (status IN ('pending','preparing','dispatched','cancelled')),
+				CHECK (status IN ('pending','preparing','dispatched','cancelled','awaiting_payment')),
+			payment_authority TEXT   NOT NULL DEFAULT '',
+			payment_ref_id   INTEGER NOT NULL DEFAULT 0,
 			user_id        INTEGER REFERENCES users(id),
 			created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 		)`); err != nil {
@@ -341,6 +345,48 @@ func UpdateOrderStatus(db *sql.DB, orderID string, status string) error {
 	return tx.Commit()
 }
 
+// SetPaymentAuthority stores the Zarinpal authority token on an order.
+func SetPaymentAuthority(db *sql.DB, orderID, authority string) error {
+	_, err := db.Exec("UPDATE orders SET payment_authority = ? WHERE id = ?", authority, orderID)
+	if err != nil {
+		return fmt.Errorf("set payment authority for %s: %w", orderID, err)
+	}
+	return nil
+}
+
+// GetOrderByAuthority looks up an order by its Zarinpal authority token.
+func GetOrderByAuthority(db *sql.DB, authority string) (*models.Order, error) {
+	var o models.Order
+	var createdAt string
+	var userID sql.NullInt64
+	err := db.QueryRow(`SELECT id, customer_name, customer_phone, customer_address, postal_code,
+		total_amount, status, payment_ref_id, user_id, created_at
+		FROM orders WHERE payment_authority = ?`, authority).
+		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode,
+			&o.TotalAmount, &o.Status, &o.PaymentRefID, &userID, &createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("get order by authority: %w", err)
+	}
+	o.CreatedAt = parseTime(createdAt)
+	o.UserID = userID.Int64
+	return &o, nil
+}
+
+// ConfirmPayment marks an order as pending (paid) and stores the Zarinpal ref ID.
+func ConfirmPayment(db *sql.DB, orderID string, refID int64) error {
+	_, err := db.Exec("UPDATE orders SET status = 'pending', payment_ref_id = ? WHERE id = ?", refID, orderID)
+	if err != nil {
+		return fmt.Errorf("confirm payment for %s: %w", orderID, err)
+	}
+	return nil
+}
+
+// MarkPaymentFailed sets order status to cancelled when payment verification fails.
+// Stock is restored via the existing UpdateOrderStatus logic.
+func MarkPaymentFailed(db *sql.DB, orderID string) error {
+	return UpdateOrderStatus(db, orderID, "cancelled")
+}
+
 // GetAllProducts returns every product (including inactive ones), ordered by name.
 // Used by the admin panel.
 func GetAllProducts(db *sql.DB) ([]models.Product, error) {
@@ -489,8 +535,8 @@ func GetOrderWithItems(db *sql.DB, orderID string) (*models.Order, []models.Orde
 	var o models.Order
 	var createdAt string
 	var userID sql.NullInt64
-	err := db.QueryRow("SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, user_id, created_at FROM orders WHERE id = ?", orderID).
-		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &userID, &createdAt)
+	err := db.QueryRow("SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, payment_ref_id, user_id, created_at FROM orders WHERE id = ?", orderID).
+		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &o.PaymentRefID, &userID, &createdAt)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("get order %s: %w", orderID, err)
 	}

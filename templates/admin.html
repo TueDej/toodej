@@ -39,11 +39,16 @@
               <select name="status"
                 class="field-inline w-40 status-select"
                 data-color="{{if eq .Status "cancelled"}}var(--pomegranate){{else if eq .Status "dispatched"}}var(--forest){{else if eq .Status "preparing"}}var(--fig){{else}}var(--saffron){{end}}"
-                hx-post="/admin/orders/{{.ID}}/status" hx-trigger="change" hx-target="#order-{{.ID}}-status" hx-swap="outerHTML">
+                hx-post="/admin/orders/{{.ID}}/status" hx-trigger="change" hx-target="#order-{{.ID}}-status" hx-swap="outerHTML"
+                {{if eq .Status "awaiting_payment"}}disabled title="پرداخت هنوز انجام نشده"{{end}}>
+                {{if eq .Status "awaiting_payment"}}
+                <option value="awaiting_payment" selected>در انتظار پرداخت</option>
+                {{else}}
                 <option value="pending" {{if eq .Status "pending"}}selected{{end}}>در انتظار بررسی</option>
                 <option value="preparing" {{if eq .Status "preparing"}}selected{{end}}>آماده‌سازی برای ارسال</option>
                 <option value="dispatched" {{if eq .Status "dispatched"}}selected{{end}}>تحویل برای ارسال</option>
                 <option value="cancelled" {{if eq .Status "cancelled"}}selected{{end}}>لغو شده</option>
+                {{end}}
               </select>
             </td>
           </tr>

@@ -30,6 +30,7 @@ type Order struct {
 	PostalCode      string    `json:"postal_code"`
 	TotalAmount     int       `json:"total_amount"`
 	Status          string    `json:"status"`
+	PaymentRefID    int64     `json:"payment_ref_id"`
 	CreatedAt       time.Time `json:"created_at"`
 	UserID          int64     `json:"user_id"`
 }

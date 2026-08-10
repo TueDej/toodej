@@ -15,6 +15,11 @@
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
           <span class="font-medium text-walnut">کد پیگیری:</span>
           <bdi dir="ltr" class="tracking-widest text-fig">{{.Order.ID}}</bdi>
+          {{if .Order.PaymentRefID}}
+          <span class="text-clay">·</span>
+          <span class="font-medium text-walnut">کد مرجع:</span>
+          <bdi dir="ltr" class="font-mono font-bold tracking-wider text-fig">{{.Order.PaymentRefID}}</bdi>
+          {{end}}
           <span class="text-clay">·</span>
           <span class="text-clay">{{.Order.CreatedAt | persianDate}}</span>
         </div>
@@ -24,6 +29,7 @@
           {{else if eq .Order.Status "preparing"}}آماده‌سازی برای ارسال
           {{else if eq .Order.Status "dispatched"}}تحویل برای ارسال
           {{else if eq .Order.Status "cancelled"}}لغو شده
+          {{else if eq .Order.Status "awaiting_payment"}}در انتظار پرداخت
           {{end}}
         </span>
       </div>

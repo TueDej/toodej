@@ -15,12 +15,18 @@ EXISTING_ADMIN_USER=""
 EXISTING_ADMIN_PASS=""
 EXISTING_KAVENEGAR_KEY=""
 EXISTING_KAVENEGAR_TEMPLATE=""
+EXISTING_ZARINPAL_MERCHANT_ID=""
+EXISTING_ZARINPAL_SANDBOX=""
+EXISTING_APP_BASE_URL=""
 if [ -f "$EXISTING_ENV_FILE" ]; then
   EXISTING_PORT=$(grep -oP 'Environment=PORT=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
   EXISTING_ADMIN_USER=$(grep -oP 'Environment=ADMIN_USER=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
   EXISTING_ADMIN_PASS=$(grep -oP 'Environment=ADMIN_PASS=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
   EXISTING_KAVENEGAR_KEY=$(grep -oP 'Environment=KAVENEGAR_API_KEY=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
   EXISTING_KAVENEGAR_TEMPLATE=$(grep -oP 'Environment=KAVENEGAR_TEMPLATE=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
+  EXISTING_ZARINPAL_MERCHANT_ID=$(grep -oP 'Environment=ZARINPAL_MERCHANT_ID=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
+  EXISTING_ZARINPAL_SANDBOX=$(grep -oP 'Environment=ZARINPAL_SANDBOX=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
+  EXISTING_APP_BASE_URL=$(grep -oP 'Environment=APP_BASE_URL=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
 fi
 
 if [ -n "$EXISTING_PORT" ] && [ -n "$EXISTING_ADMIN_USER" ] && [ -n "$EXISTING_ADMIN_PASS" ]; then
@@ -51,6 +57,30 @@ if [ -n "$KAVENEGAR_API_KEY" ]; then
   read -rp "Kavenegar template name [${KAVENEGAR_TEMPLATE}]: " INPUT_TEMPLATE
   KAVENEGAR_TEMPLATE="${INPUT_TEMPLATE:-$KAVENEGAR_TEMPLATE}"
 fi
+
+# --------------- Zarinpal payment config ---------------
+ZARINPAL_MERCHANT_ID="${EXISTING_ZARINPAL_MERCHANT_ID:-}"
+ZARINPAL_SANDBOX="${EXISTING_ZARINPAL_SANDBOX:-false}"
+APP_BASE_URL="${EXISTING_APP_BASE_URL:-https://toodej.shop}"
+
+if [ -z "$ZARINPAL_MERCHANT_ID" ]; then
+  read -rp "Zarinpal Merchant ID: " ZARINPAL_MERCHANT_ID
+  if [ -z "$ZARINPAL_MERCHANT_ID" ]; then
+    warn "No Merchant ID — payments will not work"
+  fi
+fi
+
+if [ -z "$EXISTING_ZARINPAL_SANDBOX" ]; then
+  read -rp "Use Zarinpal sandbox? [y/N]: " USE_SANDBOX
+  if [[ "$USE_SANDBOX" =~ ^[Yy] ]]; then
+    ZARINPAL_SANDBOX="true"
+  else
+    ZARINPAL_SANDBOX="false"
+  fi
+fi
+
+read -rp "App base URL [${APP_BASE_URL}]: " INPUT_BASE_URL
+APP_BASE_URL="${INPUT_BASE_URL:-$APP_BASE_URL}"
 
 # --------------- 2. local build ---------------
 APP_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -114,6 +144,9 @@ Environment=ADMIN_PASS=${ADMIN_PASS}
 Environment=DB_PATH=/var/lib/farmstore/farmstore.db
 Environment=KAVENEGAR_API_KEY=${KAVENEGAR_API_KEY}
 Environment=KAVENEGAR_TEMPLATE=${KAVENEGAR_TEMPLATE}
+Environment=ZARINPAL_MERCHANT_ID=${ZARINPAL_MERCHANT_ID}
+Environment=ZARINPAL_SANDBOX=${ZARINPAL_SANDBOX}
+Environment=APP_BASE_URL=${APP_BASE_URL}
 Environment=DEV_MODE=true
 ExecStart=/usr/local/bin/farmstore
 

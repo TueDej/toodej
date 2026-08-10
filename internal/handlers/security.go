@@ -39,7 +39,7 @@ const cspHeader = "" +
 	"frame-src https://trustseal.enamad.ir; " +
 	"worker-src 'self' blob:; " +
 	"base-uri 'self'; " +
-	"form-action 'self'; " +
+	"form-action 'self' https://sandbox.zarinpal.com https://zarinpal.com; " +
 	"frame-ancestors 'none'; " +
 	"object-src 'none';"
 

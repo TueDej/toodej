@@ -15,6 +15,9 @@ export PORT="${PORT:-8080}"
 export ADMIN_USER="${ADMIN_USER:-admin}"
 export ADMIN_PASS="${ADMIN_PASS:-admin123}"
 export DB_PATH="${DB_PATH:-farmstore.db}"
+export APP_BASE_URL="${APP_BASE_URL:-http://localhost:${PORT}}"
+export ZARINPAL_MERCHANT_ID="${ZARINPAL_MERCHANT_ID:-}"
+export ZARINPAL_SANDBOX="${ZARINPAL_SANDBOX:-true}"
 
 BINDIR="$(cd "$(dirname "$0")" && pwd)/bin"
 BINARY="$BINDIR/server"
@@ -33,6 +36,11 @@ detail "Store:        http://localhost:${PORT}"
 detail "Admin:        http://localhost:${PORT}/admin"
 detail "Admin login:  ${ADMIN_USER} / ${ADMIN_PASS}"
 detail "Database:     ${DB_PATH}"
+if [ -n "$ZARINPAL_MERCHANT_ID" ]; then
+  detail "Payment:      Zarinpal (${ZARINPAL_SANDBOX:-true})"
+else
+  warn "Payment:      ZARINPAL_MERCHANT_ID not set — payments will fail"
+fi
 echo ""
 
 exec "$BINARY"

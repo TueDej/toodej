@@ -13,6 +13,10 @@
     <p class="mt-3 text-base leading-8 text-clay">{{.Order.CustomerName}} عزیز، ممنون که ما رو انتخاب کردی.</p>
     <p class="mt-1 text-sm text-clay">
       کد پیگیری: <bdi dir="ltr" class="font-bold tracking-widest text-fig">{{.Order.ID}}</bdi>
+      {{if .Order.PaymentRefID}}
+      <span class="mx-1 text-line">·</span>
+      کد مرجع: <bdi dir="ltr" class="font-mono font-bold tracking-wider text-fig">{{.Order.PaymentRefID}}</bdi>
+      {{end}}
       <span class="mx-1 text-line">·</span>
       {{.Order.CreatedAt | persianDateTime}}
     </p>

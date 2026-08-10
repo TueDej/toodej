@@ -15,9 +15,19 @@
       {{else if eq .Order.Status "preparing"}}آماده‌سازی برای ارسال
       {{else if eq .Order.Status "dispatched"}}تحویل برای ارسال
       {{else if eq .Order.Status "cancelled"}}لغو شده
+      {{else if eq .Order.Status "awaiting_payment"}}در انتظار پرداخت
       {{end}}
     </span>
   </div>
+
+  {{if .Order.PaymentRefID}}
+  <div class="paper-card mt-5 overflow-hidden px-7 py-6" data-reveal>
+    <div class="flex items-center justify-between">
+      <h2 class="font-display text-lg font-semibold text-walnut">کد مرجع پرداخت</h2>
+      <span dir="ltr" class="font-mono text-lg font-bold tracking-wider text-forest">{{.Order.PaymentRefID}}</span>
+    </div>
+  </div>
+  {{end}}
 
   <!-- customer info -->
   <div class="paper-card mt-7 overflow-hidden px-7 py-6" data-reveal>

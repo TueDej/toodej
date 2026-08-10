@@ -93,7 +93,7 @@ func (h *Handler) AdminUpdateOrderStatusBadge(w http.ResponseWriter, r *http.Req
 	}
 
 	status := r.FormValue("status")
-	valid := map[string]bool{"pending": true, "preparing": true, "dispatched": true, "cancelled": true}
+	valid := map[string]bool{"pending": true, "preparing": true, "dispatched": true, "cancelled": true, "awaiting_payment": true}
 	if !valid[status] {
 		http.Error(w, "invalid status", http.StatusBadRequest)
 		return
@@ -106,16 +106,18 @@ func (h *Handler) AdminUpdateOrderStatusBadge(w http.ResponseWriter, r *http.Req
 	}
 
 	statusLabels := map[string]string{
-		"pending":    "در انتظار بررسی",
-		"preparing":  "آماده‌سازی برای ارسال",
-		"dispatched": "تحویل برای ارسال",
-		"cancelled":  "لغو شده",
+		"pending":          "در انتظار بررسی",
+		"preparing":        "آماده‌سازی برای ارسال",
+		"dispatched":       "تحویل برای ارسال",
+		"cancelled":        "لغو شده",
+		"awaiting_payment": "در انتظار پرداخت",
 	}
 	statusColors := map[string]string{
-		"pending":    "var(--saffron)",
-		"preparing":  "var(--fig)",
-		"dispatched": "var(--forest)",
-		"cancelled":  "var(--pomegranate)",
+		"pending":          "var(--saffron)",
+		"preparing":        "var(--fig)",
+		"dispatched":       "var(--forest)",
+		"cancelled":        "var(--pomegranate)",
+		"awaiting_payment": "var(--saffron)",
 	}
 
 	w.Header().Set("Content-Type", "text/html")
@@ -134,7 +136,7 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 	}
 
 	status := r.FormValue("status")
-	valid := map[string]bool{"pending": true, "preparing": true, "dispatched": true, "cancelled": true}
+	valid := map[string]bool{"pending": true, "preparing": true, "dispatched": true, "cancelled": true, "awaiting_payment": true}
 	if !valid[status] {
 		http.Error(w, "invalid status", http.StatusBadRequest)
 		return
@@ -149,18 +151,20 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "text/html")
 
 	statusLabels := map[string]string{
-		"pending":    "در انتظار بررسی",
-		"preparing":  "آماده‌سازی برای ارسال",
-		"dispatched": "تحویل برای ارسال",
-		"cancelled":  "لغو شده",
+		"pending":          "در انتظار بررسی",
+		"preparing":        "آماده‌سازی برای ارسال",
+		"dispatched":       "تحویل برای ارسال",
+		"cancelled":        "لغو شده",
+		"awaiting_payment": "در انتظار پرداخت",
 	}
 	statusColors := map[string]string{
-		"pending":    "var(--saffron)",
-		"preparing":  "var(--fig)",
-		"dispatched": "var(--forest)",
-		"cancelled":  "var(--pomegranate)",
+		"pending":          "var(--saffron)",
+		"preparing":        "var(--fig)",
+		"dispatched":       "var(--forest)",
+		"cancelled":        "var(--pomegranate)",
+		"awaiting_payment": "var(--saffron)",
 	}
-	order := []string{"pending", "preparing", "dispatched", "cancelled"}
+	order := []string{"awaiting_payment", "pending", "preparing", "dispatched", "cancelled"}
 
 	var opts strings.Builder
 	for _, s := range order {
