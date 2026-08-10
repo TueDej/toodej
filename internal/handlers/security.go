@@ -27,8 +27,10 @@ func SecurityHeaders(next http.Handler) http.Handler {
 // the exact CDNs the templates depend on (Tailwind, HTMX, Google Fonts, and the
 // e-Namad trust seal). 'unsafe-inline'/'unsafe-eval' are required by the inline
 // template scripts and the Tailwind Play CDN; vendoring those assets would allow
-// removing them. Object, frame-ancestors, base-uri and form-action are locked
-// down to block common injection payloads.
+// removing them. Frame-ancestors and base-uri are locked down to block common
+// injection payloads. form-action is omitted because the checkout flow uses a
+// 303 redirect to an external payment gateway (Zarinpal); SameOrigin middleware
+// provides CSRF protection instead.
 const cspHeader = "" +
 	"default-src 'self'; " +
 	"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com https://trustseal.enamad.ir; " +
@@ -39,7 +41,6 @@ const cspHeader = "" +
 	"frame-src https://trustseal.enamad.ir; " +
 	"worker-src 'self' blob:; " +
 	"base-uri 'self'; " +
-	"form-action 'self' https://sandbox.zarinpal.com https://zarinpal.com; " +
 	"frame-ancestors 'none'; " +
 	"object-src 'none';"
 
