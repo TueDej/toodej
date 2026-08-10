@@ -5,6 +5,8 @@ import "regexp"
 var (
 	// irPhonePattern matches Iranian mobile numbers in the 09xxxxxxxxx form.
 	irPhonePattern = regexp.MustCompile(`^09\d{9}$`)
+	// postalCodePattern matches Iranian 10-digit postal codes.
+	postalCodePattern = regexp.MustCompile(`^\d{10}$`)
 	// orderIDPattern matches the TDJ-XXXXXX order ID format (A-Z or 0-9).
 	orderIDPattern = regexp.MustCompile(`^TDJ-[A-Z0-9]{6}$`)
 	// sessionIDPattern matches the 32-hex-character session cookie value.
@@ -16,6 +18,11 @@ var (
 // value safe to reflect into HTML fragments (it can only contain digits).
 func validIranianPhone(s string) bool {
 	return irPhonePattern.MatchString(s)
+}
+
+// validPostalCode reports whether s is a 10-digit Iranian postal code.
+func validPostalCode(s string) bool {
+	return postalCodePattern.MatchString(s)
 }
 
 // validOrderID reports whether s matches the TDJ-XXXXXX format. All order IDs

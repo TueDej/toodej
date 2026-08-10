@@ -702,7 +702,7 @@ func (h *Handler) PreviewCheckout(w http.ResponseWriter, r *http.Request) {
 	address = strings.ReplaceAll(address, "\r", "")
 	postalCode := strings.TrimSpace(r.FormValue("postal_code"))
 
-	if name == "" || len(name) > 80 || !validIranianPhone(phone) || len(address) < 5 || len(address) > 300 || postalCode == "" {
+	if name == "" || len(name) > 80 || !validIranianPhone(phone) || len(address) < 5 || len(address) > 300 || !validPostalCode(postalCode) {
 		sid := h.getOrCreateSessionID(w, r)
 		cart := h.cartStore.Get(sid)
 		data := h.mergeData(r, map[string]any{
@@ -763,7 +763,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	address = strings.ReplaceAll(address, "\r", "")
 	postalCode := strings.TrimSpace(r.FormValue("postal_code"))
 
-	if name == "" || len(name) > 80 || !validIranianPhone(phone) || len(address) < 5 || len(address) > 300 || postalCode == "" {
+	if name == "" || len(name) > 80 || !validIranianPhone(phone) || len(address) < 5 || len(address) > 300 || !validPostalCode(postalCode) {
 		sid := h.getOrCreateSessionID(w, r)
 		cart := h.cartStore.Get(sid)
 		data := h.mergeData(r, map[string]any{
