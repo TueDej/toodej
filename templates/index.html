@@ -80,21 +80,122 @@
 
 {{end}}
 
-<!-- ============ SEASONAL BANNER — flips with the harvest ============ -->
-{{if .Season}}
-<section class="relative overflow-hidden" style="background:var(--bg-seasonal)" data-reveal>
-  <div class="absolute inset-0 bg-cover bg-center opacity-45" style="background-image:url('{{.Season.Image}}')"></div>
-  <div class="absolute inset-0 bg-gradient-to-l from-[rgba(36,28,22,0.82)] via-[rgba(36,28,22,0.5)] to-transparent"></div>
-  <div class="relative mx-auto max-w-7xl px-5 pb-16 pt-20 lg:px-8">
-    <h2 class="max-w-2xl font-display text-3xl font-bold leading-[1.25] md:text-5xl" style="color:var(--text-on-dark)">
-      {{.Season.Heading}}
-    </h2>
-    <div class="mt-4 h-1 w-24 rounded-full" style="background:{{.Season.Accent}}" aria-hidden="true"></div>
-    <p class="mt-4 max-w-xl text-base leading-8" style="color:var(--text-on-dark); opacity:.9">{{.Season.Tagline}}</p>
-    <a href="{{.Season.Target}}" class="btn btn-primary mt-8 text-base">{{.Season.CTA}}</a>
+<!-- ============ SEASONAL BANNER SLIDER — flips with the harvest ============ -->
+<section class="relative overflow-hidden" id="season-slider">
+  <div class="season-slides">
+    <!-- slide 1: fig -->
+    <div class="season-slide active" data-index="0">
+      <div class="absolute inset-0 bg-cover bg-center opacity-45" style="background-image:url('/assets/fig-showcase.webp')"></div>
+      <div class="absolute inset-0 bg-gradient-to-l from-[rgba(36,28,22,0.82)] via-[rgba(36,28,22,0.5)] to-transparent"></div>
+      <div class="relative mx-auto max-w-7xl px-5 pb-16 pt-20 lg:px-8">
+        <h2 class="max-w-2xl font-display text-3xl font-bold leading-[1.25] md:text-5xl" style="color:var(--text-on-dark)">
+          انجیر خشک درجه یک، طعم تابستان
+        </h2>
+        <div class="mt-4 h-1 w-24 rounded-full" style="background:var(--saffron)" aria-hidden="true"></div>
+        <p class="mt-4 max-w-xl text-base leading-8" style="color:var(--text-on-dark); opacity:.9">خشک‌شده زیر آفتاب، سرشار از فیبر و آنتی‌اکسیدان.</p>
+        <a href="/products/summer" class="btn btn-primary mt-8 text-base">مشاهده محصولات</a>
+      </div>
+    </div>
+
+    <!-- slide 2: pomegranate -->
+    <div class="season-slide" data-index="1">
+      <div class="absolute inset-0 bg-cover bg-center opacity-45" style="background-image:url('/assets/pomegranate-showcase.webp')"></div>
+      <div class="absolute inset-0 bg-gradient-to-l from-[rgba(36,28,22,0.82)] via-[rgba(36,28,22,0.5)] to-transparent"></div>
+      <div class="relative mx-auto max-w-7xl px-5 pb-16 pt-20 lg:px-8">
+        <h2 class="max-w-2xl font-display text-3xl font-bold leading-[1.25] md:text-5xl" style="color:var(--text-on-dark)">
+          انار سرخ و شیرین، طعم پاییز
+        </h2>
+        <div class="mt-4 h-1 w-24 rounded-full" style="background:var(--pomegranate)" aria-hidden="true"></div>
+        <p class="mt-4 max-w-xl text-base leading-8" style="color:var(--text-on-dark); opacity:.9">انار تازه از باغ‌های منتخب، سرشار از ویتامین C.</p>
+        <a href="/products/autumn" class="btn btn-primary mt-8 text-base">مشاهده محصولات</a>
+      </div>
+    </div>
   </div>
+
+  <!-- nav arrows -->
+  <button class="season-nav season-nav-prev" onclick="seasonSlide(-1)" aria-label="اسلاید قبلی">
+    <svg class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+  </button>
+  <button class="season-nav season-nav-next" onclick="seasonSlide(1)" aria-label="اسلاید بعدی">
+    <svg class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+  </button>
+
+  <!-- dots -->
+  <div class="season-dots">
+    <button class="season-dot active" onclick="seasonGo(0)" aria-label="اسلاید ۱"></button>
+    <button class="season-dot" onclick="seasonGo(1)" aria-label="اسلاید ۲"></button>
+  </div>
+
+  <style>
+    .season-slides { position: relative; background: var(--bg-seasonal); height: 24rem; }
+    @media (min-width: 768px) { .season-slides { height: 28rem; } }
+    .season-slide {
+      position: absolute; inset: 0;
+      opacity: 0; visibility: hidden;
+      transition: opacity .6s ease, visibility .6s ease;
+    }
+    .season-slide.active { position: relative; opacity: 1; visibility: visible; height: 100%; }
+    .season-slide > .absolute { z-index: 0; }
+    .season-slide > .relative { z-index: 1; padding-inline-start: 5rem; padding-inline-end: 3rem; }
+
+    .season-nav {
+      position: absolute; top: 0; bottom: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: center;
+      width: 3rem;
+      background: rgba(42,30,24,.25);
+      border: none;
+      color: var(--text-on-dark);
+      cursor: pointer;
+      transition: background .25s;
+    }
+    .season-nav:hover { background: rgba(42,30,24,.45); }
+    .season-nav-prev { left: 0; }
+    .season-nav-next { right: 0; }
+
+    .season-dots {
+      position: absolute; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+      z-index: 10; display: flex; gap: .5rem;
+    }
+    .season-dot {
+      width: .625rem; height: .625rem; border-radius: 9999px;
+      border: none; cursor: pointer;
+      background: rgba(245,238,224,.4);
+      transition: background .3s, transform .3s;
+    }
+    .season-dot.active { background: var(--saffron); transform: scale(1.3); }
+
+    @media (max-width: 640px) {
+      .season-nav { width: 2.25rem; }
+      .season-slide > .relative { padding-inline-start: 3rem; padding-inline-end: 2.5rem; }
+    }
+  </style>
+
+  <script>
+    (function(){
+      var slides = document.querySelectorAll('.season-slide');
+      var dots = document.querySelectorAll('.season-dot');
+      var current = 0;
+      var timer;
+
+      function go(i) {
+        slides[current].classList.remove('active');
+        dots[current].classList.remove('active');
+        current = (i + slides.length) % slides.length;
+        slides[current].classList.add('active');
+        dots[current].classList.add('active');
+      }
+
+      window.seasonSlide = function(d) { go(current + d); resetTimer(); };
+      window.seasonGo = function(i) { go(i); resetTimer(); };
+
+      function resetTimer() {
+        clearInterval(timer);
+        timer = setInterval(function(){ go(current + 1); }, 5000);
+      }
+      resetTimer();
+    })();
+  </script>
 </section>
-{{end}}
 
 <!-- ============ CATEGORY SHOWCASE ============ -->
 <section class="sec-y relative mx-auto max-w-7xl px-5 lg:px-8">
