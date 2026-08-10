@@ -485,6 +485,24 @@ func (h *Handler) AddToCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if adding one more would exceed stock.
+	cart.mu.Lock()
+	currentQty := 0
+	for _, item := range cart.Items {
+		if item.ProductID == productID {
+			currentQty = item.Quantity
+			break
+		}
+	}
+	cart.mu.Unlock()
+
+	if currentQty >= product.StockQuantity {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Header().Set("HX-Trigger", `{"cartUpdated":"", "stockError":""}`)
+		fmt.Fprint(w, toPersianDigits(strconv.Itoa(cart.Count())))
+		return
+	}
+
 	cart.AddItem(CartItem{
 		ProductID: product.ID,
 		Name:      product.Name,
@@ -525,6 +543,39 @@ func (h *Handler) UpdateCart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cart.UpdateQuantity(productID, delta)
+
+	// When increasing quantity, check stock and revert if overflow.
+	if delta > 0 {
+		product, err := database.GetProduct(h.db, productID)
+		if err == nil {
+			cart.mu.Lock()
+			var newQty int
+			found := false
+			for _, item := range cart.Items {
+				if item.ProductID == productID {
+					newQty = item.Quantity
+					found = true
+					break
+				}
+			}
+			cart.mu.Unlock()
+			if found && newQty > product.StockQuantity {
+				cart.UpdateQuantity(productID, -1)
+				cart.mu.Lock()
+				items := make([]CartItem, len(cart.Items))
+				copy(items, cart.Items)
+				cart.mu.Unlock()
+				data := h.mergeData(r, map[string]any{
+					"Items": items,
+					"Total": cart.Total(),
+				})
+				w.Header().Set("Content-Type", "text/html")
+				w.Header().Set("HX-Trigger", `{"cartUpdated":"", "stockError":""}`)
+				h.templates["cart"].ExecuteTemplate(w, "cart-content", data)
+				return
+			}
+		}
+	}
 
 	event := "added"
 	if delta < 0 {
@@ -765,7 +816,21 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	orderID, err := database.CreateOrder(h.db, order, orderItems)
 	if err != nil {
 		if errors.Is(err, database.ErrInsufficientStock) {
-			http.Error(w, "موجودی برخی محصولات کافی نیست؛ لطفاً سبد را به‌روز کنید.", http.StatusConflict)
+			sid := h.getOrCreateSessionID(w, r)
+			cart := h.cartStore.Get(sid)
+			data := h.mergeData(r, map[string]any{
+				"Error":    "موجودی برخی محصولات کافی نیست؛ لطفاً سبد را به‌روز کنید.",
+				"Total":    cart.Total(),
+				"Phone":    phone,
+				"Step":     2,
+				"Name":     name,
+				"Address":  address,
+				"PostalCode": postalCode,
+			})
+			w.WriteHeader(http.StatusConflict)
+			if err := h.templates["checkout"].Execute(w, data); err != nil {
+				log.Printf("render checkout error: %v", err)
+			}
 			return
 		}
 		log.Printf("create order: %v", err)

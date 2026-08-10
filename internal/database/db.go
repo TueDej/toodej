@@ -294,17 +294,51 @@ func GetOrders(db *sql.DB) ([]models.Order, error) {
 }
 
 // UpdateOrderStatus changes the status of an order by its TDJ-XXXXXX ID.
-// Valid statuses are: pending, processing, completed, cancelled.
+// When transitioning to "cancelled", stock is atomically restored for all items.
 func UpdateOrderStatus(db *sql.DB, orderID string, status string) error {
-	res, err := db.Exec("UPDATE orders SET status = ? WHERE id = ?", status, orderID)
+	tx, err := db.Begin()
 	if err != nil {
-		return fmt.Errorf("update order %s status: %w", orderID, err)
+		return fmt.Errorf("begin tx: %w", err)
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	defer tx.Rollback()
+
+	// Fetch current status to avoid double-restoring stock.
+	var currentStatus string
+	err = tx.QueryRow("SELECT status FROM orders WHERE id = ?", orderID).Scan(&currentStatus)
+	if err == sql.ErrNoRows {
 		return fmt.Errorf("order %s not found", orderID)
 	}
-	return nil
+	if err != nil {
+		return fmt.Errorf("query order %s: %w", orderID, err)
+	}
+
+	if _, err := tx.Exec("UPDATE orders SET status = ? WHERE id = ?", status, orderID); err != nil {
+		return fmt.Errorf("update order %s status: %w", orderID, err)
+	}
+
+	// Restore stock only when transitioning to cancelled from a non-cancelled state.
+	if status == "cancelled" && currentStatus != "cancelled" {
+		rows, err := tx.Query("SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)
+		if err != nil {
+			return fmt.Errorf("query order items: %w", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var productID, quantity int
+			if err := rows.Scan(&productID, &quantity); err != nil {
+				return fmt.Errorf("scan order item: %w", err)
+			}
+			if _, err := tx.Exec("UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?", quantity, productID); err != nil {
+				return fmt.Errorf("restore stock for product %d: %w", productID, err)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterate order items: %w", err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 // GetAllProducts returns every product (including inactive ones), ordered by name.

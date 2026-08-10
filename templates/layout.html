@@ -483,18 +483,17 @@
   {{end}}
 
   <!-- ============ TOASTS (cart feedback) ============ -->
-  <div id="toast-container" class="pointer-events-none fixed bottom-5 end-5 z-50 flex flex-col-reverse gap-3"></div>
+  <div id="toast-container" class="pointer-events-none fixed bottom-5 start-5 z-50 flex flex-col-reverse gap-3"></div>
   <script>
     var c = {
       added:   { msg:'به سبد خرید اضافه شد',  bg:'bg-[var(--toast-success)]',   tint:'var(--forest)' },
       removed: { msg:'از سبد خرید حذف شد',   bg:'bg-[var(--toast-error)]',   tint:'var(--pomegranate)' }
     };
-    document.addEventListener('cartEvent', function(e){
-      var d = c[e.detail] || { msg:'سبد خرید بروزرسانی شد', bg:'bg-sand', tint:'var(--walnut)' };
+    function showToast(msg, bg, tint) {
       var el = document.createElement('div');
-      el.className = d.bg + ' rounded-2xl px-5 py-3 text-sm font-semibold shadow-lift';
-      el.style.borderInlineStart = '3px solid ' + d.tint;
-      el.textContent = d.msg;
+      el.className = bg + ' rounded-e-2xl px-5 py-3 text-sm font-semibold shadow-lift';
+      el.style.borderInlineStart = '3px solid ' + tint;
+      el.textContent = msg;
       el.style.opacity = '0';
       el.style.transform = 'translateX(-12px)';
       var container = document.getElementById('toast-container');
@@ -510,7 +509,14 @@
         el.style.transform = 'translateY(calc(100% + .75rem))';
         el.style.marginBottom = -(h + 12) + 'px';
         setTimeout(function(){ el.remove(); }, 350);
-      }, 2600);
+      }, 3500);
+    }
+    document.addEventListener('cartEvent', function(e){
+      var d = c[e.detail] || { msg:'سبد خرید بروزرسانی شد', bg:'bg-sand', tint:'var(--walnut)' };
+      showToast(d.msg, d.bg, d.tint);
+    });
+    document.addEventListener('stockError', function(){
+      showToast('موجودی این محصول کافی نیست', 'bg-[var(--toast-error)]', 'var(--pomegranate)');
     });
   </script>
 
