@@ -82,6 +82,12 @@ fi
 read -rp "App base URL [${APP_BASE_URL}]: " INPUT_BASE_URL
 APP_BASE_URL="${INPUT_BASE_URL:-$APP_BASE_URL}"
 
+# Auto-prefix https:// if missing
+if [[ ! "$APP_BASE_URL" =~ ^https?:// ]]; then
+  warn "URL missing protocol — prepending https://"
+  APP_BASE_URL="https://${APP_BASE_URL}"
+fi
+
 # --------------- 2. local build ---------------
 APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 info "Building production binary..."
