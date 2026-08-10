@@ -6,15 +6,15 @@
     <h1 class="font-display text-3xl font-bold text-walnut md:text-4xl">تکمیل سفارش</h1>
   </div>
 
-  <!-- calm step markers (single, low-friction flow) -->
+  <!-- calm step markers -->
   <ol class="mt-7 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs" aria-label="مراحل سفارش">
-    <li class="flex items-center gap-2 font-semibold text-pomegranate">
-      <span class="flex h-6 w-6 items-center justify-center rounded-full bg-pomegranate text-[.6875rem] font-bold" style="color:var(--text-on-dark)">۱</span>
+    <li class="flex items-center gap-2 {{if ne .Step 2}}font-semibold text-pomegranate{{else}}text-clay{{end}}">
+      <span class="flex h-6 w-6 items-center justify-center rounded-full {{if ne .Step 2}}bg-pomegranate text-[.6875rem] font-bold{{else}}border border-line/80 bg-sand/40 text-[.6875rem]{{end}}" {{if ne .Step 2}}style="color:var(--text-on-dark)"{{end}}>۱</span>
       اطلاعات ارسال
     </li>
     <li class="h-px w-8 bg-line" aria-hidden="true"></li>
-    <li class="flex items-center gap-2 text-clay">
-      <span class="flex h-6 w-6 items-center justify-center rounded-full border border-line/80 bg-sand/40 text-[.6875rem]">۲</span>
+    <li class="flex items-center gap-2 {{if eq .Step 2}}font-semibold text-pomegranate{{else}}text-clay{{end}}">
+      <span class="flex h-6 w-6 items-center justify-center rounded-full {{if eq .Step 2}}bg-pomegranate text-[.6875rem] font-bold{{else}}border border-line/80 bg-sand/40 text-[.6875rem]{{end}}" {{if eq .Step 2}}style="color:var(--text-on-dark)"{{end}}>۲</span>
       مرور سفارش
     </li>
     <li class="h-px w-8 bg-line" aria-hidden="true"></li>
@@ -32,8 +32,76 @@
   <div class="mt-5 rounded-2xl border border-rose/40 px-5 py-4 text-sm leading-7 text-pomegranate" style="background:var(--toast-error)" role="alert">{{.Error}}</div>
   {{end}}
 
-  <!-- CHECKOUT FORM — POSTs to /checkout; redirects to /checkout/confirmation/{id} on success -->
-  <form action="/checkout" method="POST" class="paper-card mt-7 overflow-hidden px-7 py-7" data-reveal>
+  {{if eq .Step 2}}
+  <!-- STEP 2: ORDER REVIEW -->
+  <div class="paper-card mt-7 overflow-hidden px-7 py-7" data-reveal>
+    <div class="mb-6 flex items-center gap-2.5">
+      <span class="flex h-7 w-7 items-center justify-center rounded-full bg-pomegranate text-sm font-bold" style="color:var(--text-on-dark)">۲</span>
+      <h2 class="font-display text-lg font-semibold text-walnut">مرور سفارش</h2>
+    </div>
+
+    <!-- shipping info summary -->
+    <div class="mb-6 space-y-2 text-sm">
+      <div class="flex gap-2"><span class="text-clay">نام:</span> <span class="font-medium text-walnut">{{.Name}}</span></div>
+      <div class="flex gap-2"><span class="text-clay">تلفن:</span> <span class="font-medium text-walnut" dir="ltr">{{.Phone}}</span></div>
+      <div class="flex gap-2"><span class="text-clay">آدرس:</span> <span class="font-medium text-walnut">{{.Address}}</span></div>
+      <div class="flex gap-2"><span class="text-clay">کد پستی:</span> <span class="font-medium text-walnut" dir="ltr">{{.PostalCode}}</span></div>
+    </div>
+
+    <div class="h-px bg-line/60"></div>
+
+    <!-- cart items -->
+    <div class="mt-5 space-y-4">
+      {{range .Items}}
+      <div class="flex items-center justify-between gap-3 text-sm">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-sand border border-line/70">
+            {{if .ImageURL}}
+            <img src="{{.ImageURL}}" alt="{{.Name}}" class="h-full w-full object-cover">
+            {{else}}
+            <img src="/assets/fig.svg" alt="" class="h-5 w-5 opacity-50">
+            {{end}}
+          </div>
+          <div class="min-w-0">
+            <span class="block truncate font-medium text-walnut">{{.Name}}</span>
+            <span class="text-xs text-clay">{{.Unit}}</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-4 flex-shrink-0">
+          <span class="text-xs text-clay">{{.Quantity | persianDigits}} × {{formatPrice .Price}}</span>
+          <span class="font-bold text-pomegranate">{{formatPrice (multiply .Price .Quantity)}}</span>
+        </div>
+      </div>
+      {{end}}
+    </div>
+
+    <div class="mt-5 h-px bg-line/60"></div>
+
+    <div class="mt-5 flex items-center justify-between">
+      <span class="font-semibold text-walnut">جمع کل</span>
+      <span class="text-xl font-bold text-pomegranate">{{formatPrice .Total}}</span>
+    </div>
+
+    <form action="/checkout" method="POST" class="mt-7 space-y-4">
+      <input type="hidden" name="name" value="{{.Name}}">
+      <input type="hidden" name="phone" value="{{.Phone}}">
+      <input type="hidden" name="address" value="{{.Address}}">
+      <input type="hidden" name="postal_code" value="{{.PostalCode}}">
+
+      <div class="flex gap-3">
+        <a href="/checkout?name={{.Name}}&phone={{.Phone}}&address={{.Address}}&postal_code={{.PostalCode}}" class="btn flex-1 border border-line bg-transparent text-walnut hover:bg-sand/80">
+          بازگشت
+        </a>
+        <button type="submit" class="btn btn-primary flex-1 text-base">
+          ثبت نهایی — {{formatPrice .Total}}
+        </button>
+      </div>
+    </form>
+  </div>
+
+  {{else}}
+  <!-- STEP 1: SHIPPING INFO -->
+  <form action="/checkout/preview" method="POST" class="paper-card mt-7 overflow-hidden px-7 py-7" data-reveal>
     <div class="mb-6 flex items-center gap-2.5">
       <span class="flex h-7 w-7 items-center justify-center rounded-full bg-pomegranate text-sm font-bold" style="color:var(--text-on-dark)">۱</span>
       <h2 class="font-display text-lg font-semibold text-walnut">اطلاعات ارسال</h2>
@@ -42,7 +110,7 @@
     <div class="space-y-5">
       <div>
         <label for="name" class="lbl block">نام و نام خانوادگی</label>
-        <input type="text" id="name" name="name" required autocomplete="name"
+        <input type="text" id="name" name="name" value="{{.Name}}" required autocomplete="name"
           class="field mt-2" placeholder="مثلاً سارا محمدی">
       </div>
       <div>
@@ -52,21 +120,20 @@
       </div>
       <div>
         <label for="address" class="lbl block">آدرس تحویل</label>
-        <input type="text" id="address" name="address" required autocomplete="street-address" maxlength="300"
+        <input type="text" id="address" name="address" value="{{.Address}}" required autocomplete="street-address" maxlength="300"
           class="field mt-2" placeholder="استان، شهر، نشانی کامل و پلاک..">
       </div>
       <div>
         <label for="postal_code" class="lbl block">کد پستی</label>
-        <input type="text" id="postal_code" name="postal_code" required dir="ltr" inputmode="numeric" autocomplete="postal-code"
+        <input type="text" id="postal_code" name="postal_code" value="{{.PostalCode}}" required dir="ltr" inputmode="numeric" autocomplete="postal-code"
           class="field mt-2 text-left" placeholder="۱۲۳۴۵۶۷۸۹۰">
       </div>
     </div>
 
-
-
     <button type="submit" class="btn btn-primary mt-7 w-full text-base">
-      ثبت سفارش — {{formatPrice .Total}}
+      مرور سفارش
     </button>
   </form>
+  {{end}}
 </div>
 {{end}}

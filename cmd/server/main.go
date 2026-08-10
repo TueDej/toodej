@@ -83,6 +83,7 @@ func main() {
 	r.Get("/cart", h.ViewCart)
 	r.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(http.Dir("assets"))))
 	r.Get("/checkout", h.CheckoutForm)
+	r.Post("/checkout/preview", h.PreviewCheckout)
 	r.Post("/checkout", h.PlaceOrder)
 	r.Get("/checkout/confirmation/{id}", h.Confirmation)
 	r.With(loginLimiter.Middleware).Get("/login", h.LoginPage)

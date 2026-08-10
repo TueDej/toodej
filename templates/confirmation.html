@@ -27,7 +27,7 @@
         <div class="flex items-center justify-between py-3">
           <div>
             <p class="font-medium text-walnut">{{.Name}}</p>
-            <p class="mt-0.5 text-xs text-clay">{{.Quantity | persianDigits}} × {{formatPrice .Price}}</p>
+            <p class="mt-0.5 text-xs text-clay">{{.Quantity | persianDigits}} × {{.Unit}}</p>
           </div>
           <span class="font-bold text-walnut">{{formatPrice .Subtotal}}</span>
         </div>

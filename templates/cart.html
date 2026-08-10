@@ -18,11 +18,11 @@
 {{if .Items}}
 <div class="mt-8 space-y-5">
   {{range .Items}}
-  <article class="paper-card overflow-hidden px-5 py-4 transition hover:border-fig/30 sm:flex sm:items-center sm:gap-5">
+  <article class="paper-card overflow-hidden px-5 py-4 transition hover:border-fig/30 lg:flex lg:items-center lg:gap-5">
     <!-- row 1 (mobile) / inline (desktop): thumb + name + remove -->
-    <div class="flex items-center gap-3 sm:min-w-0 sm:flex-1 sm:gap-4">
+    <div class="flex items-center gap-3 lg:min-w-0 lg:flex-1 lg:gap-4">
       <!-- thumb -->
-      <div class="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-sand border border-line/70 sm:h-16 sm:w-16">
+      <div class="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-sand border border-line/70 lg:h-16 lg:w-16">
         {{if .ImageURL}}
         <img src="{{.ImageURL}}" alt="{{.Name}}" class="h-full w-full object-cover">
         {{else}}
@@ -38,22 +38,22 @@
 
       <!-- remove (last on mobile, first visual on desktop via order) -->
       <button hx-post="/cart/remove" hx-vals='{"product_id": "{{.ProductID}}"}' hx-trigger="click" hx-target="#cart-content" hx-swap="innerHTML"
-        class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-line text-clay transition hover:border-rose hover:text-pomegranate sm:order-first"
+        class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-line text-clay transition hover:border-rose hover:text-pomegranate lg:order-first"
         title="حذف از سبد">
         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
     </div>
 
     <!-- row 2 (mobile) / inline columns (desktop): price + stepper + total -->
-    <div class="mt-3 flex items-center justify-between gap-3 border-t border-line/50 pt-3 sm:mt-0 sm:border-t-0 sm:gap-5 sm:border-none sm:pt-0">
+    <div class="mt-3 flex flex-shrink-0 items-center justify-between gap-3 border-t border-line/50 pt-3 lg:mt-0 lg:border-t-0 lg:gap-5 lg:border-none lg:pt-0">
       <!-- price per unit (desktop only) -->
-      <div class="hidden flex-shrink-0 text-sm text-clay sm:block sm:w-32">
+      <div class="hidden flex-shrink-0 text-sm text-clay lg:block lg:w-32">
         <span class="block text-xs text-clay/80">قیمت واحد</span>
         <span class="font-bold text-walnut">{{formatPrice .Price}}</span>
       </div>
 
       <!-- quantity stepper -->
-      <div class="flex flex-shrink-0 items-center justify-between gap-2 rounded-full border border-line bg-sand/50 px-2 py-1.5 dir-ltr sm:w-32">
+      <div class="flex flex-shrink-0 items-center justify-between gap-2 rounded-full border border-line bg-sand/50 px-2 py-1.5 dir-ltr lg:w-32">
         <button hx-post="/cart/update" hx-vals='{"product_id":"{{.ProductID}}","delta":"-1"}' hx-target="#cart-content" hx-swap="innerHTML"
           class="step-btn" aria-label="کم کردن">−</button>
         <span class="w-8 text-center text-sm font-semibold text-walnut">{{.Quantity | persianDigits}}</span>
@@ -62,8 +62,8 @@
       </div>
 
       <!-- line total -->
-      <div class="flex-shrink-0 text-end sm:w-40 sm:text-start">
-        <span class="text-xs text-clay sm:block">جمع</span>
+      <div class="flex-shrink-0 text-end lg:w-40 lg:text-start">
+        <span class="text-xs text-clay lg:block">جمع</span>
         <p class="text-lg font-bold tracking-tight text-pomegranate">{{formatPrice (multiply .Price .Quantity)}}</p>
       </div>
     </div>
@@ -75,10 +75,6 @@
 <div class="paper-card-sand overflow-hidden mt-8 px-7 py-7">
   <h2 class="font-display text-xl font-semibold text-walnut">جمع سفارش</h2>
   <div class="mt-4 space-y-2.5 text-sm">
-    <div class="flex justify-between text-clay">
-      <span>جمع کالاها ({{len .Items}} ردیف)</span>
-      <span>—</span>
-    </div>
     <div class="flex justify-between text-clay">
       <span>هزینهٔ ارسال</span>
       <span>محاسبه هنگام ثبت</span>

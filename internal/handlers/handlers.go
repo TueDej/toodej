@@ -621,11 +621,75 @@ func (h *Handler) CheckoutForm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := h.mergeData(r, map[string]any{
-		"Total": cart.Total(),
-		"Phone": phone,
+		"Total":      cart.Total(),
+		"Phone":      phone,
+		"Step":       1,
+		"Name":       r.URL.Query().Get("name"),
+		"Address":    r.URL.Query().Get("address"),
+		"PostalCode": r.URL.Query().Get("postal_code"),
 	})
 	if err := h.templates["checkout"].Execute(w, data); err != nil {
 		log.Printf("render checkout: %v", err)
+	}
+}
+
+// PreviewCheckout validates the shipping form and renders step 2 (order review).
+func (h *Handler) PreviewCheckout(w http.ResponseWriter, r *http.Request) {
+	_, ok := h.requireAuth(w, r)
+	if !ok {
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	phone := strings.TrimSpace(r.FormValue("phone"))
+	address := strings.ReplaceAll(strings.TrimSpace(r.FormValue("address")), "\n", " ")
+	address = strings.ReplaceAll(address, "\r", "")
+	postalCode := strings.TrimSpace(r.FormValue("postal_code"))
+
+	if name == "" || len(name) > 80 || !validIranianPhone(phone) || len(address) < 5 || len(address) > 300 || postalCode == "" {
+		sid := h.getOrCreateSessionID(w, r)
+		cart := h.cartStore.Get(sid)
+		data := h.mergeData(r, map[string]any{
+			"Error":    "اطلاعات تماس، آدرس و کد پستی را به‌درستی وارد کنید.",
+			"Total":    cart.Total(),
+			"Phone":    phone,
+			"Step":     1,
+		})
+		w.WriteHeader(http.StatusBadRequest)
+		if err := h.templates["checkout"].Execute(w, data); err != nil {
+			log.Printf("render checkout error: %v", err)
+		}
+		return
+	}
+
+	sid := h.getOrCreateSessionID(w, r)
+	cart := h.cartStore.Get(sid)
+	if cart.Count() == 0 {
+		http.Redirect(w, r, "/cart", http.StatusSeeOther)
+		return
+	}
+
+	cart.mu.Lock()
+	items := make([]CartItem, len(cart.Items))
+	copy(items, cart.Items)
+	cart.mu.Unlock()
+
+	data := h.mergeData(r, map[string]any{
+		"Step":      2,
+		"Total":     cart.Total(),
+		"Items":     items,
+		"Name":      name,
+		"Phone":     phone,
+		"Address":   address,
+		"PostalCode": postalCode,
+	})
+	if err := h.templates["checkout"].Execute(w, data); err != nil {
+		log.Printf("render checkout preview: %v", err)
 	}
 }
 
@@ -655,6 +719,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 			"Error": "اطلاعات تماس، آدرس و کد پستی را به‌درستی وارد کنید.",
 			"Total": cart.Total(),
 			"Phone": phone,
+			"Step":  1,
 		})
 		w.WriteHeader(http.StatusBadRequest)
 		if err := h.templates["checkout"].Execute(w, data); err != nil {
@@ -746,19 +811,23 @@ func (h *Handler) Confirmation(w http.ResponseWriter, r *http.Request) {
 		Quantity int
 		Price    int
 		Subtotal int
+		Unit     string
 	}
 
 	var itemViews []itemView
 	for i, item := range items {
 		name := fmt.Sprintf("Product #%d", item.ProductID)
+		unit := ""
 		if i < len(products) {
 			name = products[i].Name
+			unit = products[i].Unit
 		}
 		itemViews = append(itemViews, itemView{
 			Name:     name,
 			Quantity: item.Quantity,
 			Price:    item.PricePerUnit,
 			Subtotal: item.Quantity * item.PricePerUnit,
+			Unit:     unit,
 		})
 	}
 
