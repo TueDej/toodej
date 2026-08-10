@@ -74,7 +74,7 @@ type paymentResponse struct {
 		Code      int    `json:"code"`
 		Message   string `json:"message"`
 	} `json:"data"`
-	Errors []struct {
+	Errors struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
 	} `json:"errors"`
@@ -138,7 +138,7 @@ type verifyResponse struct {
 		FeeType   string `json:"fee_type"`
 		Fee       int    `json:"fee"`
 	} `json:"data"`
-	Errors []struct {
+	Errors struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
 	} `json:"errors"`
