@@ -3,6 +3,7 @@
 package database
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"errors"
@@ -30,6 +31,14 @@ const (
 // exceeds the remaining stock of a product. The enclosing transaction is rolled
 // back, so no partial stock changes or order rows are persisted.
 var ErrInsufficientStock = errors.New("insufficient stock")
+
+// ErrProductUnavailable is returned by CreateOrder when a cart references a
+// missing, inactive, or invalid product line.
+var ErrProductUnavailable = errors.New("product unavailable")
+
+// ErrInvalidOrderTransition is returned when an order status change would break
+// the payment/inventory state machine.
+var ErrInvalidOrderTransition = errors.New("invalid order status transition")
 
 // Init opens (or creates) the SQLite database at dbPath, enables WAL mode and
 // foreign keys, runs migrations, and seeds initial data if the database is empty.
@@ -120,9 +129,17 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 
-	_, err = db.Exec("ALTER TABLE orders ADD COLUMN user_id INTEGER REFERENCES users(id)")
-	if err != nil {
-		// column may already exist on re-deploy — ignore
+	if err := ensureOrderColumn(db, "postal_code", "ALTER TABLE orders ADD COLUMN postal_code TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureOrderColumn(db, "payment_authority", "ALTER TABLE orders ADD COLUMN payment_authority TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureOrderColumn(db, "payment_ref_id", "ALTER TABLE orders ADD COLUMN payment_ref_id INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureOrderColumn(db, "user_id", "ALTER TABLE orders ADD COLUMN user_id INTEGER REFERENCES users(id)"); err != nil {
+		return err
 	}
 
 	// Migration: update status CHECK constraint to include new statuses.
@@ -131,60 +148,147 @@ func migrate(db *sql.DB) error {
 	var checkSQL string
 	err = db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='orders'").Scan(&checkSQL)
 	if err == nil && !strings.Contains(checkSQL, "awaiting_payment") {
-		tx, err := db.Begin()
-		if err != nil {
+		if err := migrateOrderStatusConstraint(db); err != nil {
 			return err
 		}
-		defer tx.Rollback()
+	}
 
-		if _, err := tx.Exec(`CREATE TABLE orders_new (
-			id              TEXT    PRIMARY KEY,
-			customer_name    TEXT    NOT NULL,
-			customer_phone   TEXT    NOT NULL DEFAULT '',
-			customer_address TEXT    NOT NULL DEFAULT '',
-			postal_code      TEXT    NOT NULL DEFAULT '',
-			total_amount    INTEGER NOT NULL DEFAULT 0,
-			status          TEXT    NOT NULL DEFAULT 'pending'
-				CHECK (status IN ('pending','preparing','dispatched','cancelled','awaiting_payment')),
-			payment_authority TEXT   NOT NULL DEFAULT '',
-			payment_ref_id   INTEGER NOT NULL DEFAULT 0,
-			user_id        INTEGER REFERENCES users(id),
-			created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
-		)`); err != nil {
-			return err
+	return nil
+}
+
+func ensureOrderColumn(db *sql.DB, name, ddl string) error {
+	exists, err := orderColumnExists(db, name)
+	if err != nil {
+		return fmt.Errorf("check orders.%s: %w", name, err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := db.Exec(ddl); err != nil {
+		return fmt.Errorf("add orders.%s: %w", name, err)
+	}
+	return nil
+}
+
+func orderColumnExists(db *sql.DB, name string) (bool, error) {
+	rows, err := db.Query("PRAGMA table_info(orders)")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var colName, colType string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &colName, &colType, &notNull, &defaultValue, &pk); err != nil {
+			return false, err
 		}
-		if _, err := tx.Exec(`INSERT INTO orders_new (id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, user_id, created_at)
-			SELECT id, customer_name, customer_phone, customer_address, '', total_amount,
+		if colName == name {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+func migrateOrderStatusConstraint(db *sql.DB) error {
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("get migration conn: %w", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+		return fmt.Errorf("disable foreign keys: %w", err)
+	}
+	defer conn.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin status migration: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE orders_new (
+		id              TEXT    PRIMARY KEY,
+		customer_name    TEXT    NOT NULL,
+		customer_phone   TEXT    NOT NULL DEFAULT '',
+		customer_address TEXT    NOT NULL DEFAULT '',
+		postal_code      TEXT    NOT NULL DEFAULT '',
+		total_amount    INTEGER NOT NULL DEFAULT 0,
+		status          TEXT    NOT NULL DEFAULT 'pending'
+			CHECK (status IN ('pending','preparing','dispatched','cancelled','awaiting_payment')),
+		payment_authority TEXT   NOT NULL DEFAULT '',
+		payment_ref_id   INTEGER NOT NULL DEFAULT 0,
+		user_id        INTEGER REFERENCES users(id),
+		created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+	)`); err != nil {
+		return fmt.Errorf("create orders_new: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `INSERT INTO orders_new (
+			id, customer_name, customer_phone, customer_address, postal_code,
+			total_amount, status, payment_authority, payment_ref_id, user_id, created_at
+		)
+		SELECT id, customer_name, customer_phone, customer_address, postal_code,
+			total_amount,
 			CASE status
 				WHEN 'processing' THEN 'preparing'
 				WHEN 'completed' THEN 'dispatched'
 				ELSE status
 			END,
-			user_id, created_at
-			FROM orders`); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`DROP TABLE orders`); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`ALTER TABLE orders_new RENAME TO orders`); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id)`); err != nil {
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
+			payment_authority, payment_ref_id, user_id, created_at
+		FROM orders`); err != nil {
+		return fmt.Errorf("copy orders: %w", err)
 	}
 
-	// Migration: add postal_code column if missing.
-	var colCheck string
-	err = db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='orders'").Scan(&colCheck)
-	if err == nil && !strings.Contains(colCheck, "postal_code") {
-		_, _ = db.Exec("ALTER TABLE orders ADD COLUMN postal_code TEXT NOT NULL DEFAULT ''")
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE order_items_new (
+		id             INTEGER PRIMARY KEY AUTOINCREMENT,
+		order_id       TEXT    NOT NULL REFERENCES orders_new(id) ON DELETE CASCADE,
+		product_id     INTEGER NOT NULL REFERENCES products(id),
+		quantity       INTEGER NOT NULL DEFAULT 1,
+		price_per_unit INTEGER NOT NULL,
+		UNIQUE(order_id, product_id)
+	)`); err != nil {
+		return fmt.Errorf("create order_items_new: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO order_items_new (id, order_id, product_id, quantity, price_per_unit)
+		SELECT id, order_id, product_id, quantity, price_per_unit FROM order_items`); err != nil {
+		return fmt.Errorf("copy order_items: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "DROP TABLE order_items"); err != nil {
+		return fmt.Errorf("drop old order_items: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "DROP TABLE orders"); err != nil {
+		return fmt.Errorf("drop old orders: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "ALTER TABLE orders_new RENAME TO orders"); err != nil {
+		return fmt.Errorf("rename orders_new: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "ALTER TABLE order_items_new RENAME TO order_items"); err != nil {
+		return fmt.Errorf("rename order_items_new: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id)"); err != nil {
+		return fmt.Errorf("create orders user index: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit status migration: %w", err)
 	}
 
+	rows, err := conn.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return fmt.Errorf("foreign key check: %w", err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		return errors.New("foreign key check failed after orders migration")
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("foreign key check rows: %w", err)
+	}
 	return nil
 }
 
@@ -315,6 +419,9 @@ func UpdateOrderStatus(db *sql.DB, orderID string, status string) error {
 	if err != nil {
 		return fmt.Errorf("query order %s: %w", orderID, err)
 	}
+	if !validOrderTransition(currentStatus, status) {
+		return fmt.Errorf("%w: %s -> %s", ErrInvalidOrderTransition, currentStatus, status)
+	}
 
 	if _, err := tx.Exec("UPDATE orders SET status = ? WHERE id = ?", status, orderID); err != nil {
 		return fmt.Errorf("update order %s status: %w", orderID, err)
@@ -345,11 +452,34 @@ func UpdateOrderStatus(db *sql.DB, orderID string, status string) error {
 	return tx.Commit()
 }
 
+func validOrderTransition(currentStatus, nextStatus string) bool {
+	if currentStatus == nextStatus {
+		return true
+	}
+	switch currentStatus {
+	case "awaiting_payment":
+		return nextStatus == "pending" || nextStatus == "cancelled"
+	case "pending":
+		return nextStatus == "preparing" || nextStatus == "cancelled"
+	case "preparing":
+		return nextStatus == "dispatched" || nextStatus == "cancelled"
+	case "dispatched":
+		return nextStatus == "cancelled"
+	case "cancelled":
+		return false
+	default:
+		return false
+	}
+}
+
 // SetPaymentAuthority stores the Zarinpal authority token on an order.
 func SetPaymentAuthority(db *sql.DB, orderID, authority string) error {
-	_, err := db.Exec("UPDATE orders SET payment_authority = ? WHERE id = ?", authority, orderID)
+	res, err := db.Exec("UPDATE orders SET payment_authority = ? WHERE id = ? AND status = 'awaiting_payment'", authority, orderID)
 	if err != nil {
 		return fmt.Errorf("set payment authority for %s: %w", orderID, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("%w: cannot set payment authority for %s", ErrInvalidOrderTransition, orderID)
 	}
 	return nil
 }
@@ -372,19 +502,88 @@ func GetOrderByAuthority(db *sql.DB, authority string) (*models.Order, error) {
 	return &o, nil
 }
 
-// ConfirmPayment marks an order as pending (paid) and stores the Zarinpal ref ID.
+// ConfirmPayment marks an awaiting-payment order as pending (paid) and stores the
+// Zarinpal ref ID. Already-paid orders are treated as idempotent callbacks.
 func ConfirmPayment(db *sql.DB, orderID string, refID int64) error {
-	_, err := db.Exec("UPDATE orders SET status = 'pending', payment_ref_id = ? WHERE id = ?", refID, orderID)
+	tx, err := db.Begin()
 	if err != nil {
-		return fmt.Errorf("confirm payment for %s: %w", orderID, err)
+		return fmt.Errorf("begin confirm payment: %w", err)
 	}
-	return nil
+	defer tx.Rollback()
+
+	var currentStatus string
+	var currentRefID int64
+	err = tx.QueryRow("SELECT status, payment_ref_id FROM orders WHERE id = ?", orderID).Scan(&currentStatus, &currentRefID)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("order %s not found", orderID)
+	}
+	if err != nil {
+		return fmt.Errorf("query payment status for %s: %w", orderID, err)
+	}
+
+	switch currentStatus {
+	case "awaiting_payment":
+		if _, err := tx.Exec("UPDATE orders SET status = 'pending', payment_ref_id = ? WHERE id = ? AND status = 'awaiting_payment'", refID, orderID); err != nil {
+			return fmt.Errorf("confirm payment for %s: %w", orderID, err)
+		}
+	case "pending", "preparing", "dispatched":
+		if currentRefID == 0 && refID != 0 {
+			if _, err := tx.Exec("UPDATE orders SET payment_ref_id = ? WHERE id = ? AND payment_ref_id = 0", refID, orderID); err != nil {
+				return fmt.Errorf("store payment ref for %s: %w", orderID, err)
+			}
+		}
+	default:
+		return fmt.Errorf("%w: cannot confirm payment for %s in status %s", ErrInvalidOrderTransition, orderID, currentStatus)
+	}
+
+	return tx.Commit()
 }
 
 // MarkPaymentFailed sets order status to cancelled when payment verification fails.
-// Stock is restored via the existing UpdateOrderStatus logic.
+// Stock is restored only for orders that are still awaiting payment.
 func MarkPaymentFailed(db *sql.DB, orderID string) error {
-	return UpdateOrderStatus(db, orderID, "cancelled")
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin mark payment failed: %w", err)
+	}
+	defer tx.Rollback()
+
+	var currentStatus string
+	err = tx.QueryRow("SELECT status FROM orders WHERE id = ?", orderID).Scan(&currentStatus)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("order %s not found", orderID)
+	}
+	if err != nil {
+		return fmt.Errorf("query order %s: %w", orderID, err)
+	}
+	if currentStatus != "awaiting_payment" {
+		return tx.Commit()
+	}
+
+	if _, err := tx.Exec("UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'awaiting_payment'", orderID); err != nil {
+		return fmt.Errorf("cancel unpaid order %s: %w", orderID, err)
+	}
+
+	rows, err := tx.Query("SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)
+	if err != nil {
+		return fmt.Errorf("query order items: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var productID, quantity int
+		if err := rows.Scan(&productID, &quantity); err != nil {
+			return fmt.Errorf("scan order item: %w", err)
+		}
+		if _, err := tx.Exec("UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?", quantity, productID); err != nil {
+			return fmt.Errorf("restore stock for product %d: %w", productID, err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate order items: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 // GetAllProducts returns every product (including inactive ones), ordered by name.
@@ -482,12 +681,82 @@ func randomOrderID() string {
 // The order ID is auto-generated via randomOrderID.
 func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string, error) {
 	o.ID = randomOrderID()
+	if len(items) == 0 {
+		return "", ErrProductUnavailable
+	}
+
+	type pricedItem struct {
+		productID    int64
+		quantity     int
+		pricePerUnit int
+	}
+	productOrder := make([]int64, 0, len(items))
+	quantities := make(map[int64]int, len(items))
+	maxInt := int(^uint(0) >> 1)
+	for _, item := range items {
+		if item.ProductID <= 0 || item.Quantity <= 0 {
+			return "", fmt.Errorf("%w (product id %d)", ErrProductUnavailable, item.ProductID)
+		}
+		if _, ok := quantities[item.ProductID]; !ok {
+			productOrder = append(productOrder, item.ProductID)
+		}
+		if item.Quantity > maxInt-quantities[item.ProductID] {
+			return "", fmt.Errorf("quantity overflow for product id %d", item.ProductID)
+		}
+		quantities[item.ProductID] += item.Quantity
+	}
 
 	tx, err := db.Begin()
 	if err != nil {
 		return "", fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
+
+	// Atomically reserve stock: the guarded UPDATE only decrements when enough
+	// inventory remains, so concurrent orders cannot oversell a product or drive
+	// stock below zero. Any failure rolls the whole order back.
+	stockStmt, err := tx.Prepare(`UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ? AND is_active = 1 AND stock_quantity >= ?`)
+	if err != nil {
+		return "", fmt.Errorf("prepare stock update: %w", err)
+	}
+	defer stockStmt.Close()
+
+	var pricedItems []pricedItem
+	totalAmount := 0
+	for _, productID := range productOrder {
+		quantity := quantities[productID]
+		var price int
+		var isActive int
+		err := tx.QueryRow("SELECT price, is_active FROM products WHERE id = ?", productID).Scan(&price, &isActive)
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("%w (product id %d)", ErrProductUnavailable, productID)
+		}
+		if err != nil {
+			return "", fmt.Errorf("query product %d: %w", productID, err)
+		}
+		if isActive != 1 {
+			return "", fmt.Errorf("%w (product id %d)", ErrProductUnavailable, productID)
+		}
+		if price > maxInt/quantity {
+			return "", fmt.Errorf("line total overflow for product id %d", productID)
+		}
+		lineTotal := price * quantity
+		if lineTotal > maxInt-totalAmount {
+			return "", fmt.Errorf("order total overflow")
+		}
+
+		res, err := stockStmt.Exec(quantity, productID, quantity)
+		if err != nil {
+			return "", fmt.Errorf("decrement stock: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return "", fmt.Errorf("%w (product id %d)", ErrInsufficientStock, productID)
+		}
+
+		totalAmount += lineTotal
+		pricedItems = append(pricedItems, pricedItem{productID: productID, quantity: quantity, pricePerUnit: price})
+	}
+	o.TotalAmount = totalAmount
 
 	_, err = tx.Exec(`INSERT INTO orders (id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		o.ID, o.CustomerName, o.CustomerPhone, o.CustomerAddress, o.PostalCode, o.TotalAmount, o.Status, o.UserID)
@@ -501,24 +770,8 @@ func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string,
 	}
 	defer itemStmt.Close()
 
-	// Atomically reserve stock: the guarded UPDATE only decrements when enough
-	// inventory remains, so concurrent orders cannot oversell a product or drive
-	// stock below zero. Any failure rolls the whole order back.
-	stockStmt, err := tx.Prepare(`UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ? AND stock_quantity >= ?`)
-	if err != nil {
-		return "", fmt.Errorf("prepare stock update: %w", err)
-	}
-	defer stockStmt.Close()
-
-	for _, item := range items {
-		res, err := stockStmt.Exec(item.Quantity, item.ProductID, item.Quantity)
-		if err != nil {
-			return "", fmt.Errorf("decrement stock: %w", err)
-		}
-		if n, _ := res.RowsAffected(); n == 0 {
-			return "", fmt.Errorf("%w (product id %d)", ErrInsufficientStock, item.ProductID)
-		}
-		if _, err := itemStmt.Exec(o.ID, item.ProductID, item.Quantity, item.PricePerUnit); err != nil {
+	for _, item := range pricedItems {
+		if _, err := itemStmt.Exec(o.ID, item.productID, item.quantity, item.pricePerUnit); err != nil {
 			return "", fmt.Errorf("insert order_item: %w", err)
 		}
 	}

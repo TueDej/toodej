@@ -38,6 +38,33 @@ func (c *Cart) AddItem(item CartItem) {
 	c.Items = append(c.Items, item)
 }
 
+// AddItemLimited increments or appends a cart item only when it would not exceed
+// the latest stock quantity known by the caller. It also refreshes display fields
+// from the current product row.
+func (c *Cart) AddItemLimited(item CartItem, maxQuantity int) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if maxQuantity <= 0 {
+		return false
+	}
+	item.Quantity = 1
+	for i, existing := range c.Items {
+		if existing.ProductID == item.ProductID {
+			if existing.Quantity >= maxQuantity {
+				return false
+			}
+			c.Items[i].Name = item.Name
+			c.Items[i].Price = item.Price
+			c.Items[i].Unit = item.Unit
+			c.Items[i].ImageURL = item.ImageURL
+			c.Items[i].Quantity++
+			return true
+		}
+	}
+	c.Items = append(c.Items, item)
+	return true
+}
+
 // Total returns the sum of (price · quantity) for every item in the cart.
 func (c *Cart) Total() int {
 	c.mu.Lock()
@@ -74,6 +101,46 @@ func (c *Cart) UpdateQuantity(productID int64, delta int) {
 			return
 		}
 	}
+}
+
+// UpdateQuantityLimited adjusts quantity by one step while enforcing a maximum.
+// It returns false when the product is not present or the increment would exceed stock.
+func (c *Cart) UpdateQuantityLimited(productID int64, delta int, maxQuantity int) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if delta != 1 && delta != -1 {
+		return false
+	}
+	for i, item := range c.Items {
+		if item.ProductID != productID {
+			continue
+		}
+		if delta > 0 && item.Quantity >= maxQuantity {
+			return false
+		}
+		c.Items[i].Quantity += delta
+		if c.Items[i].Quantity <= 0 {
+			c.Items = append(c.Items[:i], c.Items[i+1:]...)
+		}
+		return true
+	}
+	return false
+}
+
+// Snapshot returns a stable copy of the cart items for rendering or checkout.
+func (c *Cart) Snapshot() []CartItem {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	items := make([]CartItem, len(c.Items))
+	copy(items, c.Items)
+	return items
+}
+
+// ReplaceItems swaps the cart contents with a caller-built validated snapshot.
+func (c *Cart) ReplaceItems(items []CartItem) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Items = items
 }
 
 // RemoveItem deletes a product line from the cart entirely.

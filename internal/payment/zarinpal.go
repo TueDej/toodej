@@ -21,14 +21,18 @@ const (
 	productionGatewayBase = "https://zarinpal.com/pg/StartPay/"
 )
 
+// RialPerToman is the gateway conversion factor. Product/order amounts are
+// stored and displayed in toman, while Zarinpal v4 expects rial.
+const RialPerToman = 10
+
 // Zarinpal is a lightweight client for the Zarinpal payment gateway (v4 API).
 type Zarinpal struct {
-	merchantID   string
-	sandbox      bool
-	requestURL   string
-	verifyURL    string
-	gatewayBase  string
-	httpClient   *http.Client
+	merchantID  string
+	sandbox     bool
+	requestURL  string
+	verifyURL   string
+	gatewayBase string
+	httpClient  *http.Client
 }
 
 // New creates a Zarinpal client. If sandbox is true the sandbox endpoints are used.
@@ -57,6 +61,18 @@ func NewFromEnv() *Zarinpal {
 	merchantID := os.Getenv("ZARINPAL_MERCHANT_ID")
 	sandbox := os.Getenv("ZARINPAL_SANDBOX") != "false" // default sandbox
 	return New(merchantID, sandbox)
+}
+
+// TomanToRial converts an application amount to the unit expected by Zarinpal.
+func TomanToRial(amountToman int) (int, error) {
+	if amountToman < 0 {
+		return 0, fmt.Errorf("negative amount: %d", amountToman)
+	}
+	maxInt := int(^uint(0) >> 1)
+	if amountToman > maxInt/RialPerToman {
+		return 0, fmt.Errorf("amount too large: %d", amountToman)
+	}
+	return amountToman * RialPerToman, nil
 }
 
 // paymentRequest is the JSON body sent to Zarinpal's payment request endpoint.
@@ -128,12 +144,12 @@ type verifyRequest struct {
 // verifyResponse is the JSON response from Zarinpal's verify endpoint.
 type verifyResponse struct {
 	Data struct {
-		Code      int    `json:"code"`
-		Message   string `json:"message"`
-		RefID     int64  `json:"ref_id"`
-		CardPan   string `json:"card_pan"`
-		FeeType   string `json:"fee_type"`
-		Fee       int    `json:"fee"`
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		RefID   int64  `json:"ref_id"`
+		CardPan string `json:"card_pan"`
+		FeeType string `json:"fee_type"`
+		Fee     int    `json:"fee"`
 	} `json:"data"`
 	Errors json.RawMessage `json:"errors"`
 }
@@ -146,7 +162,7 @@ type VerifyResult struct {
 }
 
 // VerifyPayment verifies a completed transaction with Zarinpal.
-// Amount must match the original request amount (in Rial).
+// Amount must match the original request amount, in rial.
 func (z *Zarinpal) VerifyPayment(amount int, authority string) (*VerifyResult, error) {
 	body, err := json.Marshal(verifyRequest{
 		MerchantID: z.merchantID,

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -100,6 +101,10 @@ func (h *Handler) AdminUpdateOrderStatusBadge(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := database.UpdateOrderStatus(h.db, orderID, status); err != nil {
+		if errors.Is(err, database.ErrInvalidOrderTransition) {
+			http.Error(w, "invalid status transition", http.StatusBadRequest)
+			return
+		}
 		log.Printf("update order status badge: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -143,6 +148,10 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := database.UpdateOrderStatus(h.db, orderID, status); err != nil {
+		if errors.Is(err, database.ErrInvalidOrderTransition) {
+			http.Error(w, "invalid status transition", http.StatusBadRequest)
+			return
+		}
 		log.Printf("update order status: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

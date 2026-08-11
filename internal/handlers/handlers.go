@@ -108,7 +108,7 @@ func NewHandler(db *sql.DB, cartStore *CartStore, zarinpal *payment.Zarinpal, ba
 			}
 			return "text-clay"
 		},
-		"now": time.Now,
+		"now":       time.Now,
 		"hasSuffix": strings.HasSuffix,
 	}
 
@@ -262,11 +262,11 @@ func (h *Handler) getOrCreateSessionID(w http.ResponseWriter, r *http.Request) s
 // showcase tiles — the Persian label plus a slug used in the URL, a widescreen
 // orchard photo for the tile.
 type catInfo struct {
-	Slug    string
-	Label   string
-	Image   string // CSS background image URL for the tile
-	Season  string // season key for matching (spring, summer, autumn, or empty)
-	IsSVG   bool   // true if Image is an SVG icon (small centered) vs photo (cover)
+	Slug   string
+	Label  string
+	Image  string // CSS background image URL for the tile
+	Season string // season key for matching (spring, summer, autumn, or empty)
+	IsSVG  bool   // true if Image is an SVG icon (small centered) vs photo (cover)
 }
 
 // seasonInfo carries the copy + accent used by the seasonal banner on Home.
@@ -487,37 +487,25 @@ func (h *Handler) AddToCart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	product, err := database.GetProduct(h.db, productID)
-	if err != nil {
+	if err != nil || !product.IsActive {
 		http.Error(w, "product not found", http.StatusNotFound)
 		return
 	}
 
-	// Check if adding one more would exceed stock.
-	cart.mu.Lock()
-	currentQty := 0
-	for _, item := range cart.Items {
-		if item.ProductID == productID {
-			currentQty = item.Quantity
-			break
-		}
-	}
-	cart.mu.Unlock()
-
-	if currentQty >= product.StockQuantity {
-		w.Header().Set("Content-Type", "text/plain")
-		w.Header().Set("HX-Trigger", `{"cartUpdated":"", "stockError":""}`)
-		fmt.Fprint(w, toPersianDigits(strconv.Itoa(cart.Count())))
-		return
-	}
-
-	cart.AddItem(CartItem{
+	added := cart.AddItemLimited(CartItem{
 		ProductID: product.ID,
 		Name:      product.Name,
 		Price:     product.Price,
 		Unit:      product.Unit,
 		Quantity:  1,
 		ImageURL:  product.ImageURL,
-	})
+	}, product.StockQuantity)
+	if !added {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Header().Set("HX-Trigger", `{"cartUpdated":"", "stockError":""}`)
+		fmt.Fprint(w, toPersianDigits(strconv.Itoa(cart.Count())))
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.Header().Set("HX-Trigger", `{"cartUpdated":"", "cartEvent":"added"}`)
@@ -544,44 +532,31 @@ func (h *Handler) UpdateCart(w http.ResponseWriter, r *http.Request) {
 	delta := 1
 	if deltaStr != "" {
 		d, err := strconv.Atoi(deltaStr)
-		if err == nil {
-			delta = d
+		if err != nil || (d != 1 && d != -1) {
+			http.Error(w, "invalid delta", http.StatusBadRequest)
+			return
 		}
+		delta = d
 	}
 
-	cart.UpdateQuantity(productID, delta)
-
-	// When increasing quantity, check stock and revert if overflow.
 	if delta > 0 {
 		product, err := database.GetProduct(h.db, productID)
-		if err == nil {
-			cart.mu.Lock()
-			var newQty int
-			found := false
-			for _, item := range cart.Items {
-				if item.ProductID == productID {
-					newQty = item.Quantity
-					found = true
-					break
-				}
-			}
-			cart.mu.Unlock()
-			if found && newQty > product.StockQuantity {
-				cart.UpdateQuantity(productID, -1)
-				cart.mu.Lock()
-				items := make([]CartItem, len(cart.Items))
-				copy(items, cart.Items)
-				cart.mu.Unlock()
-				data := h.mergeData(r, map[string]any{
-					"Items": items,
-					"Total": cart.Total(),
-				})
-				w.Header().Set("Content-Type", "text/html")
-				w.Header().Set("HX-Trigger", `{"cartUpdated":"", "stockError":""}`)
-				h.templates["cart"].ExecuteTemplate(w, "cart-content", data)
-				return
-			}
+		if err != nil || !product.IsActive {
+			http.Error(w, "product not found", http.StatusNotFound)
+			return
 		}
+		if !cart.UpdateQuantityLimited(productID, delta, product.StockQuantity) {
+			data := h.mergeData(r, map[string]any{
+				"Items": cart.Snapshot(),
+				"Total": cart.Total(),
+			})
+			w.Header().Set("Content-Type", "text/html")
+			w.Header().Set("HX-Trigger", `{"cartUpdated":"", "stockError":""}`)
+			h.templates["cart"].ExecuteTemplate(w, "cart-content", data)
+			return
+		}
+	} else {
+		cart.UpdateQuantity(productID, delta)
 	}
 
 	event := "added"
@@ -589,6 +564,29 @@ func (h *Handler) UpdateCart(w http.ResponseWriter, r *http.Request) {
 		event = "removed"
 	}
 	h.renderCartContent(w, r, event)
+}
+
+func (h *Handler) refreshCartFromProducts(cart *Cart) {
+	items := cart.Snapshot()
+	refreshed := make([]CartItem, 0, len(items))
+	for _, item := range items {
+		product, err := database.GetProduct(h.db, item.ProductID)
+		if err != nil || !product.IsActive || product.StockQuantity <= 0 {
+			continue
+		}
+		if item.Quantity > product.StockQuantity {
+			item.Quantity = product.StockQuantity
+		}
+		if item.Quantity <= 0 {
+			continue
+		}
+		item.Name = product.Name
+		item.Price = product.Price
+		item.Unit = product.Unit
+		item.ImageURL = product.ImageURL
+		refreshed = append(refreshed, item)
+	}
+	cart.ReplaceItems(refreshed)
 }
 
 // RemoveFromCart removes a product line from the cart entirely.
@@ -618,13 +616,8 @@ func (h *Handler) renderCartContent(w http.ResponseWriter, r *http.Request, even
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
 
-	cart.mu.Lock()
-	items := make([]CartItem, len(cart.Items))
-	copy(items, cart.Items)
-	cart.mu.Unlock()
-
 	data := h.mergeData(r, map[string]any{
-		"Items": items,
+		"Items": cart.Snapshot(),
 		"Total": cart.Total(),
 	})
 	w.Header().Set("HX-Trigger", `{"cartUpdated":"", "cartEvent":"`+event+`"}`)
@@ -638,13 +631,8 @@ func (h *Handler) ViewCart(w http.ResponseWriter, r *http.Request) {
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
 
-	cart.mu.Lock()
-	items := make([]CartItem, len(cart.Items))
-	copy(items, cart.Items)
-	cart.mu.Unlock()
-
 	data := h.mergeData(r, map[string]any{
-		"Items": items,
+		"Items": cart.Snapshot(),
 		"Total": cart.Total(),
 	})
 	if err := h.templates["cart"].Execute(w, data); err != nil {
@@ -664,6 +652,7 @@ func (h *Handler) CheckoutForm(w http.ResponseWriter, r *http.Request) {
 
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
+	h.refreshCartFromProducts(cart)
 	if cart.Count() == 0 {
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
@@ -713,10 +702,10 @@ func (h *Handler) PreviewCheckout(w http.ResponseWriter, r *http.Request) {
 		sid := h.getOrCreateSessionID(w, r)
 		cart := h.cartStore.Get(sid)
 		data := h.mergeData(r, map[string]any{
-			"Error":    "اطلاعات تماس، آدرس و کد پستی را به‌درستی وارد کنید.",
-			"Total":    cart.Total(),
-			"Phone":    phone,
-			"Step":     1,
+			"Error": "اطلاعات تماس، آدرس و کد پستی را به‌درستی وارد کنید.",
+			"Total": cart.Total(),
+			"Phone": phone,
+			"Step":  1,
 		})
 		w.WriteHeader(http.StatusBadRequest)
 		if err := h.templates["checkout"].Execute(w, data); err != nil {
@@ -727,23 +716,21 @@ func (h *Handler) PreviewCheckout(w http.ResponseWriter, r *http.Request) {
 
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
+	h.refreshCartFromProducts(cart)
 	if cart.Count() == 0 {
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
 	}
 
-	cart.mu.Lock()
-	items := make([]CartItem, len(cart.Items))
-	copy(items, cart.Items)
-	cart.mu.Unlock()
+	items := cart.Snapshot()
 
 	data := h.mergeData(r, map[string]any{
-		"Step":      2,
-		"Total":     cart.Total(),
-		"Items":     items,
-		"Name":      name,
-		"Phone":     phone,
-		"Address":   address,
+		"Step":       2,
+		"Total":      cart.Total(),
+		"Items":      items,
+		"Name":       name,
+		"Phone":      phone,
+		"Address":    address,
 		"PostalCode": postalCode,
 	})
 	if err := h.templates["checkout"].Execute(w, data); err != nil {
@@ -788,25 +775,20 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
+	h.refreshCartFromProducts(cart)
 
-	cart.mu.Lock()
-	items := make([]CartItem, len(cart.Items))
-	copy(items, cart.Items)
-	cart.mu.Unlock()
+	items := cart.Snapshot()
 
 	if len(items) == 0 {
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
 	}
 
-	totalAmount := cart.Total()
-
 	order := &models.Order{
 		CustomerName:    name,
 		CustomerPhone:   phone,
 		CustomerAddress: address,
 		PostalCode:      postalCode,
-		TotalAmount:     totalAmount,
 		Status:          "awaiting_payment",
 		UserID:          userID,
 	}
@@ -814,24 +796,27 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	var orderItems []models.OrderItem
 	for _, ci := range items {
 		orderItems = append(orderItems, models.OrderItem{
-			ProductID:    ci.ProductID,
-			Quantity:     ci.Quantity,
-			PricePerUnit: ci.Price,
+			ProductID: ci.ProductID,
+			Quantity:  ci.Quantity,
 		})
 	}
 
 	orderID, err := database.CreateOrder(h.db, order, orderItems)
 	if err != nil {
-		if errors.Is(err, database.ErrInsufficientStock) {
+		if errors.Is(err, database.ErrInsufficientStock) || errors.Is(err, database.ErrProductUnavailable) {
 			sid := h.getOrCreateSessionID(w, r)
 			cart := h.cartStore.Get(sid)
+			message := "موجودی برخی محصولات کافی نیست؛ لطفاً سبد را به‌روز کنید."
+			if errors.Is(err, database.ErrProductUnavailable) {
+				message = "برخی محصولات سبد دیگر قابل سفارش نیستند؛ لطفاً سبد را به‌روز کنید."
+			}
 			data := h.mergeData(r, map[string]any{
-				"Error":    "موجودی برخی محصولات کافی نیست؛ لطفاً سبد را به‌روز کنید.",
-				"Total":    cart.Total(),
-				"Phone":    phone,
-				"Step":     2,
-				"Name":     name,
-				"Address":  address,
+				"Error":      message,
+				"Total":      cart.Total(),
+				"Phone":      phone,
+				"Step":       2,
+				"Name":       name,
+				"Address":    address,
 				"PostalCode": postalCode,
 			})
 			w.WriteHeader(http.StatusConflict)
@@ -844,10 +829,18 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	totalAmount := order.TotalAmount
 
 	// Initiate Zarinpal payment.
 	callbackURL := h.baseURL + "/checkout/verify"
-	authority, err := h.zarinpal.RequestPayment(totalAmount, callbackURL, "سفارش تودج "+orderID)
+	gatewayAmount, err := payment.TomanToRial(totalAmount)
+	if err != nil {
+		log.Printf("convert payment amount: %v", err)
+		database.MarkPaymentFailed(h.db, orderID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	authority, err := h.zarinpal.RequestPayment(gatewayAmount, callbackURL, "سفارش تودج "+orderID)
 	if err != nil {
 		log.Printf("zarinpal request payment: %v", err)
 		// Cancel the order and restore stock so the user can retry.
@@ -861,14 +854,14 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 		cart.mu.Unlock()
 
 		data := h.mergeData(r, map[string]any{
-			"Error":    "خطا در اتصال به درگاه پرداخت؛ لطفاً دوباره تلاش کنید.",
-			"Total":    cart.Total(),
-			"Phone":    phone,
-			"Step":     2,
-			"Name":     name,
-			"Address":  address,
+			"Error":      "خطا در اتصال به درگاه پرداخت؛ لطفاً دوباره تلاش کنید.",
+			"Total":      cart.Total(),
+			"Phone":      phone,
+			"Step":       2,
+			"Name":       name,
+			"Address":    address,
 			"PostalCode": postalCode,
-			"Items":    cartItems,
+			"Items":      cartItems,
 		})
 		w.WriteHeader(http.StatusBadGateway)
 		if err := h.templates["checkout"].Execute(w, data); err != nil {
@@ -879,6 +872,22 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 
 	if err := database.SetPaymentAuthority(h.db, orderID, authority); err != nil {
 		log.Printf("set payment authority: %v", err)
+		database.MarkPaymentFailed(h.db, orderID)
+		data := h.mergeData(r, map[string]any{
+			"Error":      "خطا در ثبت اطلاعات پرداخت؛ لطفاً دوباره تلاش کنید.",
+			"Total":      cart.Total(),
+			"Phone":      phone,
+			"Step":       2,
+			"Name":       name,
+			"Address":    address,
+			"PostalCode": postalCode,
+			"Items":      cart.Snapshot(),
+		})
+		w.WriteHeader(http.StatusInternalServerError)
+		if err := h.templates["checkout"].Execute(w, data); err != nil {
+			log.Printf("render checkout error: %v", err)
+		}
+		return
 	}
 
 	gatewayURL := h.zarinpal.GatewayURL(authority)
@@ -913,7 +922,14 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.zarinpal.VerifyPayment(order.TotalAmount, authority)
+	gatewayAmount, err := payment.TomanToRial(order.TotalAmount)
+	if err != nil {
+		log.Printf("convert verify amount: %v", err)
+		http.Redirect(w, r, "/cart", http.StatusSeeOther)
+		return
+	}
+
+	result, err := h.zarinpal.VerifyPayment(gatewayAmount, authority)
 	if err != nil {
 		log.Printf("zarinpal verify: %v", err)
 		database.MarkPaymentFailed(h.db, order.ID)

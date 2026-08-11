@@ -5,7 +5,7 @@ package models
 import "time"
 
 // Product represents a sellable item in the farm store. Price is stored as an
-// integer in the smallest currency unit (Iranian Rial) to avoid floating-point issues.
+// integer amount in Iranian toman to match the admin UI and storefront display.
 type Product struct {
 	ID            int64     `json:"id"`
 	Name          string    `json:"name"`
@@ -39,9 +39,9 @@ type Order struct {
 type OrderItem struct {
 	ID           int64  `json:"id"`
 	OrderID      string `json:"order_id"`
-	ProductID    int64 `json:"product_id"`
-	Quantity     int   `json:"quantity"`
-	PricePerUnit int   `json:"price_per_unit"`
+	ProductID    int64  `json:"product_id"`
+	Quantity     int    `json:"quantity"`
+	PricePerUnit int    `json:"price_per_unit"`
 }
 
 // OrderItemView is a read-only projection that joins order_items with product names
