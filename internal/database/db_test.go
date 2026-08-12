@@ -246,6 +246,72 @@ func TestStatusMigrationPreservesPaymentFieldsAndOrderItems(t *testing.T) {
 	}
 }
 
+func TestSlugifyName(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"Apple", "apple"},
+		{"Apple Sauce", "apple-sauce"},
+		{"  Apple   Sauce  ", "apple-sauce"},
+		{"A B  C\t \nD", "a-b-c-d"},
+		{"انجیر تازه ارگانیک", "انجیر-تازه-ارگانیک"},
+	}
+	for _, c := range cases {
+		if got := SlugifyName(c.in); got != c.want {
+			t.Fatalf("SlugifyName(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestUniqueSlug(t *testing.T) {
+	db := testDB(t)
+
+	slug, err := UniqueSlug(db, "Apple", 0)
+	if err != nil {
+		t.Fatalf("UniqueSlug: %v", err)
+	}
+	if slug != "apple" {
+		t.Fatalf("first slug = %q, want apple", slug)
+	}
+
+	// A product already owns "apple": the next name mapping to the same base
+	// slug must be de-duplicated with a numeric suffix.
+	appleID, err := CreateProduct(db, &models.Product{Name: "Apple", Slug: "apple", Category: "x", Price: 1})
+	if err != nil {
+		t.Fatalf("CreateProduct: %v", err)
+	}
+	slug, err = UniqueSlug(db, "Apple", 0)
+	if err != nil {
+		t.Fatalf("UniqueSlug: %v", err)
+	}
+	if slug != "apple-2" {
+		t.Fatalf("second slug = %q, want apple-2", slug)
+	}
+
+	// The suffix itself is taken, so it must keep climbing.
+	if _, err := CreateProduct(db, &models.Product{Name: "Apple", Slug: "apple-2", Category: "x", Price: 1}); err != nil {
+		t.Fatalf("CreateProduct: %v", err)
+	}
+	slug, err = UniqueSlug(db, "Apple", 0)
+	if err != nil {
+		t.Fatalf("UniqueSlug: %v", err)
+	}
+	if slug != "apple-3" {
+		t.Fatalf("third slug = %q, want apple-3", slug)
+	}
+
+	// excludeID ignores a product's own slug so an update can keep it.
+	slug, err = UniqueSlug(db, "Apple", appleID)
+	if err != nil {
+		t.Fatalf("UniqueSlug exclude: %v", err)
+	}
+	if slug != "apple" {
+		t.Fatalf("excluded slug = %q, want apple", slug)
+	}
+
+	if _, err := UniqueSlug(db, "   ", 0); err == nil {
+		t.Fatal("UniqueSlug on blank name succeeded")
+	}
+}
+
 func TestGetOrder(t *testing.T) {
 	db := testDB(t)
 	if _, err := db.Exec("UPDATE products SET price = 100, stock_quantity = 5, is_active = 1 WHERE id = 1"); err != nil {

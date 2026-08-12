@@ -714,6 +714,47 @@ func CreateProduct(db *sql.DB, p *models.Product) (int64, error) {
 	return res.LastInsertId()
 }
 
+// SlugifyName converts a product name into a URL-safe slug: lowercased with
+// runs of whitespace collapsed into single dashes. Collapsing whitespace makes
+// the mapping deterministic so names differing only in space runs/case map to
+// the same base slug, which UniqueSlug then de-duplicates.
+func SlugifyName(name string) string {
+	return strings.ToLower(strings.Join(strings.Fields(name), "-"))
+}
+
+// UniqueSlug returns a slug for name that does not collide with any existing
+// product slug. If the base slug is already taken it appends -2, -3, ... until
+// a free one is found, so slug collisions (products.slug is UNIQUE) never
+// surface as an insert error to the admin. excludeID, when non-zero, omits that
+// product from the collision check.
+func UniqueSlug(db *sql.DB, name string, excludeID int64) (string, error) {
+	base := SlugifyName(name)
+	if base == "" {
+		return "", fmt.Errorf("cannot derive slug from empty name")
+	}
+	taken := func(candidate string) (bool, error) {
+		var n int
+		err := db.QueryRow("SELECT COUNT(*) FROM products WHERE slug = ? AND id != ?", candidate, excludeID).Scan(&n)
+		if err != nil {
+			return false, fmt.Errorf("check slug %q: %w", candidate, err)
+		}
+		return n > 0, nil
+	}
+	if ok, err := taken(base); err != nil {
+		return "", err
+	} else if !ok {
+		return base, nil
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if ok, err := taken(candidate); err != nil {
+			return "", err
+		} else if !ok {
+			return candidate, nil
+		}
+	}
+}
+
 // scanProductRow is a helper that scans a product row from either a *sql.Row or *sql.Rows
 // into a models.Product, converting the integer is_active flag to bool.
 func scanProductRow(s interface {

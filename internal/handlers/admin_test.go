@@ -118,6 +118,51 @@ func TestAdminCreateProduct(t *testing.T) {
 	}
 }
 
+// TestAdminCreateProductSlugCollision ensures two products whose names map to
+// the same slug (e.g. differing only in white space/case) are both created with
+// unique slugs instead of one failing on the UNIQUE constraint.
+func TestAdminCreateProductSlugCollision(t *testing.T) {
+	r, h, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.authorize("admin", "admin123")
+	c.bootstrapAdmin(t)
+
+	form := func(name string) url.Values {
+		return url.Values{
+			"name":     {name},
+			"category": {"تابستان"},
+			"price":    {"10000"},
+		}
+	}
+
+	if resp := c.post("/admin/products", form("Apple Sauce")); resp.StatusCode != http.StatusOK {
+		t.Fatalf("create first product = %d (body: %.80s)", resp.StatusCode, c.body())
+	}
+	if resp := c.post("/admin/products", form("Apple  Sauce")); resp.StatusCode != http.StatusOK {
+		t.Fatalf("create second product = %d (body: %.80s)", resp.StatusCode, c.body())
+	}
+
+	var slugs []string
+	rows, err := h.db.Query("SELECT slug FROM products WHERE name IN ('Apple Sauce', 'Apple  Sauce') ORDER BY slug")
+	if err != nil {
+		t.Fatalf("query slugs: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			t.Fatalf("scan slug: %v", err)
+		}
+		slugs = append(slugs, s)
+	}
+	if rows.Err() != nil {
+		t.Fatalf("iterate slugs: %v", rows.Err())
+	}
+	if len(slugs) != 2 || slugs[0] != "apple-sauce" || slugs[1] != "apple-sauce-2" {
+		t.Fatalf("slugs = %v, want [apple-sauce apple-sauce-2]", slugs)
+	}
+}
+
 // createOrderForTest inserts an order directly into the DB (plus one item) so
 // admin status flows can be exercised without the payment gateway.
 func createOrderForTest(t *testing.T, h *Handler) string {

@@ -289,7 +289,12 @@ func (h *Handler) AdminCreateProduct(w http.ResponseWriter, r *http.Request) {
 		stock, _ = strconv.Atoi(stockStr)
 	}
 
-	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+	slug, err := database.UniqueSlug(h.db, name, 0)
+	if err != nil {
+		log.Printf("create product slug: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 
 	product := &models.Product{
 		Name:          name,
