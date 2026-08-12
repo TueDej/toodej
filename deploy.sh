@@ -196,7 +196,14 @@ if [ -n "$EXISTING_PORT" ] && [ -n "$EXISTING_ADMIN_USER" ]; then
   ADMIN_PASS="$EXISTING_ADMIN_PASS"
   info "Using previous config — port=$APP_PORT, user=${ADMIN_USER} (password masked)"
 else
-  APP_PORT="${EXISTING_PORT:-8080}"
+  if [ -n "$EXISTING_PORT" ]; then
+    APP_PORT="$EXISTING_PORT"
+    info "Using saved port ${APP_PORT}"
+  else
+    APP_PORT="8080"
+    read -rp "HTTP port for the app [${APP_PORT}]: " APP_PORT
+    APP_PORT="$(clean_input "${APP_PORT:-8080}")"
+  fi
   while ! valid_port "$APP_PORT"; do
     warn "Invalid port '${APP_PORT}' — must be 1-65535."
     read -rp "HTTP port for the app [8080]: " APP_PORT
