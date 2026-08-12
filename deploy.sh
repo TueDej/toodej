@@ -13,6 +13,7 @@ ENV_DIR="/etc/farmstore"
 ENV_FILE="${ENV_DIR}/env"
 DATA_DIR="/var/lib/farmstore"
 DB_PATH="${DATA_DIR}/${APP_NAME}.db"
+DEPLOYER_GROUP="$(id -gn)"
 START_TIME=$SECONDS
 DO_TIDY=0
 
@@ -94,23 +95,55 @@ missing=""
 for cmd in go curl systemctl; do
   command -v "$cmd" >/dev/null 2>&1 || missing="$missing $cmd"
 done
+if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+  missing="$missing sudo"
+fi
 [ -z "$missing" ] || fail "Required command(s) missing:$missing — install and re-run."
 
 # --------------- 1. read previous config ---------------
-# The current deploy keeps secrets in the chmod-600 env file; older installs
-# stored them in the unit file. Read both (env file wins) so a re-deploy never
-# loses the existing configuration.
+# The current deploy keeps secrets in a mode-640 env file owned root:<deployer
+# group> so re-deploys read it directly; older installs stored them in the unit
+# file. Read both (env file wins) so a re-deploy never loses the existing
+# configuration.
+# Under 'set -euo pipefail' a failing side of a pipeline makes the whole
+# pipeline fail, and a failed command substitution inside an assignment aborts
+# the script. Guarding each sed/grep pipeline with '|| true' keeps a
+# permission-denied (or missing-sudo) read from killing a re-deploy outright;
+# the value simply comes back empty and read_existing falls through to next
+# source. Env-file values may be double-quoted (systemd syntax) and '#' starts
+# a comment, so values are unquoted/comment-stripped here, and %% is unescaped
+# so a re-deploy never double-escapes '%'.
 read_env_value() {
   [ -f "$ENV_FILE" ] || { echo ""; return; }
-  if [ "$(id -u)" -eq 0 ]; then
-    sed -n "s/^$1=//p" "$ENV_FILE" | head -n1
+  local v=""
+  # Try reading directly first (works when running as root or if the file's
+  # group is readable). Fall back to sudo when permission is denied.
+  if [ -r "$ENV_FILE" ]; then
+    v=$(sed -n "s/^[[:space:]]*$1=[[:space:]]*//p" "$ENV_FILE" 2>/dev/null | tail -n1 || true)
   else
-    sudo sed -n "s/^$1=//p" "$ENV_FILE" | head -n1
+    v=$(sudo sed -n "s/^[[:space:]]*$1=[[:space:]]*//p" "$ENV_FILE" 2>/dev/null | tail -n1 || true)
   fi
+  if [ "${#v}" -ge 2 ] && [ "${v:0:1}" = '"' ] && [ "${v: -1}" = '"' ]; then
+    v="${v#\"}"; v="${v%\"}"
+    v="${v//\\\"/\"}"
+    v="${v//\\\\/\\}"
+  else
+    v="${v%%#*}"
+    v="$(printf '%s' "$v" | sed -e 's/[[:space:]]*$//')"
+  fi
+  v="${v//%%/%}"
+  printf '%s' "$v"
 }
 read_unit_value() {
   [ -f "$UNIT_FILE" ] || { echo ""; return; }
-  grep -oP "Environment=$1=\K.*" "$UNIT_FILE" 2>/dev/null | head -n1 || echo ""
+  # Matches both Environment=KEY=value and Environment="KEY=value" (older
+  # installs stored secrets directly in the unit file). \K resets the match
+  # start so only the value is printed.
+  local v=""
+  v=$(grep -oP "Environment=(?:\"?)$1=(?:\"?)\K[^\"]+" "$UNIT_FILE" 2>/dev/null | tail -n1 || true)
+  v="${v//\\\\/\\}"
+  v="${v//%%/%}"
+  printf '%s' "$v"
 }
 read_existing() {
   local v
@@ -132,6 +165,20 @@ valid_port() {
   [[ "$1" =~ ^[0-9]{1,5}$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
 }
 
+# The app (cmd/server/main.go) refuses to start without explicit, non-default,
+# >=8-char admin credentials unless DEV_MODE=true. Enforce the same rules here
+# so a misconfiguration fails fast at deploy time instead of the unit crashing
+# on boot. Applies to freshly-entered AND previously-saved credentials.
+validate_admin_creds() {
+  local u="$1" p="$2"
+  [ -n "$u" ] || fail "Admin username cannot be empty."
+  [ -n "$p" ] || fail "Admin password cannot be empty."
+  if [ "$u" = "admin" ] && [ "$p" = "admin123" ]; then
+    fail "Production refuses the default admin/admin123 credentials (cmd/server/main.go). Choose an explicit, strong password."
+  fi
+  [ "${#p}" -ge 8 ] || fail "Admin password must be at least 8 characters (cmd/server/main.go refuses shorter ones in production)."
+}
+
 EXISTING_PORT=$(read_existing "PORT")
 EXISTING_ADMIN_USER=$(read_existing "ADMIN_USER")
 EXISTING_ADMIN_PASS=$(read_existing "ADMIN_PASS")
@@ -140,6 +187,8 @@ EXISTING_KAVENEGAR_TEMPLATE=$(read_existing "KAVENEGAR_TEMPLATE")
 EXISTING_ZARINPAL_MERCHANT_ID=$(read_existing "ZARINPAL_MERCHANT_ID")
 EXISTING_ZARINPAL_SANDBOX=$(read_existing "ZARINPAL_SANDBOX")
 EXISTING_APP_BASE_URL=$(read_existing "APP_BASE_URL")
+EXISTING_DB_PATH=$(read_existing "DB_PATH")
+[ -n "$EXISTING_DB_PATH" ] && DB_PATH="$EXISTING_DB_PATH"
 
 if [ -n "$EXISTING_PORT" ] && [ -n "$EXISTING_ADMIN_USER" ]; then
   APP_PORT="$EXISTING_PORT"
@@ -158,15 +207,18 @@ else
   ADMIN_USER="$(clean_input "${ADMIN_USER:-${EXISTING_ADMIN_USER:-admin}}")"
   [ -n "$ADMIN_USER" ] || fail "Admin username cannot be empty."
 
-  read -rsp "Admin password [${EXISTING_ADMIN_PASS:-admin123}]: " ADMIN_PASS
+  # Never echo the saved/Default password back into the prompt itself; -s only
+  # hides typed input. Pressing Enter reuses the previous password if any.
+  if [ -n "$EXISTING_ADMIN_PASS" ]; then
+    read -rsp "Admin password [unchanged — press Enter]: " ADMIN_PASS
+  else
+    read -rsp "Admin password [admin123 default]: " ADMIN_PASS
+  fi
   echo ""
   ADMIN_PASS="$(clean_input "${ADMIN_PASS:-${EXISTING_ADMIN_PASS:-admin123}}")"
-  [ -n "$ADMIN_PASS" ] || fail "Admin password cannot be empty."
-  [ "${#ADMIN_PASS}" -ge 8 ] || warn "Password is shorter than 8 characters — consider a stronger one."
-  if [ "$ADMIN_USER" = "admin" ] && [ "$ADMIN_PASS" = "admin123" ]; then
-    warn "Using default admin credentials is dangerous on a public server."
-  fi
 fi
+
+validate_admin_creds "$ADMIN_USER" "$ADMIN_PASS"
 
 step "SMS, payment & URL configuration"
 
@@ -274,16 +326,22 @@ ok "Binary installed to /usr/local/bin/${APP_NAME}"
 ok "Data directory ${DATA_DIR} ready (with templates & assets)"
 
 # --------------- 6. write protected environment file ---------------
-# Secrets (admin password, SMS key, gateway id) are kept in a root-only file
-# referenced via EnvironmentFile, never in the world-readable unit file.
+# Secrets (admin password, SMS key, gateway id) are kept in a root-owned,
+# mode-640 env file (group = the deploying user's primary group) so the app's
+# EnvironmentFile stays root-readable via systemd while the deployer can still
+# read it back without a sudo prompt. It is never stored in the unit file.
 # '%' must be escaped to '%%' because systemd expands specifiers.
 info "Writing environment file (${ENV_FILE})..."
 sudo_if_needed mkdir -p "$ENV_DIR"
 sudo_if_needed chown root:root "$ENV_DIR"
-sudo_if_needed chmod 700 "$ENV_DIR"
+sudo_if_needed chmod 755 "$ENV_DIR"
 
+# '%%' escapes '%' (systemd expands specifiers), and values are double-quoted
+# so spaces and '#' survive the round-trip through EnvironmentFile.
 env_line() {
-  printf '%s=%s\n' "$1" "$(printf '%s' "$2" | sed 's/%/%%/g')"
+  local val
+  val="$(printf '%s' "$2" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g')"
+  printf '%s="%s"\n' "$1" "$val"
 }
 
 {
@@ -296,11 +354,11 @@ env_line() {
   env_line "ZARINPAL_MERCHANT_ID" "$ZARINPAL_MERCHANT_ID"
   env_line "ZARINPAL_SANDBOX" "$ZARINPAL_SANDBOX"
   env_line "APP_BASE_URL" "$APP_BASE_URL"
-  env_line "DEV_MODE" "true"
+  env_line "DEV_MODE" "false"
 } | sudo_if_needed tee "$ENV_FILE" > /dev/null
-sudo_if_needed chown root:root "$ENV_FILE"
-sudo_if_needed chmod 600 "$ENV_FILE"
-ok "Environment written to ${ENV_FILE} with 600 permissions"
+sudo_if_needed chown root:"${DEPLOYER_GROUP}" "$ENV_FILE"
+sudo_if_needed chmod 640 "$ENV_FILE"
+ok "Environment written to ${ENV_FILE} with 640 permissions (root:${DEPLOYER_GROUP})"
 
 # --------------- 7. create systemd service ---------------
 info "Creating systemd service..."
@@ -368,7 +426,7 @@ kv "Database:" "$DB_PATH"
 kv "App base URL:" "$APP_BASE_URL"
 kv "Zarinpal sandbox:" "${ZARINPAL_SANDBOX:-false}"
 kv "Kavenegar configured:" "$([ -n "$KAVENEGAR_API_KEY" ] && echo "yes" || echo "no")"
-kv "Env file:" "${ENV_FILE} (600)"
+kv "Env file:" "${ENV_FILE} (640, root:${DEPLOYER_GROUP})"
 divider
 printf "\n  ${CYAN}Logs:${NC}     sudo journalctl -u %s -f\n" "${APP_NAME}.service"
 
