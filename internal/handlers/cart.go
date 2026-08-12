@@ -1,10 +1,6 @@
 package handlers
 
-import (
-	"crypto/rand"
-	"encoding/hex"
-	"sync"
-)
+import "sync"
 
 // CartItem represents a single product line in a shopping cart (product, quantity, unit price).
 type CartItem struct {
@@ -186,14 +182,4 @@ func (s *CartStore) Get(sessionID string) *Cart {
 		s.mu.Unlock()
 	}
 	return c
-}
-
-// generateSessionID creates a cryptographically random 32-hex-character session
-// identifier using crypto/rand.
-func generateSessionID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic(err)
-	}
-	return hex.EncodeToString(b)
 }

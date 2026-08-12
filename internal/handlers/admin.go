@@ -34,10 +34,8 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 	data := h.mergeData(r, map[string]any{
 		"Orders":   orders,
 		"Products": products,
-	})
-	if err := h.templates["admin"].Execute(w, data); err != nil {
-		log.Printf("render admin: %v", err)
-	}
+	}, w)
+	h.render(w, "admin", data)
 }
 
 // ── Order Management ──────────────────────────────────
@@ -78,10 +76,8 @@ func (h *Handler) AdminOrderDetail(w http.ResponseWriter, r *http.Request) {
 	data := h.mergeData(r, map[string]any{
 		"Order": order,
 		"Items": itemViews,
-	})
-	if err := h.templates["order-detail"].Execute(w, data); err != nil {
-		log.Printf("render order-detail: %v", err)
-	}
+	}, w)
+	h.render(w, "order-detail", data)
 }
 
 // AdminUpdateOrderStatusBadge returns just the updated status <span> badge

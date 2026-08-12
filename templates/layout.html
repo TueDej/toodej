@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>تودج - فروشگاه — {{block "title" .}}محصولات طبیعی{{end}}</title>
+  <meta name="csrf-token" content="{{.CSRFToken}}">
 
   <!-- ============ DESIGN SYSTEM (see DESIGN.md) ============ -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -535,6 +536,16 @@
       observeReveals();
       document.body.addEventListener('htmx:afterSwap', observeReveals);
     })();
+  </script>
+
+  <!-- CSRF token injection for HTMX requests -->
+  <script>
+    document.body.addEventListener('htmx:configRequest', function (e) {
+      var token = document.querySelector('meta[name="csrf-token"]');
+      if (token && token.content) {
+        e.detail.headers['X-CSRF-Token'] = token.content;
+      }
+    });
   </script>
 </body>
 </html>

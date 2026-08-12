@@ -46,6 +46,7 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(handlers.SecurityHeaders)
 	r.Use(handlers.SameOrigin)
+	r.Use(handlers.CSRFMiddleware)
 
 	// Admin credentials. In production the default admin/admin123 fallback must
 	// never be used: fail fast unless explicit, non-default credentials (at least

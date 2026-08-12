@@ -13,6 +13,7 @@
          Errors are retargeted into #login-error (HX-Retarget) so the form stays on screen. -->
     <form id="login-form" class="mt-7 space-y-4" method="post" action="/auth/send-otp"
       hx-post="/auth/send-otp" hx-target="#login-form" hx-swap="outerHTML">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
       <div>
         <label for="phone" class="lbl block">شماره همراه</label>
         <input type="tel" name="phone" id="phone" inputmode="numeric" required autocomplete="tel"

@@ -586,6 +586,82 @@ func MarkPaymentFailed(db *sql.DB, orderID string) error {
 	return tx.Commit()
 }
 
+// CancelExpiredUnpaidOrders cancels all orders in 'awaiting_payment' state that were created
+// older than ttl ago, and restores stock for all items in those orders.
+func CancelExpiredUnpaidOrders(db *sql.DB, ttl time.Duration) (int, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("begin cancel expired tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	cutoff := time.Now().Add(-ttl).Format("2006-01-02 15:04:05")
+
+	rows, err := tx.Query("SELECT id FROM orders WHERE status = 'awaiting_payment' AND created_at < ?", cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("query expired awaiting_payment orders: %w", err)
+	}
+
+	var expiredOrderIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scan expired order id: %w", err)
+		}
+		expiredOrderIDs = append(expiredOrderIDs, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	if len(expiredOrderIDs) == 0 {
+		return 0, nil
+	}
+
+	for _, orderID := range expiredOrderIDs {
+		if _, err := tx.Exec("UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'awaiting_payment'", orderID); err != nil {
+			return 0, fmt.Errorf("cancel expired order %s: %w", orderID, err)
+		}
+
+		itemRows, err := tx.Query("SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)
+		if err != nil {
+			return 0, fmt.Errorf("query order items for %s: %w", orderID, err)
+		}
+
+		type stockRestore struct {
+			productID int
+			quantity  int
+		}
+		var restores []stockRestore
+		for itemRows.Next() {
+			var sr stockRestore
+			if err := itemRows.Scan(&sr.productID, &sr.quantity); err != nil {
+				itemRows.Close()
+				return 0, fmt.Errorf("scan order item for %s: %w", orderID, err)
+			}
+			restores = append(restores, sr)
+		}
+		itemRows.Close()
+		if err := itemRows.Err(); err != nil {
+			return 0, err
+		}
+
+		for _, sr := range restores {
+			if _, err := tx.Exec("UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?", sr.quantity, sr.productID); err != nil {
+				return 0, fmt.Errorf("restore stock for product %d on order %s: %w", sr.productID, orderID, err)
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit cancel expired: %w", err)
+	}
+
+	return len(expiredOrderIDs), nil
+}
+
 // GetAllProducts returns every product (including inactive ones), ordered by name.
 // Used by the admin panel.
 func GetAllProducts(db *sql.DB) ([]models.Product, error) {

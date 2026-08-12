@@ -83,6 +83,7 @@
     </div>
 
     <form action="/checkout" method="POST" class="mt-7 space-y-4">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
       <input type="hidden" name="name" value="{{.Name}}">
       <input type="hidden" name="phone" value="{{.Phone}}">
       <input type="hidden" name="address" value="{{.Address}}">
@@ -102,6 +103,7 @@
   {{else}}
   <!-- STEP 1: SHIPPING INFO -->
   <form action="/checkout/preview" method="POST" class="paper-card mt-7 overflow-hidden px-7 py-7" data-reveal>
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
     <div class="mb-6 flex items-center gap-2.5">
       <span class="flex h-7 w-7 items-center justify-center rounded-full bg-pomegranate text-sm font-bold" style="color:var(--text-on-dark)">۱</span>
       <h2 class="font-display text-lg font-semibold text-walnut">اطلاعات ارسال</h2>

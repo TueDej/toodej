@@ -44,10 +44,8 @@ func (h *Handler) LoginPage(w http.ResponseWriter, r *http.Request) {
 		h.sessionMu.Unlock()
 	}
 
-	data := h.mergeData(r, map[string]any{})
-	if err := h.templates["login"].Execute(w, data); err != nil {
-		log.Printf("render login: %v", err)
-	}
+	data := h.mergeData(r, map[string]any{}, w)
+	h.render(w, "login", data)
 }
 
 // SendOTP handles the first step of OTP authentication. It creates or retrieves
@@ -134,9 +132,13 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 	// reflection into the fragment to defeat any injection attempt.
 	escPhone := html.EscapeString(phone)
 
+	// Get CSRF token for the verification form
+	csrfToken := ensureCSRFToken(w, r)
+
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<form id="login-form" class="space-y-4" method="post" action="/auth/verify-otp"
 	hx-post="/auth/verify-otp" hx-target="#login-form" hx-swap="outerHTML">
+	<input type="hidden" name="csrf_token" value="%s">
 	<p class="text-center text-sm leading-7 text-clay">کد تایید به شماره %s ارسال شد.</p>%s
 	<input type="hidden" name="phone" value="%s">
 	<div>
@@ -148,7 +150,7 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 		تایید کد
 	</button>
 	<p class="text-center text-xs text-clay">کد ۵ رقمی را وارد کنید.</p>
-</form>`, escPhone, devBox, escPhone, valueFill)
+</form>`, csrfToken, escPhone, devBox, escPhone, valueFill)
 }
 
 // VerifyOTP validates the OTP code against the database. On success it creates

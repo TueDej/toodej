@@ -63,6 +63,20 @@ func NewFromEnv() *Zarinpal {
 	return New(merchantID, sandbox)
 }
 
+// NewTestClient returns a Zarinpal client wired to the supplied endpoint URLs
+// and HTTP client instead of the production Zarinpal endpoints. It lets tests
+// drive the full payment flow against a fake gateway (e.g. an httptest.Server)
+// without real credentials or network access.
+func NewTestClient(merchantID, requestURL, verifyURL, gatewayBase string, client *http.Client) *Zarinpal {
+	return &Zarinpal{
+		merchantID:  merchantID,
+		requestURL:  requestURL,
+		verifyURL:   verifyURL,
+		gatewayBase: gatewayBase,
+		httpClient:  client,
+	}
+}
+
 // TomanToRial converts an application amount to the unit expected by Zarinpal.
 func TomanToRial(amountToman int) (int, error) {
 	if amountToman < 0 {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -242,5 +243,62 @@ func TestStatusMigrationPreservesPaymentFieldsAndOrderItems(t *testing.T) {
 	defer rows.Close()
 	if rows.Next() {
 		t.Fatal("foreign_key_check returned violations")
+	}
+}
+
+func TestCancelExpiredUnpaidOrders(t *testing.T) {
+	db := testDB(t)
+	if _, err := db.Exec("UPDATE products SET price = 100, stock_quantity = 10, is_active = 1 WHERE id = 1"); err != nil {
+		t.Fatalf("update product: %v", err)
+	}
+	userID := createTestUser(t, db)
+
+	order := &models.Order{
+		CustomerName:    "Customer",
+		CustomerPhone:   "09123456789",
+		CustomerAddress: "Address",
+		PostalCode:      "1234567890",
+		Status:          "awaiting_payment",
+		UserID:          userID,
+	}
+	orderID, err := CreateOrder(db, order, []models.OrderItem{{ProductID: 1, Quantity: 4}})
+	if err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+
+	var stock int
+	if err := db.QueryRow("SELECT stock_quantity FROM products WHERE id = 1").Scan(&stock); err != nil {
+		t.Fatalf("query stock: %v", err)
+	}
+	if stock != 6 {
+		t.Fatalf("stock after order = %d, want 6", stock)
+	}
+
+	// Backdate created_at to 20 minutes ago so it exceeds the 15-minute TTL.
+	if _, err := db.Exec("UPDATE orders SET created_at = datetime('now', '-20 minutes') WHERE id = ?", orderID); err != nil {
+		t.Fatalf("backdate order: %v", err)
+	}
+
+	cancelledCount, err := CancelExpiredUnpaidOrders(db, 15*time.Minute)
+	if err != nil {
+		t.Fatalf("CancelExpiredUnpaidOrders: %v", err)
+	}
+	if cancelledCount != 1 {
+		t.Fatalf("cancelledCount = %d, want 1", cancelledCount)
+	}
+
+	var status string
+	if err := db.QueryRow("SELECT status FROM orders WHERE id = ?", orderID).Scan(&status); err != nil {
+		t.Fatalf("query status: %v", err)
+	}
+	if status != "cancelled" {
+		t.Fatalf("order status = %s, want cancelled", status)
+	}
+
+	if err := db.QueryRow("SELECT stock_quantity FROM products WHERE id = 1").Scan(&stock); err != nil {
+		t.Fatalf("query restored stock: %v", err)
+	}
+	if stock != 10 {
+		t.Fatalf("restored stock = %d, want 10", stock)
 	}
 }

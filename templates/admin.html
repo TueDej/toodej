@@ -36,10 +36,11 @@
             <td class="px-4 py-3 text-clay" dir="ltr">{{.CustomerPhone}}</td>
             <td class="px-4 py-3 font-bold text-pomegranate">{{formatPrice .TotalAmount}}</td>
             <td id="order-{{.ID}}-status" class="px-4 py-3" onclick="event.stopPropagation()">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
               <select name="status"
                 class="field-inline w-40 status-select"
                 data-color="{{if eq .Status "cancelled"}}var(--pomegranate){{else if eq .Status "dispatched"}}var(--forest){{else if eq .Status "preparing"}}var(--fig){{else}}var(--saffron){{end}}"
-                hx-post="/admin/orders/{{.ID}}/status" hx-trigger="change" hx-target="#order-{{.ID}}-status" hx-swap="outerHTML"
+                hx-post="/admin/orders/{{.ID}}/status" hx-trigger="change" hx-target="#order-{{.ID}}-status" hx-swap="outerHTML" hx-include="closest td"
                 {{if eq .Status "awaiting_payment"}}disabled title="پرداخت هنوز انجام نشده"{{end}}>
                 {{if eq .Status "awaiting_payment"}}
                 <option value="awaiting_payment" selected>در انتظار پرداخت</option>
@@ -70,6 +71,7 @@
     <div id="new-product-form" class="mb-6 hidden paper-card-sand p-6">
       <h3 class="mb-4 font-display text-lg font-semibold text-walnut">محصول جدید</h3>
       <form hx-post="/admin/products" hx-target="#products-tbody" hx-swap="afterbegin" hx-on::after-request="this.reset()">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <label class="lbl block text-xs">نام *</label>
@@ -128,17 +130,20 @@
             <td class="px-4 py-3 font-medium text-walnut">{{.Name}}</td>
             <td class="px-4 py-3 text-clay">{{.Category}}</td>
             <td class="px-4 py-3">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
               <input type="text" inputmode="numeric" name="price" value="{{.Price | comma}}"
                 class="field-inline w-40 thousand-sep"
-                hx-post="/admin/products/{{.ID}}" hx-trigger="change" hx-target="#product-{{.ID}}" hx-swap="outerHTML">
+                hx-post="/admin/products/{{.ID}}" hx-trigger="change" hx-target="#product-{{.ID}}" hx-swap="outerHTML" hx-include="closest tr">
             </td>
             <td class="px-4 py-3">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
               <input type="number" name="stock_quantity" value="{{.StockQuantity}}" min="0"
                 class="field-inline w-20"
-                hx-post="/admin/products/{{.ID}}" hx-trigger="change" hx-target="#product-{{.ID}}" hx-swap="outerHTML">
+                hx-post="/admin/products/{{.ID}}" hx-trigger="change" hx-target="#product-{{.ID}}" hx-swap="outerHTML" hx-include="closest tr">
             </td>
             <td class="px-4 py-3">
-              <button dir="ltr" hx-post="/admin/products/{{.ID}}/toggle" hx-target="#product-{{.ID}}" hx-swap="outerHTML"
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <button dir="ltr" hx-post="/admin/products/{{.ID}}/toggle" hx-target="#product-{{.ID}}" hx-swap="outerHTML" hx-include="closest tr"
                 class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out {{if .IsActive}}bg-pomegranate{{else}}bg-line{{end}}">
                 <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out {{if .IsActive}}translate-x-5{{else}}translate-x-0{{end}}"></span>
               </button>
