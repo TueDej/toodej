@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"farmstore/internal/database"
+	"farmstore/internal/payment"
 )
 
 // sessionTTL is how long an authenticated session lives (server-side), matching
@@ -80,6 +81,62 @@ func (h *Handler) cancelExpiredUnpaidOrders() {
 	}
 	if n > 0 {
 		log.Printf("cancelled %d expired awaiting_payment orders (older than %s)", n, unpaidOrderTTL)
+	}
+}
+
+// paymentReconcileInterval is how often the payment reconciliation job sweeps
+// orders stuck in awaiting_payment to ask the gateway whether they were actually
+// paid.
+const paymentReconcileInterval = time.Minute
+
+// startPaymentReconciler launches a background goroutine that periodically asks
+// Zarinpal whether orders stuck in awaiting_payment were actually completed.
+// This is the payment reconciliation job: a successful payment whose callback
+// was lost (e.g. the browser closed right after paying) otherwise stays in
+// awaiting_payment until the unpaid-order janitor cancels it. Reconciliation
+// rescues such orders by confirming them, so stock is never needlessly restored
+// and the customer is not shown a cancelled order they already paid for.
+func (h *Handler) startPaymentReconciler() {
+	go func() {
+		h.reconcilePayments()
+
+		ticker := time.NewTicker(paymentReconcileInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			h.reconcilePayments()
+		}
+	}()
+}
+
+// reconcilePayments verifies every awaiting_payment order with a stored
+// authority against the gateway in rial. Orders whose payment actually succeeded
+// are moved to pending via ConfirmPayment; orders that were never paid are left
+// untouched so the unpaid-order janitor reclaims their stock after the TTL.
+func (h *Handler) reconcilePayments() {
+	orders, err := database.GetAwaitingPaymentOrders(h.db)
+	if err != nil {
+		log.Printf("payment reconciliation: list orders: %v", err)
+		return
+	}
+	for _, o := range orders {
+		amount, err := payment.TomanToRial(o.TotalAmount)
+		if err != nil {
+			log.Printf("payment reconciliation: convert amount for %s: %v", o.ID, err)
+			continue
+		}
+		result, err := h.zarinpal.VerifyPayment(amount, o.Authority)
+		if err != nil {
+			log.Printf("payment reconciliation: verify order %s: %v", o.ID, err)
+			continue
+		}
+		if !result.OK {
+			continue
+		}
+		if err := database.ConfirmPayment(h.db, o.ID, result.RefID); err != nil {
+			log.Printf("payment reconciliation: confirm order %s: %v", o.ID, err)
+			continue
+		}
+		log.Printf("payment reconciliation: order %s confirmed paid (ref %d)", o.ID, result.RefID)
 	}
 }
 

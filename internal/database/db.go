@@ -858,19 +858,59 @@ func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string,
 	return o.ID, nil
 }
 
-// GetOrderWithItems retrieves a single order by ID along with its items and the
-// corresponding product data. Product names are mapped back from products table.
-func GetOrderWithItems(db *sql.DB, orderID string) (*models.Order, []models.OrderItem, []models.Product, error) {
+// GetOrder retrieves a single order by its TDJ-XXXXXX ID, including the owning
+// user ID so callers can enforce ownership before acting on the order.
+func GetOrder(db *sql.DB, orderID string) (*models.Order, error) {
 	var o models.Order
 	var createdAt string
 	var userID sql.NullInt64
 	err := db.QueryRow("SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, payment_ref_id, user_id, created_at FROM orders WHERE id = ?", orderID).
 		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &o.PaymentRefID, &userID, &createdAt)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("get order %s: %w", orderID, err)
+		return nil, fmt.Errorf("get order %s: %w", orderID, err)
 	}
 	o.CreatedAt = parseTime(createdAt)
 	o.UserID = userID.Int64
+	return &o, nil
+}
+
+// PaymentOrder is the minimal order projection the payment reconciliation job
+// needs to verify outstanding payments against the gateway.
+type PaymentOrder struct {
+	ID          string
+	TotalAmount int
+	Authority   string
+}
+
+// GetAwaitingPaymentOrders returns orders still in the awaiting_payment state
+// that have a stored Zarinpal authority token. These are exactly the orders a
+// reconciliation job must check with the gateway to rescue payments whose
+// callback was lost.
+func GetAwaitingPaymentOrders(db *sql.DB) ([]PaymentOrder, error) {
+	rows, err := db.Query("SELECT id, total_amount, payment_authority FROM orders WHERE status = 'awaiting_payment' AND payment_authority != ''")
+	if err != nil {
+		return nil, fmt.Errorf("query awaiting payment orders: %w", err)
+	}
+	defer rows.Close()
+
+	var orders []PaymentOrder
+	for rows.Next() {
+		var o PaymentOrder
+		if err := rows.Scan(&o.ID, &o.TotalAmount, &o.Authority); err != nil {
+			return nil, fmt.Errorf("scan awaiting payment order: %w", err)
+		}
+		orders = append(orders, o)
+	}
+	return orders, rows.Err()
+}
+
+// GetOrderWithItems retrieves a single order by ID along with its items and the
+// corresponding product data. Product names are mapped back from products table.
+func GetOrderWithItems(db *sql.DB, orderID string) (*models.Order, []models.OrderItem, []models.Product, error) {
+	o, err := GetOrder(db, orderID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	rows, err := db.Query("SELECT id, order_id, product_id, quantity, price_per_unit FROM order_items WHERE order_id = ?", orderID)
 	if err != nil {
@@ -901,7 +941,7 @@ func GetOrderWithItems(db *sql.DB, orderID string) (*models.Order, []models.Orde
 		products = append(products, *p)
 	}
 
-	return &o, items, products, nil
+	return o, items, products, nil
 }
 
 // ── Users ────────────────────────────────────────────

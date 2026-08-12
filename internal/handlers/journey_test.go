@@ -370,3 +370,116 @@ func validShipment() url.Values {
 		"postal_code": {"1234567890"},
 	}
 }
+
+// TestResumePayment lets the owner of an awaiting_payment order retry payment:
+// a fresh authority is requested, stored on the order, and the user is sent to
+// the cashier. Another user (non-owner) gets a 404.
+func TestResumePayment(t *testing.T) {
+	r, h, gw := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.login(t, h.db, "09121234567")
+	c.addToCart(t, seedProductFig)
+
+	resp := c.post("/checkout", validShipment())
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("place order = %d", resp.StatusCode)
+	}
+	order := lastOrder(t, h.db)
+	if order.Status != "awaiting_payment" {
+		t.Fatalf("order status = %q, want awaiting_payment", order.Status)
+	}
+
+	_, hitsBefore, _ := gw.snapshot()
+	resp = c.get("/orders/" + order.ID + "/pay")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("resume payment = %d", resp.StatusCode)
+	}
+	_, hits, auth := gw.snapshot()
+	if hits != hitsBefore+1 {
+		t.Fatalf("gateway request hits = %d, want %d", hits, hitsBefore+1)
+	}
+	if loc := resp.Header.Get("Location"); loc != gw.server.URL+"/pg/StartPay/"+auth {
+		t.Fatalf("resume redirect = %q", loc)
+	}
+
+	order = lastOrder(t, h.db)
+	if order.PaymentAuthority != auth {
+		t.Fatalf("order authority = %q, want %q", order.PaymentAuthority, auth)
+	}
+
+	// IDOR: another user cannot resume this order.
+	c2 := newTestClient(t, r)
+	c2.login(t, h.db, "09139998877")
+	resp = c2.get("/orders/" + order.ID + "/pay")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("IDOR resume = %d, want 404", resp.StatusCode)
+	}
+
+	// A paid order cannot be resumed (no new gateway hit).
+	resp = c.get("/checkout/verify?Authority=" + auth + "&Status=OK")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("verify callback = %d", resp.StatusCode)
+	}
+	_, hitsAfter, _ := gw.snapshot()
+	resp = c.get("/orders/" + order.ID + "/pay")
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/orders" {
+		t.Fatalf("resume paid order = %d -> %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	if _, hitsFinal, _ := gw.snapshot(); hitsFinal != hitsAfter {
+		t.Fatalf("paid order caused a new gateway request (hits %d)", hitsFinal)
+	}
+}
+
+// TestPaymentReconciliation rescues an awaiting_payment order whose successful
+// payment callback was lost: reconciliation asks the gateway, sees the payment
+// succeeded, and moves the order to pending instead of letting the janitor
+// cancel it.
+func TestPaymentReconciliation(t *testing.T) {
+	r, h, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.login(t, h.db, "09121234567")
+	c.addToCart(t, seedProductFig)
+
+	resp := c.post("/checkout", validShipment())
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("place order = %d", resp.StatusCode)
+	}
+	order := lastOrder(t, h.db)
+	if order.Status != "awaiting_payment" {
+		t.Fatalf("order status = %q, want awaiting_payment", order.Status)
+	}
+
+	h.reconcilePayments()
+
+	order = lastOrder(t, h.db)
+	if order.Status != "pending" {
+		t.Fatalf("order status after reconciliation = %q, want pending", order.Status)
+	}
+	if order.PaymentRefID != 1002003004005 {
+		t.Fatalf("payment ref id = %d, want 1002003004005", order.PaymentRefID)
+	}
+}
+
+// TestPaymentReconciliationLeavesUnpaidOrdersAlone ensures reconciliation never
+// confirms an order the gateway reports as unpaid; those are still left for the
+// unpaid-order janitor to cancel.
+func TestPaymentReconciliationLeavesUnpaidOrdersAlone(t *testing.T) {
+	r, h, gw := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.login(t, h.db, "09121234567")
+	c.addToCart(t, seedProductFig)
+
+	resp := c.post("/checkout", validShipment())
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("place order = %d", resp.StatusCode)
+	}
+	order := lastOrder(t, h.db)
+
+	gw.setVerifyCode(102) // gateway reports the payment never happened
+	h.reconcilePayments()
+
+	order = lastOrder(t, h.db)
+	if order.Status != "awaiting_payment" {
+		t.Fatalf("order status = %q, want awaiting_payment", order.Status)
+	}
+}

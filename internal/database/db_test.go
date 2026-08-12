@@ -246,6 +246,92 @@ func TestStatusMigrationPreservesPaymentFieldsAndOrderItems(t *testing.T) {
 	}
 }
 
+func TestGetOrder(t *testing.T) {
+	db := testDB(t)
+	if _, err := db.Exec("UPDATE products SET price = 100, stock_quantity = 5, is_active = 1 WHERE id = 1"); err != nil {
+		t.Fatalf("update product: %v", err)
+	}
+	userID := createTestUser(t, db)
+
+	order := &models.Order{
+		CustomerName:    "Customer",
+		CustomerPhone:   "09123456789",
+		CustomerAddress: "Address",
+		PostalCode:      "1234567890",
+		Status:          "awaiting_payment",
+		UserID:          userID,
+	}
+	orderID, err := CreateOrder(db, order, []models.OrderItem{{ProductID: 1, Quantity: 2}})
+	if err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+
+	got, err := GetOrder(db, orderID)
+	if err != nil {
+		t.Fatalf("GetOrder: %v", err)
+	}
+	if got.ID != orderID || got.UserID != userID || got.TotalAmount != order.TotalAmount || got.Status != "awaiting_payment" {
+		t.Fatalf("GetOrder = %+v", got)
+	}
+
+	if _, err := GetOrder(db, "TDJ-NOPE00"); err == nil {
+		t.Fatal("GetOrder on missing id succeeded")
+	}
+}
+
+func TestGetAwaitingPaymentOrders(t *testing.T) {
+	db := testDB(t)
+	if _, err := db.Exec("UPDATE products SET price = 100, stock_quantity = 5, is_active = 1 WHERE id = 1"); err != nil {
+		t.Fatalf("update product: %v", err)
+	}
+	userID := createTestUser(t, db)
+
+	order := &models.Order{
+		CustomerName:    "Customer",
+		CustomerPhone:   "09123456789",
+		CustomerAddress: "Address",
+		PostalCode:      "1234567890",
+		Status:          "awaiting_payment",
+		UserID:          userID,
+	}
+	orderID, err := CreateOrder(db, order, []models.OrderItem{{ProductID: 1, Quantity: 2}})
+	if err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+
+	// No authority yet → nothing to reconcile.
+	unpaid, err := GetAwaitingPaymentOrders(db)
+	if err != nil {
+		t.Fatalf("GetAwaitingPaymentOrders: %v", err)
+	}
+	if len(unpaid) != 0 {
+		t.Fatalf("awaiting orders = %d, want 0", len(unpaid))
+	}
+
+	if err := SetPaymentAuthority(db, orderID, "AUTH123"); err != nil {
+		t.Fatalf("SetPaymentAuthority: %v", err)
+	}
+	unpaid, err = GetAwaitingPaymentOrders(db)
+	if err != nil {
+		t.Fatalf("GetAwaitingPaymentOrders: %v", err)
+	}
+	if len(unpaid) != 1 || unpaid[0].ID != orderID || unpaid[0].Authority != "AUTH123" || unpaid[0].TotalAmount != order.TotalAmount {
+		t.Fatalf("unpaid = %+v", unpaid)
+	}
+
+	// Paid orders are excluded.
+	if err := ConfirmPayment(db, orderID, 123); err != nil {
+		t.Fatalf("ConfirmPayment: %v", err)
+	}
+	unpaid, err = GetAwaitingPaymentOrders(db)
+	if err != nil {
+		t.Fatalf("GetAwaitingPaymentOrders: %v", err)
+	}
+	if len(unpaid) != 0 {
+		t.Fatalf("awaiting after confirm = %d, want 0", len(unpaid))
+	}
+}
+
 func TestCancelExpiredUnpaidOrders(t *testing.T) {
 	db := testDB(t)
 	if _, err := db.Exec("UPDATE products SET price = 100, stock_quantity = 10, is_active = 1 WHERE id = 1"); err != nil {

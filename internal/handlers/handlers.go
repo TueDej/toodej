@@ -129,5 +129,6 @@ func NewHandler(db *sql.DB, cartStore *CartStore, zarinpal *payment.Zarinpal, ba
 	}
 	h.startSessionJanitor()
 	h.startUnpaidOrderJanitor()
+	h.startPaymentReconciler()
 	return h, nil
 }
