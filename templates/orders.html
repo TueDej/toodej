@@ -23,15 +23,7 @@
           <span class="text-clay">·</span>
           <span class="text-clay">{{.Order.CreatedAt | persianDate}}</span>
         </div>
-        <span class="rounded-full border border-dashed px-3 py-1 text-xs font-semibold {{statusColor .Order.Status}}"
-              style="background:var(--surface-warm)">
-          {{if eq .Order.Status "pending"}}در انتظار بررسی
-          {{else if eq .Order.Status "preparing"}}آماده‌سازی برای ارسال
-          {{else if eq .Order.Status "dispatched"}}تحویل برای ارسال
-          {{else if eq .Order.Status "cancelled"}}لغو شده
-          {{else if eq .Order.Status "awaiting_payment"}}در انتظار پرداخت
-          {{end}}
-        </span>
+        {{template "status-badge" .Order.Status}}
       </div>
 
       <div class="px-6 py-4">
@@ -60,7 +52,7 @@
   </div>
   {{else}}
   <div class="mx-auto mt-14 max-w-md text-center" data-reveal>
-    <img src="/assets/basket.svg" alt="" class="mx-auto h-32 w-32 text-clay">
+    <img src="/assets/picnic-basket.svg?v=3" alt="" class="mx-auto h-32 w-32 text-clay">
     <h2 class="mt-6 font-display text-2xl font-bold text-walnut">هنوز سفارشی ثبت نکرده‌اید</h2>
     <p class="mt-2 text-sm leading-7 text-clay">انجیر خشک و انار تازه ما می‌تواند اولین سفارش شما باشد.</p>
     <a href="/products/summer" class="btn btn-primary mt-6 text-base">مشاهده محصولات</a>

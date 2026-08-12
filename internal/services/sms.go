@@ -2,8 +2,9 @@
 package services
 
 import (
-	"log"
 	"os"
+
+	"farmstore/internal/logutil"
 
 	"github.com/kavenegar/kavenegar-go"
 )
@@ -25,17 +26,17 @@ func SendOTP(receptor, token string) error {
 	}
 
 	if os.Getenv("DEV_MODE") == "true" || apiKey == "" {
-		log.Printf("[DEV MODE] OTP for %s: %s", receptor, token)
+		logutil.Info("dev mode: OTP not sent via SMS", "phone", receptor, "code", token)
 		return nil
 	}
 
-	log.Printf("[SMS] sending OTP to %s via Kavenegar (template: %s)", receptor, template)
+	logutil.Info("sending OTP via Kavenegar", "phone", receptor, "template", template)
 	api := kavenegar.New(apiKey)
 	_, err := api.Verify.Lookup(receptor, template, token, nil)
 	if err != nil {
-		log.Printf("[SMS] Kavenegar error: %v", err)
+		logutil.Error("Kavenegar OTP send failed", "phone", receptor, "err", err)
 		return err
 	}
-	log.Printf("[SMS] OTP sent successfully to %s", receptor)
+	logutil.Info("OTP sent successfully", "phone", receptor)
 	return nil
 }

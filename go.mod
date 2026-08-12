@@ -3,6 +3,7 @@ module farmstore
 go 1.24
 
 require (
+	github.com/fatih/color v1.18.0
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/kavenegar/kavenegar-go v0.0.0-20240205151018-77039f51467d
 	github.com/yaa110/go-persian-calendar v1.2.1
@@ -12,6 +13,7 @@ require (
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect

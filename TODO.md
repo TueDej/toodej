@@ -12,9 +12,14 @@ By some random order, I don't even know...
 [ ] In-memory session store - sessions lost on restart, no revocation, not scalable, vulnerable to session fixation
 [ ] OTP codes never cleaned up - otp_codes table grows indefinitely
 [ ] No graceful shutdown - HTTP server doesn't handle SIGTERM, in-flight requests dropped
-[ ] No structured logging - uses stdlib log, no levels, no JSON output for log aggregation
+[x] No structured logging - uses stdlib log, no levels, no JSON output for log aggregation
 
 [ ] Add a guide for each product's benefits
 [ ] Evaluate shipment costs and add to checkout
 [ ] SMS/OTP service
 [ ] Email for support
+
+UI/UX
+-----
+
+

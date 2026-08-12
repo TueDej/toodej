@@ -115,6 +115,8 @@ All configuration is via environment variables:
 | `KAVENEGAR_API_KEY`  | _(empty)_        | Kavenegar SMS API key (leave empty for DEV_MODE)          |
 | `KAVENEGAR_TEMPLATE` | `verify-otp`     | Kavenegar verification template name                      |
 | `DEV_MODE`           | _(not set)_      | Set to `true` to log OTPs to stdout instead of SMS        |
+| `LOG_LEVEL`          | `info`           | Log level: `debug` \| `info` \| `warn` \| `error`         |
+| `LOG_FORMAT`         | `json`*          | Log format: `json` \| `text` (`text` is used when `DEV_MODE=true` and `LOG_FORMAT` is unset) |
 
 ### Running locally
 
@@ -169,7 +171,7 @@ otp_codes (id, phone_number, code, expires_at, is_used)
 ```
 
 - `orders.id` is a `TEXT PRIMARY KEY` — stores `TDJ-XXXXXX` format order IDs.
-- `orders.status` is constrained via `CHECK` to `pending | processing | completed | cancelled`.
+- `orders.status` is constrained via `CHECK` to `pending | preparing | dispatched | cancelled | awaiting_payment`.
 - `order_items` has a `UNIQUE(order_id, product_id)` constraint.
 - Schema migration is automatic on startup (`CREATE TABLE IF NOT EXISTS` + a best-effort `ALTER TABLE` for the `user_id` column).
 

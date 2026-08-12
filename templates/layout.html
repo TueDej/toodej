@@ -277,33 +277,27 @@
 
   <!-- ============ HEADER ============ -->
   <header class="sticky top-0 z-40 border-b border-line/80 bg-parchment/95">
-    <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 lg:px-8">
+    <div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-4 lg:px-8">
       <!-- logo + primary nav sit on the right (RTL reading start) -->
       <div class="flex items-center gap-7">
         <a href="/" class="group flex items-center gap-2.5">
-          <img src="/assets/mountain.svg" alt="" class="h-8 w-8 transition-transform duration-500 group-hover:-rotate-12">
+          <img src="/assets/cartoon-mountain.svg?v=3" alt="" class="h-8 w-8 transition-transform duration-500 group-hover:scale-125">
           <span class="mt-1 font-display text-2xl font-bold text-pomegranate">تودج</span>
         </a>
         <nav class="hidden items-center gap-7 lg:flex" aria-label="ناوبری اصلی">
           <a href="/about" class="navlink text-sm">درباره ما</a>
-          <a href="/products/spring" class="navlink text-sm">بهار</a>
-          <a href="/products/summer" class="navlink text-sm">تابستان</a>
-          <a href="/products/autumn" class="navlink text-sm">پاییز</a>
-          <a href="/products/dried" class="navlink text-sm">خشکبار</a>
-          <a href="/products/processed" class="navlink text-sm">سنتی</a>
+          <a href="/products/all" class="navlink text-sm">محصولات</a>
           {{if .LoggedIn}}
           <a href="/orders" class="navlink text-sm">سفارش‌های من</a>
           <a href="/logout" class="navlink text-sm text-clay">خروج</a>
+          {{else}}
+          <a href="/login" class="navlink text-sm">ورود</a>
           {{end}}
         </nav>
       </div>
 
       <!-- cart + account / menu (left, RTL reading end) -->
       <div class="flex items-center gap-3">
-        {{if not .LoggedIn}}
-        <a href="/login"
-          class="hidden md:inline-flex btn btn-ghost rounded-full px-4 py-2 text-sm" aria-label="ورود">ورود</a>
-        {{end}}
         <a href="/cart" class="group relative flex h-11 w-11 items-center justify-center rounded-full border border-line/80 bg-sand/60 text-walnut transition hover:border-fig/40 hover:bg-sand" aria-label="سبد خرید">
           <svg class="h-5 w-5 transition group-hover:-rotate-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
             <path stroke-linecap="round" stroke-linejoin="round" d="M4 8h16l-1.3 11.3a1.6 1.6 0 0 1-1.6 1.4H6.9a1.6 1.6 0 0 1-1.6-1.4L4 8Z"/>
@@ -326,16 +320,12 @@
     <div id="menu-drawer" class="hidden border-t border-line/70 bg-parchment px-5 pb-5 pt-3 lg:hidden">
       <nav class="flex flex-col gap-1" aria-label="ناوبری موبایل">
         <a href="/about" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">درباره ما</a>
-        <a href="/products/spring" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">بهار</a>
-        <a href="/products/summer" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">تابستان</a>
-        <a href="/products/autumn" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">پاییز</a>
-        <a href="/products/dried" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">خشکبار</a>
-        <a href="/products/processed" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">سنتی</a>
+        <a href="/products/all" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">محصولات</a>
         {{if .LoggedIn}}
         <a href="/orders" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">سفارش‌های من</a>
         <a href="/logout" class="rounded-lg px-3 py-2.5 text-sm font-medium text-clay hover:bg-sand">خروج</a>
         {{else}}
-        <a href="/login" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">ورود / ثبت‌نام</a>
+        <a href="/login" class="rounded-lg px-3 py-2.5 text-sm font-medium text-walnut hover:bg-sand">ورود</a>
         {{end}}
       </nav>
     </div>
@@ -353,6 +343,20 @@
     })();
   </script>
 
+  <!-- active nav state: highlight the link matching the current path -->
+  <script>
+    (function(){
+      var path = window.location.pathname;
+      var links = document.querySelectorAll('.navlink');
+      links.forEach(function(a){
+        var href = a.getAttribute('href');
+        if (!href) return;
+        var active = href === path || (href !== '/' && path.indexOf(href) === 0);
+        if (active) a.classList.add('is-active');
+      });
+    })();
+  </script>
+
   <!-- ============ MAIN ============ -->
   <main id="main" class="flex-1">
     {{block "content" .}}{{end}}
@@ -361,25 +365,21 @@
   <!-- ============ FOOTER ============ -->
   <footer class="relative mt-20 overflow-hidden bg-forest" style="color:var(--text-on-dark)">
     <div class="relative h-4 bg-sand"></div>
-    <div class="mx-auto max-w-7xl px-5 py-14 lg:px-8">
+    <div class="mx-auto max-w-5xl px-5 py-14 lg:px-8">
       <div class="grid gap-12 sm:grid-cols-2 lg:grid-cols-4">
         <div class="sm:col-span-2 lg:col-span-1">
           <a href="/" class="flex items-center gap-2.5">
             <span class="font-display text-2xl font-bold text-sand">تودج</span>
           </a>
           <p class="mt-4 max-w-xs text-sm leading-7 text-sand/80 flex items-center gap-2">
-            <img src="/assets/location.svg" alt="" class="h-4 w-4">
-            استهبان، فارس، ایران
+            <span class="inline-block h-8 w-8 self-center bg-sand/80" style="-webkit-mask:url(/assets/globe-pin.svg) no-repeat center / contain;mask:url(/assets/globe-pin.svg) no-repeat center / contain;" aria-hidden="true"></span>
+            <span class="mt-[3px]">استهبان، فارس، ایران</span>
           </p>
         </div>
         <div>
           <h3 class="mb-4 border-b border-sand/25 pb-2 font-display text-lg font-semibold text-sand">خرید</h3>
           <ul class="space-y-2.5 text-sm text-sand/80">
-            <li><a href="/products/spring" class="transition hover:text-saffron">بهار</a></li>
-            <li><a href="/products/summer" class="transition hover:text-saffron">تابستان</a></li>
-            <li><a href="/products/autumn" class="transition hover:text-saffron">پاییز</a></li>
-            <li><a href="/products/dried" class="transition hover:text-saffron">خشکبار</a></li>
-            <li><a href="/products/processed" class="transition hover:text-saffron">سنتی</a></li>
+            <li><a href="/products/all" class="transition hover:text-saffron">همه محصولات</a></li>
             <li><a href="/cart" class="transition hover:text-saffron">سبد خرید</a></li>
           </ul>
         </div>
@@ -449,7 +449,7 @@
       <img src="{{.ImageURL}}" alt="{{.Name}}" class="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-105" loading="lazy">
       {{else}}
       <div class="flex h-full items-center justify-center bg-sand" aria-hidden="true">
-        <img src="/assets/fig.svg" alt="" class="h-20 w-20 opacity-45">
+        <img src="/assets/fig.svg?v=3" alt="" class="h-20 w-20 opacity-45">
       </div>
       {{end}}
       {{if eq .Category "تابستان"}}
@@ -481,6 +481,12 @@
       </div>
     </div>
   </article>
+  {{end}}
+
+  <!-- order status badge (single source of truth: statusColor + statusLabel) -->
+  {{define "status-badge"}}
+  <span class="rounded-full border border-dashed px-3 py-1 text-xs font-semibold {{statusColor .}}"
+        style="background:var(--surface-warm)">{{statusLabel .}}</span>
   {{end}}
 
   <!-- ============ TOASTS (cart feedback) ============ -->

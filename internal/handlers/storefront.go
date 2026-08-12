@@ -1,11 +1,11 @@
 package handlers
 
 import (
-	"log"
 	"net/http"
 	"time"
 
 	"farmstore/internal/database"
+	"farmstore/internal/logutil"
 	"farmstore/internal/models"
 )
 
@@ -45,7 +45,7 @@ func currentSeason() seasonInfo {
 			Label:            "فصل بهار",
 			Tag:              "تازه و سبز",
 			Heading:          "محصولات تازه‌ی بهاری",
-			Tagline:          "سبزی و میوه‌ی بهاری، مستقیم از باغ.",
+			Tagline:          "سبزی و میوه‌ی بهاری، تازه و بی‌افزودنی.",
 			Accent:           "#3F5D42",
 			AccentQuoteColor: "#5A8A60",
 			Image:            "/assets/toodej.webp",
@@ -57,8 +57,8 @@ func currentSeason() seasonInfo {
 			Key:              "summer",
 			Label:            "فصل تابستان",
 			Tag:              "ویژه این فصل",
-			Heading:          "انجیر خشک درجه یک، خوشمزه و طبیعی",
-			Tagline:          "خشک‌شده زیر آفتاب و با کیفیت. سرشار از فیبر، آنتی‌اکسیدان و مواد معدنی.",
+			Heading:          "انجیر خشک، خوشمزه و طبیعی",
+			Tagline:          "خشک‌شده زیر آفتاب، بی‌افزودنی.",
 			Accent:           "#C98A2C",
 			AccentQuoteColor: "#E3B65C",
 			Image:            "/assets/fig-showcase.webp",
@@ -70,7 +70,7 @@ func currentSeason() seasonInfo {
 			Key:              "autumn",
 			Label:            "فصل پاییز",
 			Tag:              "برداشت پاییز",
-			Heading:          "انار یاقوتی، آبدار و پر از آنتی‌اکسیدان",
+			Heading:          "انار تازه، آبدار",
 			Tagline:          "از دانه‌ی تازه تا رب و آب‌انار؛ بدون هیچ افزودنی.",
 			Accent:           "#C97064",
 			AccentQuoteColor: "#D98C80",
@@ -83,8 +83,8 @@ func currentSeason() seasonInfo {
 			Key:              "dried",
 			Label:            "خشکبار",
 			Tag:              "همیشه موجود",
-			Heading:          "خشکبار با کیفیت، همیشه تازه",
-			Tagline:          "انجیر خشک، پسته، گردو و دیگر خشکبار اعلی.",
+			Heading:          "خشکبار و آجیل",
+			Tagline:          "انجیر خشک، پسته، گردو و بیشتر.",
 			Accent:           "#8C6F5E",
 			AccentQuoteColor: "#A68B7B",
 			Image:            "/assets/fig-showcase.webp",
@@ -139,13 +139,13 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 		{
 			Slug:  "dried",
 			Label: database.CategoryDried,
-			Image: "/assets/fig.svg?v=2",
+			Image: "/assets/bowl-nuts.svg?v=3",
 			IsSVG: true,
 		},
 		{
 			Slug:  "processed",
 			Label: database.CategoryProcessed,
-			Image: "/assets/leaf.svg?v=2",
+			Image: "/assets/rewilding-meadow.svg?v=3",
 			IsSVG: true,
 		},
 	}
@@ -187,6 +187,10 @@ func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 		category = database.CategoryProcessed
 		currentFilter = "processed"
 		label = database.CategoryProcessed
+	case "all":
+		category = "all"
+		currentFilter = "all"
+		label = "همه محصولات"
 	default:
 		http.NotFound(w, r)
 		return
@@ -194,7 +198,7 @@ func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 
 	products, err := database.GetProducts(h.db, category)
 	if err != nil {
-		log.Printf("products page: %v", err)
+		logutil.Error("products page", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

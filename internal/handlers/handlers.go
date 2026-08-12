@@ -4,13 +4,13 @@ import (
 	"database/sql"
 	"fmt"
 	"html/template"
-	"log"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"farmstore/internal/logutil"
 	"farmstore/internal/payment"
 	"farmstore/internal/utils"
 )
@@ -29,6 +29,35 @@ type Handler struct {
 	otpLimiter       *RateLimiter             // per-phone cap on OTP sends
 	otpVerifyLimiter *RateLimiter             // per-phone cap on OTP verification attempts
 	sessionMu        sync.RWMutex
+}
+
+// statusLabels is the single source of truth for order-status display text.
+// Keep this in sync with statusColors and the DB CHECK constraint.
+var statusLabels = map[string]string{
+	"pending":          "در انتظار بررسی",
+	"preparing":        "آماده‌سازی برای ارسال",
+	"dispatched":       "ارسال شد",
+	"cancelled":        "لغو شده",
+	"awaiting_payment": "در انتظار پرداخت",
+}
+
+// statusColors maps each order status to the design-system color token used
+// consistently across the customer-facing views and the admin panel.
+var statusColors = map[string]string{
+	"pending":          "saffron",
+	"preparing":        "fig",
+	"dispatched":       "forest",
+	"cancelled":        "pomegranate",
+	"awaiting_payment": "saffron",
+}
+
+// statusVar returns the CSS custom-property color for a status (e.g.
+// "var(--forest)"), used by the admin panel's inline status markup.
+func statusVar(s string) string {
+	if c, ok := statusColors[s]; ok {
+		return "var(--" + c + ")"
+	}
+	return "var(--clay)"
 }
 
 // templateFuncs returns the shared template function map used by every page
@@ -64,19 +93,16 @@ func templateFuncs() template.FuncMap {
 			return a * b
 		},
 		"statusColor": func(s string) string {
-			switch s {
-			case "pending":
-				return "text-[#7A5A2E]"
-			case "preparing":
-				return "text-[#5B3A5C]"
-			case "dispatched":
-				return "text-[#2F5D33]"
-			case "cancelled":
-				return "text-[#9E2A2B]"
-			case "awaiting_payment":
-				return "text-[#C98A2C]"
+			if c, ok := statusColors[s]; ok {
+				return "text-" + c
 			}
 			return "text-clay"
+		},
+		"statusLabel": func(s string) string {
+			if l, ok := statusLabels[s]; ok {
+				return l
+			}
+			return s
 		},
 		"now":       time.Now,
 		"hasSuffix": strings.HasSuffix,
@@ -109,7 +135,7 @@ func NewHandler(db *sql.DB, cartStore *CartStore, zarinpal *payment.Zarinpal, ba
 	templates := newTemplateStore(funcMap, layoutFiles, pages, devMode)
 	if err := templates.load(); err != nil {
 		if devMode {
-			log.Printf("template parse warning (server will start and retry on each render): %v", err)
+			logutil.Warn("template parse warning (server will retry on each render)", "err", err)
 		} else {
 			return nil, fmt.Errorf("parse templates: %w", err)
 		}

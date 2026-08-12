@@ -182,8 +182,12 @@ and imperfection, not just color choice.
 
 ### Shop / product listing
 
-- Filter sidebar (right-aligned) by category: میوه تازه, رب و مربا, خشکبار,
-  هدیه.
+- Filter sidebar (right-aligned) by category. The category names below are
+  illustrative of the *intent*; the live storefront actually uses a
+  **seasonal taxonomy** — `بهار` (spring), `تابستان` (summer), `پاییز` (autumn),
+  `خشکبار` (dried), `سنتی` (traditional) — surfaced in the header nav and the
+  `/products/{season}` routes. Keep any new category copy consistent with that
+  seasonal set rather than the generic grocery labels.
 - Product cards: photo, name in Alyamama SemiBold, price in Estedad Bold
   with Persian numerals, small handmade-style tag if applicable.
 - Grid loosens on hover — card lifts slightly and rotates 0.5–1 degree,

@@ -4,7 +4,7 @@
 
 <!-- category intro — low, not a fat hero -->
 <section class="relative overflow-hidden border-b border-line/70 bg-sand/50">
-  <div class="mx-auto max-w-7xl px-5 pb-10 pt-12 lg:px-8" data-reveal>
+  <div class="mx-auto max-w-5xl px-5 pb-10 pt-12 lg:px-8" data-reveal>
     <nav class="mb-4 flex items-center gap-2 text-xs text-clay" aria-label="مسیر">
       <a href="/" class="transition hover:text-fig">خانه</a>
       <span>›</span>
@@ -14,7 +14,7 @@
       <div>
         <h1 class="font-display text-3xl font-bold text-walnut md:text-4xl">{{.CategoryLabel}}</h1>
         <p class="mt-2 max-w-xl text-sm leading-7 text-clay">
-          {{if eq .CurrentFilter "spring"}}محصولات تازه‌ی بهاری.{{else if eq .CurrentFilter "summer"}}محصولات تازه‌ی تابستانی.{{else if eq .CurrentFilter "autumn"}}محصولات تازه‌ی پاییزی.{{else if eq .CurrentFilter "dried"}}خشکبار با کیفیت.{{else}}محصولات سنتی.{{end}}
+          {{if eq .CurrentFilter "spring"}}محصولات تازه‌ی بهاری.{{else if eq .CurrentFilter "summer"}}محصولات تازه‌ی تابستانی.{{else if eq .CurrentFilter "autumn"}}محصولات تازه‌ی پاییزی.{{else if eq .CurrentFilter "dried"}}خشکبار و آجیل.{{else if eq .CurrentFilter "all"}}تمام محصولات طبیعی و سنتی ما در یک نگاه.{{else}}محصولات سنتی.{{end}}
         </p>
       </div>
     </div>
@@ -22,16 +22,22 @@
 </section>
 
 <!-- FILTER SIDEBAR (right) + PRODUCT GRID -->
-<section class="mx-auto max-w-7xl px-5 pb-20 pt-12 lg:px-8">
+<section class="mx-auto max-w-5xl px-5 pb-20 pt-12 lg:px-8">
   <div class="grid gap-10 lg:grid-cols-12">
     <!-- sidebar: first in RTL source order → lands on the right -->
     <aside class="lg:col-span-3" aria-label="فیلتر دسته‌بندی">
       <div class="paper-card-sand overflow-hidden lg:sticky lg:top-28 px-6 py-6">
         <div class="mb-5 flex items-center gap-2">
-          <img src="/assets/category.svg" alt="" class="h-5 w-5">
+          <img src="/assets/category.svg?v=3" alt="" class="h-5 w-5">
           <h2 class="font-display text-xl font-semibold text-walnut">دسته‌بندی</h2>
         </div>
         <ul class="space-y-1.5">
+          <li>
+            <a href="/products/all"
+              class="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition {{if eq .CurrentFilter "all"}}bg-pomegranate shadow-soft{{else}}text-walnut hover:bg-sand/80{{end}}"{{if eq .CurrentFilter "all"}} style="color:var(--text-on-dark)"{{end}}>
+              همه محصولات
+            </a>
+          </li>
           <li>
             <a href="/products/spring"
               class="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition {{if eq .CurrentFilter "spring"}}bg-pomegranate shadow-soft{{else}}text-walnut hover:bg-sand/80{{end}}"{{if eq .CurrentFilter "spring"}} style="color:var(--text-on-dark)"{{end}}>
@@ -68,8 +74,7 @@
 
     <!-- product grid: 9 of the 12 columns -->
     <div id="products" class="lg:col-span-9">
-      <p class="mb-6 text-sm text-clay">{{len .Products}} محصول در این دسته</p>
-      <div class="product-grid grid gap-x-6 gap-y-10 sm:grid-cols-2 xl:grid-cols-3">
+      <div class="product-grid grid gap-x-6 gap-y-10 sm:grid-cols-2">
         {{range .Products}}
         <div data-reveal>{{template "product-card" .}}</div>
         {{else}}

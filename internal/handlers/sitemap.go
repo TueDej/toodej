@@ -3,11 +3,11 @@ package handlers
 import (
 	"encoding/xml"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
 	"farmstore/internal/database"
+	"farmstore/internal/logutil"
 )
 
 const baseURL = "https://toodej.shop"
@@ -36,7 +36,7 @@ func (h *Handler) ServeSitemap(w http.ResponseWriter, r *http.Request) {
 
 	products, err := database.GetProducts(h.db, "")
 	if err != nil {
-		log.Printf("sitemap: get products: %v", err)
+		logutil.Error("sitemap: get products", "err", err)
 	} else {
 		for _, p := range products {
 			lastMod := p.CreatedAt.UTC().Format("2006-01-02")
@@ -53,7 +53,7 @@ func (h *Handler) ServeSitemap(w http.ResponseWriter, r *http.Request) {
 
 	output, err := xml.MarshalIndent(root, "", "  ")
 	if err != nil {
-		log.Printf("sitemap: marshal: %v", err)
+		logutil.Error("sitemap: marshal", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

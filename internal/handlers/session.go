@@ -3,11 +3,11 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"log"
 	"net/http"
 	"time"
 
 	"farmstore/internal/database"
+	"farmstore/internal/logutil"
 	"farmstore/internal/payment"
 )
 
@@ -76,11 +76,11 @@ func (h *Handler) startUnpaidOrderJanitor() {
 func (h *Handler) cancelExpiredUnpaidOrders() {
 	n, err := database.CancelExpiredUnpaidOrders(h.db, unpaidOrderTTL)
 	if err != nil {
-		log.Printf("cancel expired unpaid orders: %v", err)
+		logutil.Error("cancel expired unpaid orders", "err", err)
 		return
 	}
 	if n > 0 {
-		log.Printf("cancelled %d expired awaiting_payment orders (older than %s)", n, unpaidOrderTTL)
+		logutil.Info("cancelled expired awaiting_payment orders", "count", n, "ttl", unpaidOrderTTL)
 	}
 }
 
@@ -115,28 +115,28 @@ func (h *Handler) startPaymentReconciler() {
 func (h *Handler) reconcilePayments() {
 	orders, err := database.GetAwaitingPaymentOrders(h.db)
 	if err != nil {
-		log.Printf("payment reconciliation: list orders: %v", err)
+		logutil.Error("payment reconciliation: list orders", "err", err)
 		return
 	}
 	for _, o := range orders {
 		amount, err := payment.TomanToRial(o.TotalAmount)
 		if err != nil {
-			log.Printf("payment reconciliation: convert amount for %s: %v", o.ID, err)
+			logutil.Error("payment reconciliation: convert amount", "order_id", o.ID, "err", err)
 			continue
 		}
 		result, err := h.zarinpal.VerifyPayment(amount, o.Authority)
 		if err != nil {
-			log.Printf("payment reconciliation: verify order %s: %v", o.ID, err)
+			logutil.Error("payment reconciliation: verify order", "order_id", o.ID, "err", err)
 			continue
 		}
 		if !result.OK {
 			continue
 		}
 		if err := database.ConfirmPayment(h.db, o.ID, result.RefID); err != nil {
-			log.Printf("payment reconciliation: confirm order %s: %v", o.ID, err)
+			logutil.Error("payment reconciliation: confirm order", "order_id", o.ID, "err", err)
 			continue
 		}
-		log.Printf("payment reconciliation: order %s confirmed paid (ref %d)", o.ID, result.RefID)
+		logutil.Info("payment reconciliation: order confirmed paid", "order_id", o.ID, "ref_id", result.RefID)
 	}
 }
 

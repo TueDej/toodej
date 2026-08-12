@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"html"
-	"log"
 	"math/big"
 	"net/http"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"farmstore/internal/database"
+	"farmstore/internal/logutil"
 	"farmstore/internal/services"
 )
 
@@ -90,7 +90,7 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 
 	_, err := database.GetOrCreateUser(h.db, phone)
 	if err != nil {
-		log.Printf("get or create user: %v", err)
+		logutil.Error("get or create user", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -98,13 +98,13 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 	code := generateOTP5()
 
 	if err := database.CreateOTP(h.db, phone, code, time.Now().Add(otpTTL)); err != nil {
-		log.Printf("create otp: %v", err)
+		logutil.Error("create otp", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
 	if err := services.SendOTP(phone, code); err != nil {
-		log.Printf("send otp: %v", err)
+		logutil.Error("send otp", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -193,7 +193,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 
 	valid, err := database.VerifyOTP(h.db, pl.phone, code)
 	if err != nil {
-		log.Printf("verify otp: %v", err)
+		logutil.Error("verify otp", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -206,7 +206,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 
 	user, err := database.GetUserByPhone(h.db, pl.phone)
 	if err != nil {
-		log.Printf("get user: %v", err)
+		logutil.Error("get user", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

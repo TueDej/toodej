@@ -1,7 +1,7 @@
 {{define "title"}}پنل مدیریت{{end}}
 
 {{define "content"}}
-<div class="mx-auto max-w-7xl px-5 py-10 lg:px-8">
+<div class="mx-auto max-w-5xl px-5 py-10 lg:px-8">
   <div data-reveal>
     <h1 class="font-display text-3xl font-bold text-walnut md:text-4xl">پنل مدیریت</h1>
   </div>
@@ -47,7 +47,7 @@
                 {{else}}
                 <option value="pending" {{if eq .Status "pending"}}selected{{end}}>در انتظار بررسی</option>
                 <option value="preparing" {{if eq .Status "preparing"}}selected{{end}}>آماده‌سازی برای ارسال</option>
-                <option value="dispatched" {{if eq .Status "dispatched"}}selected{{end}}>تحویل برای ارسال</option>
+                <option value="dispatched" {{if eq .Status "dispatched"}}selected{{end}}>ارسال شد</option>
                 <option value="cancelled" {{if eq .Status "cancelled"}}selected{{end}}>لغو شده</option>
                 {{end}}
               </select>

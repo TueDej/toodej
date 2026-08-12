@@ -3,11 +3,11 @@ package handlers
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 
 	"farmstore/internal/database"
+	"farmstore/internal/logutil"
 	"farmstore/internal/models"
 	"farmstore/internal/payment"
 )
@@ -185,7 +185,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 			h.render(w, "checkout", data)
 			return
 		}
-		log.Printf("create order: %v", err)
+		logutil.Error("create order", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -195,14 +195,14 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	callbackURL := h.baseURL + "/checkout/verify"
 	gatewayAmount, err := payment.TomanToRial(totalAmount)
 	if err != nil {
-		log.Printf("convert payment amount: %v", err)
+		logutil.Error("convert payment amount", "err", err)
 		database.MarkPaymentFailed(h.db, orderID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	authority, err := h.zarinpal.RequestPayment(gatewayAmount, callbackURL, "سفارش تودج "+orderID)
 	if err != nil {
-		log.Printf("zarinpal request payment: %v", err)
+		logutil.Error("zarinpal request payment", "err", err)
 		// Cancel the order and restore stock so the user can retry.
 		database.MarkPaymentFailed(h.db, orderID)
 		sid := h.getOrCreateSessionID(w, r)
@@ -229,7 +229,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := database.SetPaymentAuthority(h.db, orderID, authority); err != nil {
-		log.Printf("set payment authority: %v", err)
+		logutil.Error("set payment authority", "err", err)
 		database.MarkPaymentFailed(h.db, orderID)
 		data := h.mergeData(r, map[string]any{
 			"Error":      "خطا در ثبت اطلاعات پرداخت؛ لطفاً دوباره تلاش کنید.",
@@ -247,7 +247,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	gatewayURL := h.zarinpal.GatewayURL(authority)
-	log.Printf("order %s: redirecting to payment gateway: %s", orderID, gatewayURL)
+	logutil.Info("redirecting to payment gateway", "order_id", orderID)
 
 	cart.Clear()
 	w.Header().Set("HX-Trigger", "cartUpdated")
@@ -273,21 +273,21 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 
 	order, err := database.GetOrderByAuthority(h.db, authority)
 	if err != nil {
-		log.Printf("verify: order not found for authority: %v", err)
+		logutil.Error("verify: order not found for authority", "err", err)
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
 	}
 
 	gatewayAmount, err := payment.TomanToRial(order.TotalAmount)
 	if err != nil {
-		log.Printf("convert verify amount: %v", err)
+		logutil.Error("convert verify amount", "err", err)
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
 	}
 
 	result, err := h.zarinpal.VerifyPayment(gatewayAmount, authority)
 	if err != nil {
-		log.Printf("zarinpal verify: %v", err)
+		logutil.Error("zarinpal verify", "err", err)
 		database.MarkPaymentFailed(h.db, order.ID)
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
@@ -295,12 +295,12 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 
 	if result.OK {
 		if err := database.ConfirmPayment(h.db, order.ID, result.RefID); err != nil {
-			log.Printf("confirm payment: %v", err)
+			logutil.Error("confirm payment", "err", err)
 		}
 		http.Redirect(w, r, fmt.Sprintf("/checkout/confirmation/%s", order.ID), http.StatusSeeOther)
 		return
 	} else {
-		log.Printf("payment not verified for order %s: %s", order.ID, result.Message)
+		logutil.Warn("payment not verified", "order_id", order.ID, "message", result.Message)
 		database.MarkPaymentFailed(h.db, order.ID)
 		http.Redirect(w, r, "/cart?error=payment_failed", http.StatusSeeOther)
 		return
@@ -325,7 +325,7 @@ func (h *Handler) Confirmation(w http.ResponseWriter, r *http.Request) {
 
 	order, items, products, err := database.GetOrderWithItems(h.db, orderID)
 	if err != nil {
-		log.Printf("get order: %v", err)
+		logutil.Error("get order", "err", err)
 		http.NotFound(w, r)
 		return
 	}

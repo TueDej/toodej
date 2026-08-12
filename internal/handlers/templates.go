@@ -3,11 +3,12 @@ package handlers
 import (
 	"fmt"
 	"html/template"
-	"log"
 	"net/http"
 	"os"
 	"sync"
 	"time"
+
+	"farmstore/internal/logutil"
 )
 
 // TemplateStore owns the parsed HTML templates and supports dev-mode hot
@@ -84,7 +85,7 @@ func (s *TemplateStore) refresh() {
 			st, err := os.Stat(f)
 			if err != nil {
 				s.mu.RUnlock()
-				log.Printf("template refresh: stat %s: %v (keeping previous templates)", f, err)
+				logutil.Error("template refresh: stat failed, keeping previous templates", "file", f, "err", err)
 				return
 			}
 			if prev, ok := s.modTimes[f]; !ok || !prev.Equal(st.ModTime()) {
@@ -98,10 +99,10 @@ func (s *TemplateStore) refresh() {
 		return
 	}
 	if err := s.load(); err != nil {
-		log.Printf("template reload failed (keeping previous templates): %v", err)
+		logutil.Error("template reload failed, keeping previous templates", "err", err)
 		return
 	}
-	log.Print("templates reloaded from disk (dev hot reload)")
+	logutil.Info("templates reloaded from disk (dev hot reload)")
 }
 
 // get returns the cached template for the named page, refreshing first in dev
@@ -122,12 +123,12 @@ func (s *TemplateStore) get(name string) (*template.Template, error) {
 func (h *Handler) render(w http.ResponseWriter, name string, data any) {
 	t, err := h.templates.get(name)
 	if err != nil {
-		log.Printf("render %s: %v", name, err)
+		logutil.Error("render failed", "page", name, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	if err := t.Execute(w, data); err != nil {
-		log.Printf("render %s: %v", name, err)
+		logutil.Error("render failed", "page", name, "err", err)
 	}
 }
 
@@ -135,11 +136,11 @@ func (h *Handler) render(w http.ResponseWriter, name string, data any) {
 func (h *Handler) renderTemplate(w http.ResponseWriter, name, tplName string, data any) {
 	t, err := h.templates.get(name)
 	if err != nil {
-		log.Printf("render %s/%s: %v", name, tplName, err)
+		logutil.Error("render partial failed", "page", name, "partial", tplName, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	if err := t.ExecuteTemplate(w, tplName, data); err != nil {
-		log.Printf("render %s/%s: %v", name, tplName, err)
+		logutil.Error("render partial failed", "page", name, "partial", tplName, "err", err)
 	}
 }

@@ -1,10 +1,10 @@
 package handlers
 
 import (
-	"log"
 	"net/http"
 
 	"farmstore/internal/database"
+	"farmstore/internal/logutil"
 	"farmstore/internal/payment"
 )
 
@@ -17,7 +17,7 @@ func (h *Handler) UserOrders(w http.ResponseWriter, r *http.Request) {
 
 	summaries, err := database.GetUserOrdersWithItems(h.db, userID)
 	if err != nil {
-		log.Printf("get user orders: %v", err)
+		logutil.Error("get user orders", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -46,7 +46,7 @@ func (h *Handler) ResumePayment(w http.ResponseWriter, r *http.Request) {
 
 	order, err := database.GetOrder(h.db, orderID)
 	if err != nil {
-		log.Printf("resume payment: get order: %v", err)
+		logutil.Error("resume payment: get order", "err", err)
 		http.NotFound(w, r)
 		return
 	}
@@ -61,7 +61,7 @@ func (h *Handler) ResumePayment(w http.ResponseWriter, r *http.Request) {
 
 	gatewayAmount, err := payment.TomanToRial(order.TotalAmount)
 	if err != nil {
-		log.Printf("resume payment: convert amount: %v", err)
+		logutil.Error("resume payment: convert amount", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -69,13 +69,13 @@ func (h *Handler) ResumePayment(w http.ResponseWriter, r *http.Request) {
 	callbackURL := h.baseURL + "/checkout/verify"
 	authority, err := h.zarinpal.RequestPayment(gatewayAmount, callbackURL, "سفارش تودج "+orderID)
 	if err != nil {
-		log.Printf("resume payment: zarinpal request: %v", err)
+		logutil.Error("resume payment: zarinpal request", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
 	if err := database.SetPaymentAuthority(h.db, orderID, authority); err != nil {
-		log.Printf("resume payment: set authority: %v", err)
+		logutil.Error("resume payment: set authority", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

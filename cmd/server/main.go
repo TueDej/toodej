@@ -3,7 +3,6 @@
 package main
 
 import (
-	"log"
 	"net/http"
 	"os"
 	"time"
@@ -13,6 +12,7 @@ import (
 
 	"farmstore/internal/database"
 	"farmstore/internal/handlers"
+	"farmstore/internal/logutil"
 	"farmstore/internal/payment"
 )
 
@@ -25,7 +25,7 @@ func main() {
 
 	db, err := database.Init(dbPath)
 	if err != nil {
-		log.Fatalf("database init: %v", err)
+		logutil.Fatal("database init failed", "err", err)
 	}
 	defer db.Close()
 
@@ -37,12 +37,12 @@ func main() {
 	cartStore := handlers.NewCartStore()
 	h, err := handlers.NewHandler(db, cartStore, zarinpal, baseURL)
 	if err != nil {
-		log.Fatalf("handler init: %v", err)
+		logutil.Fatal("handler init failed", "err", err)
 	}
 
 	// ── Router ────────────────────────────────────────
 	r := chi.NewRouter()
-	r.Use(middleware.Logger)
+	r.Use(logutil.RequestLogger())
 	r.Use(middleware.Recoverer)
 	r.Use(handlers.SecurityHeaders)
 	r.Use(handlers.SameOrigin)
@@ -56,16 +56,16 @@ func main() {
 	adminPass := os.Getenv("ADMIN_PASS")
 	if os.Getenv("DEV_MODE") != "true" {
 		if adminUser == "" || adminPass == "" || (adminUser == "admin" && adminPass == "admin123") {
-			log.Fatal("production: set explicit, non-default ADMIN_USER and ADMIN_PASS env vars (refusing default credentials)")
+			logutil.Fatal("refusing default admin credentials in production (set ADMIN_USER and ADMIN_PASS)")
 		}
 		if len(adminPass) < 8 {
-			log.Fatal("production: ADMIN_PASS must be at least 8 characters")
+			logutil.Fatal("ADMIN_PASS must be at least 8 characters in production")
 		}
 	} else {
 		if adminUser == "" || adminPass == "" {
 			adminUser, adminPass = "admin", "admin123"
 		}
-		log.Printf("DEV_MODE: admin credentials %s/**** — do not use in production", adminUser)
+		logutil.Warn("using default admin credentials (DEV_MODE only)", "admin_user", adminUser)
 	}
 
 	// Rate limiters: per-IP budgets for the auth surface and admin panel.
@@ -117,9 +117,9 @@ func main() {
 
 	// ── Start ─────────────────────────────────────────
 	port := getEnv("PORT", "8080")
-	log.Printf("server starting on :%s", port)
+	logutil.Info("server starting", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
-		log.Fatal(err)
+		logutil.Fatal("server stopped", "err", err)
 	}
 }
 

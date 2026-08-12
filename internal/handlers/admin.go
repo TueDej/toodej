@@ -3,12 +3,12 @@ package handlers
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"farmstore/internal/database"
+	"farmstore/internal/logutil"
 	"farmstore/internal/models"
 )
 
@@ -19,14 +19,14 @@ import (
 func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 	orders, err := database.GetOrders(h.db)
 	if err != nil {
-		log.Printf("admin orders: %v", err)
+		logutil.Error("admin orders", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
 	products, err := database.GetAllProducts(h.db)
 	if err != nil {
-		log.Printf("admin products: %v", err)
+		logutil.Error("admin products", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -50,7 +50,7 @@ func (h *Handler) AdminOrderDetail(w http.ResponseWriter, r *http.Request) {
 
 	order, items, products, err := database.GetOrderWithItems(h.db, orderID)
 	if err != nil {
-		log.Printf("admin order detail: %v", err)
+		logutil.Error("admin order detail", "err", err)
 		http.NotFound(w, r)
 		return
 	}
@@ -101,29 +101,14 @@ func (h *Handler) AdminUpdateOrderStatusBadge(w http.ResponseWriter, r *http.Req
 			http.Error(w, "invalid status transition", http.StatusBadRequest)
 			return
 		}
-		log.Printf("update order status badge: %v", err)
+		logutil.Error("update order status badge", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	statusLabels := map[string]string{
-		"pending":          "در انتظار بررسی",
-		"preparing":        "آماده‌سازی برای ارسال",
-		"dispatched":       "تحویل برای ارسال",
-		"cancelled":        "لغو شده",
-		"awaiting_payment": "در انتظار پرداخت",
-	}
-	statusColors := map[string]string{
-		"pending":          "var(--saffron)",
-		"preparing":        "var(--fig)",
-		"dispatched":       "var(--forest)",
-		"cancelled":        "var(--pomegranate)",
-		"awaiting_payment": "var(--saffron)",
-	}
-
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<span class="rounded-full border border-dashed px-3 py-1 text-xs font-semibold" style="background:var(--surface-warm);color:%s">%s</span>`,
-		statusColors[status], statusLabels[status])
+		statusVar(status), statusLabels[status])
 }
 
 // AdminUpdateOrderStatus updates the status of an order via an HTMX POST from
@@ -148,27 +133,13 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "invalid status transition", http.StatusBadRequest)
 			return
 		}
-		log.Printf("update order status: %v", err)
+		logutil.Error("update order status", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html")
 
-	statusLabels := map[string]string{
-		"pending":          "در انتظار بررسی",
-		"preparing":        "آماده‌سازی برای ارسال",
-		"dispatched":       "تحویل برای ارسال",
-		"cancelled":        "لغو شده",
-		"awaiting_payment": "در انتظار پرداخت",
-	}
-	statusColors := map[string]string{
-		"pending":          "var(--saffron)",
-		"preparing":        "var(--fig)",
-		"dispatched":       "var(--forest)",
-		"cancelled":        "var(--pomegranate)",
-		"awaiting_payment": "var(--saffron)",
-	}
 	order := []string{"awaiting_payment", "pending", "preparing", "dispatched", "cancelled"}
 
 	var opts strings.Builder
@@ -185,7 +156,7 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
       hx-post="/admin/orders/%s/status" hx-trigger="change" hx-target="#order-%s-status" hx-swap="outerHTML">
       %s
     </select>
-  </td>`, orderID, statusColors[status], orderID, orderID, opts.String())
+  </td>`, orderID, statusVar(status), orderID, orderID, opts.String())
 }
 
 // ── Product Management ────────────────────────────────
@@ -208,7 +179,7 @@ func (h *Handler) AdminToggleProduct(w http.ResponseWriter, r *http.Request) {
 
 	product.IsActive = !product.IsActive
 	if err := database.UpdateProduct(h.db, product); err != nil {
-		log.Printf("toggle product: %v", err)
+		logutil.Error("toggle product", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -248,7 +219,7 @@ func (h *Handler) AdminUpdateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := database.UpdateProduct(h.db, product); err != nil {
-		log.Printf("update product: %v", err)
+		logutil.Error("update product", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -291,7 +262,7 @@ func (h *Handler) AdminCreateProduct(w http.ResponseWriter, r *http.Request) {
 
 	slug, err := database.UniqueSlug(h.db, name, 0)
 	if err != nil {
-		log.Printf("create product slug: %v", err)
+		logutil.Error("create product slug", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -309,7 +280,7 @@ func (h *Handler) AdminCreateProduct(w http.ResponseWriter, r *http.Request) {
 
 	id, err := database.CreateProduct(h.db, product)
 	if err != nil {
-		log.Printf("create product: %v", err)
+		logutil.Error("create product", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
