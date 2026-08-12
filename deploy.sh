@@ -28,18 +28,41 @@ sudo_if_needed() {
 
 # --------------- colors & output ---------------
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; BOLD='\033[1m'; NC='\033[0m'
-info()    { printf "${GREEN}==>${NC} %s\n" "$*"; }
-warn()    { printf "${YELLOW}==>${NC} %s\n" "$*"; }
-ok()      { printf "  ${GREEN}✓${NC} %s\n" "$*"; }
-fail()    { printf "  ${RED}✗${NC} %s\n" "$*" >&2; exit 1; }
-section() { printf "\n${CYAN}── %s ───────────────────────────────────${NC}\n" "$*"; }
-box() {
-  printf "\n${BOLD}${GREEN}╔══════════════════════════════════════════════════════════╗${NC}\n"
-  printf "${BOLD}${GREEN}  %s${NC}\n" "$1"
-  printf "${BOLD}${GREEN}  %s${NC}\n" "$2"
-  printf "${BOLD}${GREEN}  %s%s${NC}\n" "$3" "$4"
-  printf "${BOLD}${GREEN}╚══════════════════════════════════════════════════════════╝${NC}\n"
+STEP_NUM=0
+
+# info  — normal progress message
+info()  { printf "  ${GREEN}▸${NC}  %s\n" "$*"; }
+# warn  — something non-fatal that the user should notice
+warn()  { printf "  ${YELLOW}▸${NC}  %s\n" "$*"; }
+# ok    — task completed successfully
+ok()    { printf "  ${GREEN}✔${NC}  %s\n" "$*"; }
+# fail  — fatal error, prints to stderr and exits
+fail()  { printf "  ${RED}✗${NC}  %s\n" "$*" >&2; exit 1; }
+
+# banner — top-of-script header box
+banner() {
+  local w=58
+  local pad=""
+  for _ in $(seq 1 $w); do pad="${pad}═"; done
+  printf "\n${BOLD}${GREEN}╔${pad}╗${NC}\n"
+  printf "${BOLD}${GREEN}║${NC}  ${BOLD}%s${NC}\n" "$1"
+  for line in "${@:2}"; do
+    printf "${BOLD}${GREEN}║${NC}  %s\n" "$line"
+  done
+  printf "${BOLD}${GREEN}╚${pad}╝${NC}\n"
 }
+
+# step — numbered section header (auto-increments)
+step() {
+  STEP_NUM=$((STEP_NUM + 1))
+  printf "\n${CYAN}── Step ${STEP_NUM}: %s ──${NC}\n" "$*"
+}
+
+# kv — key/value pair for summary tables (26-char label column)
+kv() { printf "  %-26s %s\n" "$1" "$2"; }
+
+# divider — thin horizontal rule
+divider() { printf "  ${CYAN}────────────────────────────────────────────────────────${NC}\n"; }
 
 usage() {
   cat <<'EOF'
@@ -62,8 +85,9 @@ for arg in "$@"; do
   esac
 done
 
-box "Toodej — production deployment" "repo:    ${SCRIPT_DIR}" \
-    "started: $(date '+%Y-%m-%d %H:%M:%S %Z')" ""
+banner "Toodej — production deployment" \
+  "repo:    ${SCRIPT_DIR}" \
+  "started: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 
 # --------------- 0. prerequisite check ---------------
 missing=""
@@ -144,7 +168,7 @@ else
   fi
 fi
 
-section "SMS, payment & URL configuration"
+step "SMS, payment & URL configuration"
 
 KAVENEGAR_API_KEY="$(clean_input "${EXISTING_KAVENEGAR_KEY:-}")"
 KAVENEGAR_TEMPLATE="$(clean_input "${EXISTING_KAVENEGAR_TEMPLATE:-verify-otp}")"
@@ -191,7 +215,7 @@ if [[ ! "$APP_BASE_URL" =~ ^https?:// ]]; then
 fi
 
 # --------------- 2. local build ---------------
-section "Building production binary"
+step "Building production binary"
 cd "$SCRIPT_DIR"
 
 if [ "$DO_TIDY" -eq 1 ]; then
@@ -212,7 +236,7 @@ chmod +x "./bin/${APP_NAME}"
 ok "Binary built at ./bin/${APP_NAME}"
 
 # --------------- 3. database reset prompt ---------------
-section "Database"
+step "Database"
 if sudo_if_needed test -f "$DB_PATH"; then
   warn "Existing database found at ${DB_PATH}"
   read -rp "Erase it and start fresh? [y/N]: " ERASE_DB
@@ -225,7 +249,7 @@ if sudo_if_needed test -f "$DB_PATH"; then
 fi
 
 # --------------- 4. stop running service ---------------
-section "Stopping running service"
+step "Stopping running service"
 if systemctl is-active --quiet "${APP_NAME}.service" 2>/dev/null; then
   info "Stopping running service..."
   sudo_if_needed systemctl stop "${APP_NAME}.service"
@@ -235,7 +259,7 @@ else
 fi
 
 # --------------- 5. deploy files ---------------
-section "Deploying to system"
+step "Deploying to system"
 info "Installing binary, templates, and assets (requires sudo)..."
 sudo_if_needed mkdir -p "$DATA_DIR"
 sudo_if_needed cp "./bin/${APP_NAME}" "/usr/local/bin/${APP_NAME}"
@@ -246,8 +270,8 @@ sudo_if_needed cp -r assets "${DATA_DIR}/assets"
 sudo_if_needed chmod 755 "$DATA_DIR"
 sudo_if_needed chmod -R 755 "${DATA_DIR}/templates"
 sudo_if_needed chmod -R 755 "${DATA_DIR}/assets"
-ok " Binary installed to /usr/local/bin/${APP_NAME}"
-ok " Data directory ${DATA_DIR} ready (with templates & assets)"
+ok "Binary installed to /usr/local/bin/${APP_NAME}"
+ok "Data directory ${DATA_DIR} ready (with templates & assets)"
 
 # --------------- 6. write protected environment file ---------------
 # Secrets (admin password, SMS key, gateway id) are kept in a root-only file
@@ -305,7 +329,7 @@ sudo_if_needed systemctl restart "${APP_NAME}.service"
 ok "${APP_NAME}.service created, enabled, and started"
 
 # --------------- 8. verify ---------------
-section "Verifying deployment"
+step "Verifying deployment"
 info "Waiting for HTTP health check on port ${APP_PORT}..."
 HEALTHY=0
 for _ in {1..30}; do
@@ -318,8 +342,7 @@ done
 
 if [ "$HEALTHY" -eq 1 ]; then
   ok "Service is healthy"
-  printf "  ${CYAN}health:${NC} http://127.0.0.1:%s/health → %s\n" \
-    "$APP_PORT" "$(curl -s --max-time 2 "http://127.0.0.1:${APP_PORT}/health")"
+  kv "health:" "http://127.0.0.1:${APP_PORT}/health → $(curl -s --max-time 2 "http://127.0.0.1:${APP_PORT}/health")"
 else
   warn "No health response on :${APP_PORT} after 30s — the app may still be starting or failed."
 fi
@@ -331,31 +354,32 @@ else
 fi
 
 ELAPSED=$((SECONDS - START_TIME))
-printf "\n${GREEN}════════════════════════════════════════════════════════${NC}\n"
-printf "${GREEN}  Deployment complete in %dh %02dm %02ds${NC}\n" \
-  "$((ELAPSED / 3600))" "$(((ELAPSED % 3600) / 60))" "$((ELAPSED % 60))"
-printf "${GREEN}════════════════════════════════════════════════════════${NC}\n"
+banner "Deployment complete" \
+  "elapsed: $((ELAPSED / 3600))h $(((ELAPSED % 3600) / 60))m $((ELAPSED % 60))s" \
+  "status:  $([ "$HEALTHY" -eq 1 ] && echo "service is healthy" || echo "service may still be starting")"
 
-section "Deployment summary"
-printf "  %-24s %s\n" "Service unit:" "${APP_NAME}.service"
-printf "  %-24s %s\n" "Port:" "$APP_PORT"
-printf "  %-24s %s\n" "Admin user:" "$ADMIN_USER"
-printf "  %-24s %s\n" "Admin password:" "[configured, masked]"
-printf "  %-24s %s\n" "Database:" "$DB_PATH"
-printf "  %-24s %s\n" "App base URL:" "$APP_BASE_URL"
-printf "  %-24s %s\n" "Zarinpal sandbox:" "${ZARINPAL_SANDBOX:-false}"
-printf "  %-24s %s\n" "Kavenegar configured:" "$([ -n "$KAVENEGAR_API_KEY" ] && echo "yes" || echo "no")"
-printf "  %-24s %s\n" "Env file:" "${ENV_FILE} (600)"
-printf "\n  Logs:  sudo journalctl -u %s -f\n" "${APP_NAME}.service"
+step "Deployment summary"
+divider
+kv "Service unit:" "${APP_NAME}.service"
+kv "Port:" "$APP_PORT"
+kv "Admin user:" "$ADMIN_USER"
+kv "Admin password:" "[configured, masked]"
+kv "Database:" "$DB_PATH"
+kv "App base URL:" "$APP_BASE_URL"
+kv "Zarinpal sandbox:" "${ZARINPAL_SANDBOX:-false}"
+kv "Kavenegar configured:" "$([ -n "$KAVENEGAR_API_KEY" ] && echo "yes" || echo "no")"
+kv "Env file:" "${ENV_FILE} (600)"
+divider
+printf "\n  ${CYAN}Logs:${NC}     sudo journalctl -u %s -f\n" "${APP_NAME}.service"
 
 if [ "$HEALTHY" -eq 1 ]; then
-  printf "\n${BOLD}  Toodej is live at http://127.0.0.1:%s ${NC}\n" "$APP_PORT"
+  printf "  ${CYAN}Local:${NC}    http://127.0.0.1:%s\n\n" "$APP_PORT"
 fi
 
 sudo_if_needed systemctl status "${APP_NAME}.service" --no-pager 2>&1 | head -14
 
 # --------------- 9. caddy prompt ---------------
-section "Caddy reverse proxy (optional)"
+step "Caddy reverse proxy (optional)"
 read -rp "Do you want to configure a Caddy reverse proxy? [y/N]: " SETUP_CADDY
 if [[ "$SETUP_CADDY" =~ ^[Yy] ]]; then
   read -rp "Enter your domain (e.g., store.example.com): " CADDY_DOMAIN
@@ -363,10 +387,10 @@ if [[ "$SETUP_CADDY" =~ ^[Yy] ]]; then
   [ -n "$CADDY_DOMAIN" ] || fail "Domain cannot be empty."
   CADDY_CONF="/etc/caddy/Caddyfile"
 
-  printf "\n${YELLOW}Add this block to ${CADDY_CONF}${NC}:\n\n"
-  printf "  ${GREEN}${CADDY_DOMAIN}${NC} {\n"
+  warn "Add this block to ${CADDY_CONF}:"
+  printf "\n  ${GREEN}${CADDY_DOMAIN}${NC} {\n"
   printf "    reverse_proxy ${CYAN}127.0.0.1:${APP_PORT}${NC}\n"
-  printf "  }\n\n"
+  printf "  }\n"
 
   if [ -f "$CADDY_CONF" ]; then
     read -rp "Append this block to ${CADDY_CONF} now? [y/N]: " APPEND_NOW
