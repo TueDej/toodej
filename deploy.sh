@@ -1,70 +1,172 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# --------------- colors ---------------
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
-info()  { printf "${GREEN}==>${NC} %s\n" "$*"; }
-warn()  { printf "${YELLOW}==>${NC} %s\n" "$*"; }
-ok()    { printf "  ${GREEN}✓${NC} %s\n" "$*"; }
-fail()  { printf "  ${RED}✗${NC} %s\n" "$*"; exit 1; }
+# Toodej — production deployment script.
+# Runs initially without privileges; sudo is only used to write system files
+# (moving the binary, writing /etc config, managing systemd service).
+
+# --------------- config ---------------
+APP_NAME="farmstore"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+UNIT_FILE="/etc/systemd/system/${APP_NAME}.service"
+ENV_DIR="/etc/farmstore"
+ENV_FILE="${ENV_DIR}/env"
+DATA_DIR="/var/lib/farmstore"
+DB_PATH="${DATA_DIR}/${APP_NAME}.db"
+START_TIME=$SECONDS
+DO_TIDY=0
+
+# Helpers: if the script is already running as root, skip sudo so it works both
+# unprivileged (recommended) and via "sudo ./deploy.sh".
+sudo_if_needed() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+# --------------- colors & output ---------------
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; BOLD='\033[1m'; NC='\033[0m'
+info()    { printf "${GREEN}==>${NC} %s\n" "$*"; }
+warn()    { printf "${YELLOW}==>${NC} %s\n" "$*"; }
+ok()      { printf "  ${GREEN}✓${NC} %s\n" "$*"; }
+fail()    { printf "  ${RED}✗${NC} %s\n" "$*" >&2; exit 1; }
+section() { printf "\n${CYAN}── %s ───────────────────────────────────${NC}\n" "$*"; }
+box() {
+  printf "\n${BOLD}${GREEN}╔══════════════════════════════════════════════════════════╗${NC}\n"
+  printf "${BOLD}${GREEN}  %s${NC}\n" "$1"
+  printf "${BOLD}${GREEN}  %s${NC}\n" "$2"
+  printf "${BOLD}${GREEN}  %s%s${NC}\n" "$3" "$4"
+  printf "${BOLD}${GREEN}╚══════════════════════════════════════════════════════════╝${NC}\n"
+}
+
+usage() {
+  cat <<'EOF'
+Usage: ./deploy.sh [--tidy]
+
+Builds Toodej, installs it as a systemd service, and configures the runtime
+environment. Run from the repository root.
+
+Options:
+  --tidy      Run 'go mod tidy' before building (default: off).
+  -h, --help  Show this help and exit.
+EOF
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --tidy) DO_TIDY=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) warn "Unknown argument '$arg' ignored (see --help)" ;;
+  esac
+done
+
+box "Toodej — production deployment" "repo:    ${SCRIPT_DIR}" \
+    "started: $(date '+%Y-%m-%d %H:%M:%S %Z')" ""
+
+# --------------- 0. prerequisite check ---------------
+missing=""
+for cmd in go curl systemctl; do
+  command -v "$cmd" >/dev/null 2>&1 || missing="$missing $cmd"
+done
+[ -z "$missing" ] || fail "Required command(s) missing:$missing — install and re-run."
 
 # --------------- 1. read previous config ---------------
-EXISTING_ENV_FILE="/etc/systemd/system/farmstore.service"
-EXISTING_PORT=""
-EXISTING_ADMIN_USER=""
-EXISTING_ADMIN_PASS=""
-EXISTING_KAVENEGAR_KEY=""
-EXISTING_KAVENEGAR_TEMPLATE=""
-EXISTING_ZARINPAL_MERCHANT_ID=""
-EXISTING_ZARINPAL_SANDBOX=""
-EXISTING_APP_BASE_URL=""
-if [ -f "$EXISTING_ENV_FILE" ]; then
-  EXISTING_PORT=$(grep -oP 'Environment=PORT=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
-  EXISTING_ADMIN_USER=$(grep -oP 'Environment=ADMIN_USER=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
-  EXISTING_ADMIN_PASS=$(grep -oP 'Environment=ADMIN_PASS=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
-  EXISTING_KAVENEGAR_KEY=$(grep -oP 'Environment=KAVENEGAR_API_KEY=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
-  EXISTING_KAVENEGAR_TEMPLATE=$(grep -oP 'Environment=KAVENEGAR_TEMPLATE=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
-  EXISTING_ZARINPAL_MERCHANT_ID=$(grep -oP 'Environment=ZARINPAL_MERCHANT_ID=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
-  EXISTING_ZARINPAL_SANDBOX=$(grep -oP 'Environment=ZARINPAL_SANDBOX=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
-  EXISTING_APP_BASE_URL=$(grep -oP 'Environment=APP_BASE_URL=\K.*' "$EXISTING_ENV_FILE" 2>/dev/null || echo "")
-fi
+# The current deploy keeps secrets in the chmod-600 env file; older installs
+# stored them in the unit file. Read both (env file wins) so a re-deploy never
+# loses the existing configuration.
+read_env_value() {
+  [ -f "$ENV_FILE" ] || { echo ""; return; }
+  if [ "$(id -u)" -eq 0 ]; then
+    sed -n "s/^$1=//p" "$ENV_FILE" | head -n1
+  else
+    sudo sed -n "s/^$1=//p" "$ENV_FILE" | head -n1
+  fi
+}
+read_unit_value() {
+  [ -f "$UNIT_FILE" ] || { echo ""; return; }
+  grep -oP "Environment=$1=\K.*" "$UNIT_FILE" 2>/dev/null | head -n1 || echo ""
+}
+read_existing() {
+  local v
+  v=$(read_env_value "$1")
+  if [ -n "$v" ]; then
+    echo "$v"
+  else
+    echo "$(read_unit_value "$1")"
+  fi
+}
 
-if [ -n "$EXISTING_PORT" ] && [ -n "$EXISTING_ADMIN_USER" ] && [ -n "$EXISTING_ADMIN_PASS" ]; then
+# clean_input strips control characters (incl. newlines) so values can never
+# break the environment file or the systemd unit. UTF-8 is preserved.
+clean_input() {
+  printf '%s' "$1" | tr -d '\000-\037\177'
+}
+
+valid_port() {
+  [[ "$1" =~ ^[0-9]{1,5}$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
+EXISTING_PORT=$(read_existing "PORT")
+EXISTING_ADMIN_USER=$(read_existing "ADMIN_USER")
+EXISTING_ADMIN_PASS=$(read_existing "ADMIN_PASS")
+EXISTING_KAVENEGAR_KEY=$(read_existing "KAVENEGAR_API_KEY")
+EXISTING_KAVENEGAR_TEMPLATE=$(read_existing "KAVENEGAR_TEMPLATE")
+EXISTING_ZARINPAL_MERCHANT_ID=$(read_existing "ZARINPAL_MERCHANT_ID")
+EXISTING_ZARINPAL_SANDBOX=$(read_existing "ZARINPAL_SANDBOX")
+EXISTING_APP_BASE_URL=$(read_existing "APP_BASE_URL")
+
+if [ -n "$EXISTING_PORT" ] && [ -n "$EXISTING_ADMIN_USER" ]; then
   APP_PORT="$EXISTING_PORT"
   ADMIN_USER="$EXISTING_ADMIN_USER"
   ADMIN_PASS="$EXISTING_ADMIN_PASS"
-  info "Using previous config — port=$APP_PORT, user=$ADMIN_USER"
+  info "Using previous config — port=$APP_PORT, user=${ADMIN_USER} (password masked)"
 else
-  read -rp "HTTP port for the app [${EXISTING_PORT:-8080}]: " APP_PORT
-  APP_PORT="${APP_PORT:-${EXISTING_PORT:-8080}}"
+  APP_PORT="${EXISTING_PORT:-8080}"
+  while ! valid_port "$APP_PORT"; do
+    warn "Invalid port '${APP_PORT}' — must be 1-65535."
+    read -rp "HTTP port for the app [8080]: " APP_PORT
+    APP_PORT="$(clean_input "${APP_PORT:-8080}")"
+  done
 
   read -rp "Admin username [${EXISTING_ADMIN_USER:-admin}]: " ADMIN_USER
-  ADMIN_USER="${ADMIN_USER:-${EXISTING_ADMIN_USER:-admin}}"
+  ADMIN_USER="$(clean_input "${ADMIN_USER:-${EXISTING_ADMIN_USER:-admin}}")"
+  [ -n "$ADMIN_USER" ] || fail "Admin username cannot be empty."
 
   read -rsp "Admin password [${EXISTING_ADMIN_PASS:-admin123}]: " ADMIN_PASS
-  ADMIN_PASS="${ADMIN_PASS:-${EXISTING_ADMIN_PASS:-admin123}}"
   echo ""
+  ADMIN_PASS="$(clean_input "${ADMIN_PASS:-${EXISTING_ADMIN_PASS:-admin123}}")"
+  [ -n "$ADMIN_PASS" ] || fail "Admin password cannot be empty."
+  [ "${#ADMIN_PASS}" -ge 8 ] || warn "Password is shorter than 8 characters — consider a stronger one."
+  if [ "$ADMIN_USER" = "admin" ] && [ "$ADMIN_PASS" = "admin123" ]; then
+    warn "Using default admin credentials is dangerous on a public server."
+  fi
 fi
 
-# --------------- Kavenegar SMS config ---------------
-KAVENEGAR_API_KEY="${EXISTING_KAVENEGAR_KEY:-}"
-KAVENEGAR_TEMPLATE="${EXISTING_KAVENEGAR_TEMPLATE:-verify-otp}"
+section "SMS, payment & URL configuration"
+
+KAVENEGAR_API_KEY="$(clean_input "${EXISTING_KAVENEGAR_KEY:-}")"
+KAVENEGAR_TEMPLATE="$(clean_input "${EXISTING_KAVENEGAR_TEMPLATE:-verify-otp}")"
 
 if [ -z "$KAVENEGAR_API_KEY" ]; then
-  read -rp "Kavenegar API key (leave blank for DEV_MODE): " KAVENEGAR_API_KEY
+  read -rp "Kavenegar API key (leave blank to log OTPs instead of SMS): " KAVENEGAR_API_KEY
+  KAVENEGAR_API_KEY="$(clean_input "$KAVENEGAR_API_KEY")"
 fi
 if [ -n "$KAVENEGAR_API_KEY" ]; then
   read -rp "Kavenegar template name [${KAVENEGAR_TEMPLATE}]: " INPUT_TEMPLATE
-  KAVENEGAR_TEMPLATE="${INPUT_TEMPLATE:-$KAVENEGAR_TEMPLATE}"
+  KAVENEGAR_TEMPLATE="$(clean_input "${INPUT_TEMPLATE:-$KAVENEGAR_TEMPLATE}")"
+else
+  warn "No Kavenegar key — OTP codes will be printed to the service logs only."
 fi
 
-# --------------- Zarinpal payment config ---------------
-ZARINPAL_MERCHANT_ID="${EXISTING_ZARINPAL_MERCHANT_ID:-}"
+ZARINPAL_MERCHANT_ID="$(clean_input "${EXISTING_ZARINPAL_MERCHANT_ID:-}")"
 ZARINPAL_SANDBOX="${EXISTING_ZARINPAL_SANDBOX:-false}"
-APP_BASE_URL="${EXISTING_APP_BASE_URL:-https://toodej.shop}"
+APP_BASE_URL="$(clean_input "${EXISTING_APP_BASE_URL:-https://toodej.shop}")"
 
 if [ -z "$ZARINPAL_MERCHANT_ID" ]; then
   read -rp "Zarinpal Merchant ID: " ZARINPAL_MERCHANT_ID
+  ZARINPAL_MERCHANT_ID="$(clean_input "$ZARINPAL_MERCHANT_ID")"
   if [ -z "$ZARINPAL_MERCHANT_ID" ]; then
     warn "No Merchant ID — payments will not work"
   fi
@@ -80,30 +182,42 @@ if [ -z "$EXISTING_ZARINPAL_SANDBOX" ]; then
 fi
 
 read -rp "App base URL [${APP_BASE_URL}]: " INPUT_BASE_URL
-APP_BASE_URL="${INPUT_BASE_URL:-$APP_BASE_URL}"
+APP_BASE_URL="$(clean_input "${INPUT_BASE_URL:-$APP_BASE_URL}")"
 
-# Auto-prefix https:// if missing
+# Auto-prefix https:// if missing.
 if [[ ! "$APP_BASE_URL" =~ ^https?:// ]]; then
   warn "URL missing protocol — prepending https://"
   APP_BASE_URL="https://${APP_BASE_URL}"
 fi
 
 # --------------- 2. local build ---------------
-APP_DIR="$(cd "$(dirname "$0")" && pwd)"
-info "Building production binary..."
-cd "$APP_DIR"
-go mod tidy
-go build -ldflags="-s -w" -o ./bin/farmstore ./cmd/server
-chmod +x ./bin/farmstore
-ok "Binary built at ./bin/farmstore"
+section "Building production binary"
+cd "$SCRIPT_DIR"
+
+if [ "$DO_TIDY" -eq 1 ]; then
+  info "Running 'go mod tidy' (--tidy requested)..."
+  GOTOOLCHAIN=local go mod tidy
+  ok "go.mod/go.sum tidied"
+else
+  info "Skipping 'go mod tidy' (pass --tidy to run it)"
+fi
+
+info "Compiling all packages as a pre-flight check..."
+GOTOOLCHAIN=local go build ./...
+ok "All packages compile"
+
+info "Building release binary..."
+GOTOOLCHAIN=local go build -trimpath -ldflags="-s -w" -o "./bin/${APP_NAME}" ./cmd/server
+chmod +x "./bin/${APP_NAME}"
+ok "Binary built at ./bin/${APP_NAME}"
 
 # --------------- 3. database reset prompt ---------------
-DB_PATH="/var/lib/farmstore/farmstore.db"
-if sudo test -f "$DB_PATH"; then
+section "Database"
+if sudo_if_needed test -f "$DB_PATH"; then
   warn "Existing database found at ${DB_PATH}"
   read -rp "Erase it and start fresh? [y/N]: " ERASE_DB
   if [[ "$ERASE_DB" =~ ^[Yy] ]]; then
-    sudo rm -f "$DB_PATH"
+    sudo_if_needed rm -f "$DB_PATH"
     ok "Database erased"
   else
     info "Keeping existing database"
@@ -111,28 +225,62 @@ if sudo test -f "$DB_PATH"; then
 fi
 
 # --------------- 4. stop running service ---------------
-if systemctl is-active --quiet farmstore.service 2>/dev/null; then
+section "Stopping running service"
+if systemctl is-active --quiet "${APP_NAME}.service" 2>/dev/null; then
   info "Stopping running service..."
-  sudo systemctl stop farmstore.service
+  sudo_if_needed systemctl stop "${APP_NAME}.service"
   ok "Previous service stopped"
+else
+  info "No running ${APP_NAME} service to stop"
 fi
 
-# --------------- 5. elevate and deploy ---------------
-info "Elevating privileges for system deployment..."
-sudo mkdir -p /var/lib/farmstore
-sudo cp ./bin/farmstore /usr/local/bin/farmstore
-sudo chmod +x /usr/local/bin/farmstore
-sudo rm -rf /var/lib/farmstore/templates /var/lib/farmstore/assets
-sudo cp -r templates /var/lib/farmstore/templates
-sudo cp -r assets /var/lib/farmstore/assets
-sudo chmod 755 /var/lib/farmstore
-sudo chmod -R 755 /var/lib/farmstore/templates
-sudo chmod -R 755 /var/lib/farmstore/assets
-ok "Binary installed to /usr/local/bin/farmstore"
-ok "Data directory /var/lib/farmstore ready (with templates & assets)"
+# --------------- 5. deploy files ---------------
+section "Deploying to system"
+info "Installing binary, templates, and assets (requires sudo)..."
+sudo_if_needed mkdir -p "$DATA_DIR"
+sudo_if_needed cp "./bin/${APP_NAME}" "/usr/local/bin/${APP_NAME}"
+sudo_if_needed chmod +x "/usr/local/bin/${APP_NAME}"
+sudo_if_needed rm -rf "${DATA_DIR}/templates" "${DATA_DIR}/assets"
+sudo_if_needed cp -r templates "${DATA_DIR}/templates"
+sudo_if_needed cp -r assets "${DATA_DIR}/assets"
+sudo_if_needed chmod 755 "$DATA_DIR"
+sudo_if_needed chmod -R 755 "${DATA_DIR}/templates"
+sudo_if_needed chmod -R 755 "${DATA_DIR}/assets"
+ok " Binary installed to /usr/local/bin/${APP_NAME}"
+ok " Data directory ${DATA_DIR} ready (with templates & assets)"
 
+# --------------- 6. write protected environment file ---------------
+# Secrets (admin password, SMS key, gateway id) are kept in a root-only file
+# referenced via EnvironmentFile, never in the world-readable unit file.
+# '%' must be escaped to '%%' because systemd expands specifiers.
+info "Writing environment file (${ENV_FILE})..."
+sudo_if_needed mkdir -p "$ENV_DIR"
+sudo_if_needed chown root:root "$ENV_DIR"
+sudo_if_needed chmod 700 "$ENV_DIR"
+
+env_line() {
+  printf '%s=%s\n' "$1" "$(printf '%s' "$2" | sed 's/%/%%/g')"
+}
+
+{
+  env_line "PORT" "$APP_PORT"
+  env_line "ADMIN_USER" "$ADMIN_USER"
+  env_line "ADMIN_PASS" "$ADMIN_PASS"
+  env_line "DB_PATH" "$DB_PATH"
+  env_line "KAVENEGAR_API_KEY" "$KAVENEGAR_API_KEY"
+  env_line "KAVENEGAR_TEMPLATE" "$KAVENEGAR_TEMPLATE"
+  env_line "ZARINPAL_MERCHANT_ID" "$ZARINPAL_MERCHANT_ID"
+  env_line "ZARINPAL_SANDBOX" "$ZARINPAL_SANDBOX"
+  env_line "APP_BASE_URL" "$APP_BASE_URL"
+  env_line "DEV_MODE" "true"
+} | sudo_if_needed tee "$ENV_FILE" > /dev/null
+sudo_if_needed chown root:root "$ENV_FILE"
+sudo_if_needed chmod 600 "$ENV_FILE"
+ok "Environment written to ${ENV_FILE} with 600 permissions"
+
+# --------------- 7. create systemd service ---------------
 info "Creating systemd service..."
-sudo tee /etc/systemd/system/farmstore.service > /dev/null << UNIT
+sudo_if_needed tee "$UNIT_FILE" > /dev/null << UNIT
 [Unit]
 Description=Toodej — Farm Store E-Commerce
 After=network.target
@@ -143,47 +291,76 @@ DynamicUser=yes
 Restart=on-failure
 RestartSec=5
 StateDirectory=farmstore
-WorkingDirectory=/var/lib/farmstore
-Environment=PORT=${APP_PORT}
-Environment=ADMIN_USER=${ADMIN_USER}
-Environment=ADMIN_PASS=${ADMIN_PASS}
-Environment=DB_PATH=/var/lib/farmstore/farmstore.db
-Environment=KAVENEGAR_API_KEY=${KAVENEGAR_API_KEY}
-Environment=KAVENEGAR_TEMPLATE=${KAVENEGAR_TEMPLATE}
-Environment=ZARINPAL_MERCHANT_ID=${ZARINPAL_MERCHANT_ID}
-Environment=ZARINPAL_SANDBOX=${ZARINPAL_SANDBOX}
-Environment=APP_BASE_URL=${APP_BASE_URL}
-Environment=DEV_MODE=true
-ExecStart=/usr/local/bin/farmstore
+WorkingDirectory=${DATA_DIR}
+EnvironmentFile=${ENV_FILE}
+ExecStart=/usr/local/bin/${APP_NAME}
 
 [Install]
 WantedBy=multi-user.target
 UNIT
 
-sudo systemctl daemon-reload
-sudo systemctl enable farmstore.service
-sudo systemctl restart farmstore.service
-ok "farmstore.service created, enabled, and started"
+sudo_if_needed systemctl daemon-reload
+sudo_if_needed systemctl enable "${APP_NAME}.service"
+sudo_if_needed systemctl restart "${APP_NAME}.service"
+ok "${APP_NAME}.service created, enabled, and started"
 
-# --------------- 6. verify ---------------
-sleep 1
-if sudo systemctl is-active --quiet farmstore.service; then
-  ok "Service is running"
+# --------------- 8. verify ---------------
+section "Verifying deployment"
+info "Waiting for HTTP health check on port ${APP_PORT}..."
+HEALTHY=0
+for _ in {1..30}; do
+  if curl -sf --max-time 2 "http://127.0.0.1:${APP_PORT}/health" >/dev/null 2>&1; then
+    HEALTHY=1
+    break
+  fi
+  sleep 1
+done
+
+if [ "$HEALTHY" -eq 1 ]; then
+  ok "Service is healthy"
+  printf "  ${CYAN}health:${NC} http://127.0.0.1:%s/health → %s\n" \
+    "$APP_PORT" "$(curl -s --max-time 2 "http://127.0.0.1:${APP_PORT}/health")"
 else
-  warn "Service failed to start — check: sudo journalctl -u farmstore.service --no-pager -n 30"
+  warn "No health response on :${APP_PORT} after 30s — the app may still be starting or failed."
 fi
 
-printf "\n${GREEN}════════════════════════════════════════════${NC}\n"
-printf "${GREEN}  Deployment complete!${NC}\n"
-printf "${GREEN}════════════════════════════════════════════${NC}\n\n"
+if systemctl is-active --quiet "${APP_NAME}.service" 2>/dev/null; then
+  ok "systemd unit ${APP_NAME}.service is active"
+else
+  warn "Unit ${APP_NAME}.service is NOT active — check: sudo journalctl -u ${APP_NAME}.service --no-pager -n 30"
+fi
 
-sudo systemctl status farmstore.service --no-pager 2>&1 | head -14
+ELAPSED=$((SECONDS - START_TIME))
+printf "\n${GREEN}════════════════════════════════════════════════════════${NC}\n"
+printf "${GREEN}  Deployment complete in %dh %02dm %02ds${NC}\n" \
+  "$((ELAPSED / 3600))" "$(((ELAPSED % 3600) / 60))" "$((ELAPSED % 60))"
+printf "${GREEN}════════════════════════════════════════════════════════${NC}\n"
 
-# --------------- 7. caddy prompt ---------------
-printf "\n${CYAN}─── Caddy Reverse Proxy ─────────────────────${NC}\n"
+section "Deployment summary"
+printf "  %-24s %s\n" "Service unit:" "${APP_NAME}.service"
+printf "  %-24s %s\n" "Port:" "$APP_PORT"
+printf "  %-24s %s\n" "Admin user:" "$ADMIN_USER"
+printf "  %-24s %s\n" "Admin password:" "[configured, masked]"
+printf "  %-24s %s\n" "Database:" "$DB_PATH"
+printf "  %-24s %s\n" "App base URL:" "$APP_BASE_URL"
+printf "  %-24s %s\n" "Zarinpal sandbox:" "${ZARINPAL_SANDBOX:-false}"
+printf "  %-24s %s\n" "Kavenegar configured:" "$([ -n "$KAVENEGAR_API_KEY" ] && echo "yes" || echo "no")"
+printf "  %-24s %s\n" "Env file:" "${ENV_FILE} (600)"
+printf "\n  Logs:  sudo journalctl -u %s -f\n" "${APP_NAME}.service"
+
+if [ "$HEALTHY" -eq 1 ]; then
+  printf "\n${BOLD}  Toodej is live at http://127.0.0.1:%s ${NC}\n" "$APP_PORT"
+fi
+
+sudo_if_needed systemctl status "${APP_NAME}.service" --no-pager 2>&1 | head -14
+
+# --------------- 9. caddy prompt ---------------
+section "Caddy reverse proxy (optional)"
 read -rp "Do you want to configure a Caddy reverse proxy? [y/N]: " SETUP_CADDY
 if [[ "$SETUP_CADDY" =~ ^[Yy] ]]; then
   read -rp "Enter your domain (e.g., store.example.com): " CADDY_DOMAIN
+  CADDY_DOMAIN="$(clean_input "$CADDY_DOMAIN")"
+  [ -n "$CADDY_DOMAIN" ] || fail "Domain cannot be empty."
   CADDY_CONF="/etc/caddy/Caddyfile"
 
   printf "\n${YELLOW}Add this block to ${CADDY_CONF}${NC}:\n\n"
@@ -194,9 +371,11 @@ if [[ "$SETUP_CADDY" =~ ^[Yy] ]]; then
   if [ -f "$CADDY_CONF" ]; then
     read -rp "Append this block to ${CADDY_CONF} now? [y/N]: " APPEND_NOW
     if [[ "$APPEND_NOW" =~ ^[Yy] ]]; then
-      printf "\n  ${CADDY_DOMAIN} {\n    reverse_proxy 127.0.0.1:${APP_PORT}\n  }\n" | sudo tee -a "$CADDY_CONF" > /dev/null
+      printf "\n  ${CADDY_DOMAIN} {\n    reverse_proxy 127.0.0.1:${APP_PORT}\n  }\n" \
+        | sudo_if_needed tee -a "$CADDY_CONF" > /dev/null
       ok "Block appended to ${CADDY_CONF}"
-      sudo systemctl restart caddy 2>/dev/null && ok "Caddy restarted" || warn "Run 'sudo systemctl restart caddy' manually"
+      sudo_if_needed systemctl restart caddy 2>/dev/null && ok "Caddy restarted" \
+        || warn "Run 'sudo systemctl restart caddy' manually"
     fi
   fi
 fi
