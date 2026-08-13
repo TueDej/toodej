@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"net/url"
@@ -112,7 +113,7 @@ func TestUserJourneyEndToEnd(t *testing.T) {
 	if bad.StatusCode != http.StatusOK || strings.Contains(c.body(), "ارسال شد") {
 		t.Fatalf("invalid phone send-otp unexpectedly succeeded")
 	}
-	if _, err := database.GetUserByPhone(h.db, "12345"); err == nil {
+	if _, err := database.GetUserByPhone(context.Background(), h.db, "12345"); err == nil {
 		t.Fatal("invalid phone created a user")
 	}
 

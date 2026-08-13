@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -122,7 +123,7 @@ func TestAuthFlowRejectsBadOTP(t *testing.T) {
 	h.sessionMu.Lock()
 	h.pendingLogins[sid] = pendingLogin{phone: "09139998877", expiresAt: time.Now().Add(-time.Minute)}
 	h.sessionMu.Unlock()
-	if err := database.CreateOTP(h.db, "09139998877", "11111", time.Now().Add(5*time.Minute)); err != nil {
+	if err := database.CreateOTP(context.Background(), h.db, "09139998877", "11111", time.Now().Add(5*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	resp2 := c2.post("/auth/verify-otp", url.Values{"phone": {"09139998877"}, "code": {"11111"}})

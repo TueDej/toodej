@@ -17,14 +17,14 @@ import (
 // AdminDashboard renders the admin panel showing all orders and all products
 // (including inactive ones) for management.
 func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
-	orders, err := database.GetOrders(h.db)
+	orders, err := database.GetOrders(r.Context(), h.db)
 	if err != nil {
 		logutil.Error("admin orders", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	products, err := database.GetAllProducts(h.db)
+	products, err := database.GetAllProducts(r.Context(), h.db)
 	if err != nil {
 		logutil.Error("admin products", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -48,7 +48,7 @@ func (h *Handler) AdminOrderDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	order, items, products, err := database.GetOrderWithItems(h.db, orderID)
+	order, items, products, err := database.GetOrderWithItems(r.Context(), h.db, orderID)
 	if err != nil {
 		logutil.Error("admin order detail", "err", err)
 		http.NotFound(w, r)
@@ -96,7 +96,7 @@ func (h *Handler) AdminUpdateOrderStatusBadge(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := database.UpdateOrderStatus(h.db, orderID, status); err != nil {
+	if err := database.UpdateOrderStatus(r.Context(), h.db, orderID, status); err != nil {
 		if errors.Is(err, database.ErrInvalidOrderTransition) {
 			http.Error(w, "invalid status transition", http.StatusBadRequest)
 			return
@@ -128,7 +128,7 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := database.UpdateOrderStatus(h.db, orderID, status); err != nil {
+	if err := database.UpdateOrderStatus(r.Context(), h.db, orderID, status); err != nil {
 		if errors.Is(err, database.ErrInvalidOrderTransition) {
 			http.Error(w, "invalid status transition", http.StatusBadRequest)
 			return
@@ -171,14 +171,14 @@ func (h *Handler) AdminToggleProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	product, err := database.GetProduct(h.db, productID)
+	product, err := database.GetProduct(r.Context(), h.db, productID)
 	if err != nil {
 		http.Error(w, "product not found", http.StatusNotFound)
 		return
 	}
 
 	product.IsActive = !product.IsActive
-	if err := database.UpdateProduct(h.db, product); err != nil {
+	if err := database.UpdateProduct(r.Context(), h.db, product); err != nil {
 		logutil.Error("toggle product", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -197,7 +197,7 @@ func (h *Handler) AdminUpdateProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	product, err := database.GetProduct(h.db, productID)
+	product, err := database.GetProduct(r.Context(), h.db, productID)
 	if err != nil {
 		http.Error(w, "product not found", http.StatusNotFound)
 		return
@@ -218,7 +218,7 @@ func (h *Handler) AdminUpdateProduct(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := database.UpdateProduct(h.db, product); err != nil {
+	if err := database.UpdateProduct(r.Context(), h.db, product); err != nil {
 		logutil.Error("update product", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -260,7 +260,7 @@ func (h *Handler) AdminCreateProduct(w http.ResponseWriter, r *http.Request) {
 		stock, _ = strconv.Atoi(stockStr)
 	}
 
-	slug, err := database.UniqueSlug(h.db, name, 0)
+	slug, err := database.UniqueSlug(r.Context(), h.db, name, 0)
 	if err != nil {
 		logutil.Error("create product slug", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -278,7 +278,7 @@ func (h *Handler) AdminCreateProduct(w http.ResponseWriter, r *http.Request) {
 		IsActive:      true,
 	}
 
-	id, err := database.CreateProduct(h.db, product)
+	id, err := database.CreateProduct(r.Context(), h.db, product)
 	if err != nil {
 		logutil.Error("create product", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

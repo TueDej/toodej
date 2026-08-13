@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -96,11 +97,11 @@ func currentSeason() seasonInfo {
 
 // featuredProducts flattens a small mixed selection of active products from
 // all categories for the storefront "منتخب این فصل" row.
-func (h *Handler) featuredProducts() []models.Product {
+func (h *Handler) featuredProducts(ctx context.Context) []models.Product {
 	const max = 5
 	var out []models.Product
 	for _, cat := range []string{database.CategorySpring, database.CategorySummer, database.CategoryAutumn, database.CategoryDried, database.CategoryProcessed} {
-		ps, err := database.GetProducts(h.db, cat)
+		ps, err := database.GetProducts(ctx, h.db, cat)
 		if err != nil {
 			continue
 		}
@@ -152,7 +153,7 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 
 	data := h.mergeData(r, map[string]any{
 		"Categories":    cats,
-		"Featured":      h.featuredProducts(),
+		"Featured":      h.featuredProducts(r.Context()),
 		"Season":        currentSeason(),
 		"CurrentSeason": currentSeason().Key,
 	}, w)
@@ -196,7 +197,7 @@ func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	products, err := database.GetProducts(h.db, category)
+	products, err := database.GetProducts(r.Context(), h.db, category)
 	if err != nil {
 		logutil.Error("products page", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

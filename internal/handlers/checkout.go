@@ -22,7 +22,7 @@ func (h *Handler) CheckoutForm(w http.ResponseWriter, r *http.Request) {
 
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
-	h.refreshCartFromProducts(cart)
+	h.refreshCartFromProducts(r.Context(), cart)
 	if cart.Count() == 0 {
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
@@ -31,10 +31,10 @@ func (h *Handler) CheckoutForm(w http.ResponseWriter, r *http.Request) {
 	phone := ""
 	rows, err := h.db.Query("SELECT phone_number FROM users WHERE id = ?", userID)
 	if err == nil {
+		defer rows.Close()
 		if rows.Next() {
 			rows.Scan(&phone)
 		}
-		rows.Close()
 	}
 
 	data := h.mergeData(r, map[string]any{
@@ -82,7 +82,7 @@ func (h *Handler) PreviewCheckout(w http.ResponseWriter, r *http.Request) {
 
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
-	h.refreshCartFromProducts(cart)
+	h.refreshCartFromProducts(r.Context(), cart)
 	if cart.Count() == 0 {
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
@@ -137,7 +137,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
-	h.refreshCartFromProducts(cart)
+	h.refreshCartFromProducts(r.Context(), cart)
 
 	items := cart.Snapshot()
 
@@ -163,7 +163,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	orderID, err := database.CreateOrder(h.db, order, orderItems)
+	orderID, err := database.CreateOrder(r.Context(), h.db, order, orderItems)
 	if err != nil {
 		if errors.Is(err, database.ErrInsufficientStock) || errors.Is(err, database.ErrProductUnavailable) {
 			sid := h.getOrCreateSessionID(w, r)
@@ -196,7 +196,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	gatewayAmount, err := payment.TomanToRial(totalAmount)
 	if err != nil {
 		logutil.Error("convert payment amount", "err", err)
-		database.MarkPaymentFailed(h.db, orderID)
+		database.MarkPaymentFailed(r.Context(), h.db, orderID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -204,7 +204,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logutil.Error("zarinpal request payment", "err", err)
 		// Cancel the order and restore stock so the user can retry.
-		database.MarkPaymentFailed(h.db, orderID)
+		database.MarkPaymentFailed(r.Context(), h.db, orderID)
 		sid := h.getOrCreateSessionID(w, r)
 		cart := h.cartStore.Get(sid)
 
@@ -228,9 +228,9 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := database.SetPaymentAuthority(h.db, orderID, authority); err != nil {
+	if err := database.SetPaymentAuthority(r.Context(), h.db, orderID, authority); err != nil {
 		logutil.Error("set payment authority", "err", err)
-		database.MarkPaymentFailed(h.db, orderID)
+		database.MarkPaymentFailed(r.Context(), h.db, orderID)
 		data := h.mergeData(r, map[string]any{
 			"Error":      "خطا در ثبت اطلاعات پرداخت؛ لطفاً دوباره تلاش کنید.",
 			"Total":      cart.Total(),
@@ -263,15 +263,15 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 	if authority == "" || status != "OK" {
 		// Payment was cancelled or failed — cancel the order and restore stock.
 		if authority != "" {
-			if order, err := database.GetOrderByAuthority(h.db, authority); err == nil {
-				database.MarkPaymentFailed(h.db, order.ID)
+		if order, err := database.GetOrderByAuthority(r.Context(), h.db, authority); err == nil {
+			database.MarkPaymentFailed(r.Context(), h.db, order.ID)
 			}
 		}
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
 	}
 
-	order, err := database.GetOrderByAuthority(h.db, authority)
+	order, err := database.GetOrderByAuthority(r.Context(), h.db, authority)
 	if err != nil {
 		logutil.Error("verify: order not found for authority", "err", err)
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
@@ -288,20 +288,20 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 	result, err := h.zarinpal.VerifyPayment(gatewayAmount, authority)
 	if err != nil {
 		logutil.Error("zarinpal verify", "err", err)
-		database.MarkPaymentFailed(h.db, order.ID)
+		database.MarkPaymentFailed(r.Context(), h.db, order.ID)
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
 	}
 
 	if result.OK {
-		if err := database.ConfirmPayment(h.db, order.ID, result.RefID); err != nil {
+		if err := database.ConfirmPayment(r.Context(), h.db, order.ID, result.RefID); err != nil {
 			logutil.Error("confirm payment", "err", err)
 		}
 		http.Redirect(w, r, fmt.Sprintf("/checkout/confirmation/%s", order.ID), http.StatusSeeOther)
 		return
 	} else {
 		logutil.Warn("payment not verified", "order_id", order.ID, "message", result.Message)
-		database.MarkPaymentFailed(h.db, order.ID)
+		database.MarkPaymentFailed(r.Context(), h.db, order.ID)
 		http.Redirect(w, r, "/cart?error=payment_failed", http.StatusSeeOther)
 		return
 	}
@@ -323,7 +323,7 @@ func (h *Handler) Confirmation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	order, items, products, err := database.GetOrderWithItems(h.db, orderID)
+	order, items, products, err := database.GetOrderWithItems(r.Context(), h.db, orderID)
 	if err != nil {
 		logutil.Error("get order", "err", err)
 		http.NotFound(w, r)

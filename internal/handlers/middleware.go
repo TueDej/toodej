@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"crypto/sha256"
 	"crypto/subtle"
 	"net/http"
 	"net/url"
@@ -98,11 +97,12 @@ func sanitizeReturnURL(target string) string {
 	return target
 }
 
-// secureEqual compares two strings in constant time by comparing their SHA-256
-// digests, preventing timing side-channel attacks that plain == comparisons
-// would expose on the admin Basic Auth credentials.
+// secureEqual compares two strings in constant time, preventing timing
+// side-channel attacks that plain == comparisons would expose on the admin
+// Basic Auth credentials.
 func secureEqual(a, b string) bool {
-	ha := sha256.Sum256([]byte(a))
-	hb := sha256.Sum256([]byte(b))
-	return subtle.ConstantTimeCompare(ha[:], hb[:]) == 1
+	if len(a) != len(b) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }

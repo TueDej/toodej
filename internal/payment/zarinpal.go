@@ -126,7 +126,7 @@ func (z *Zarinpal) RequestPayment(amount int, callbackURL, description string) (
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB cap
 	if err != nil {
 		return "", fmt.Errorf("read response: %w", err)
 	}
@@ -193,7 +193,7 @@ func (z *Zarinpal) VerifyPayment(amount int, authority string) (*VerifyResult, e
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB cap
 	if err != nil {
 		return nil, fmt.Errorf("read verify response: %w", err)
 	}

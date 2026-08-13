@@ -344,7 +344,7 @@ func seed(db *sql.DB) error {
 
 // GetProducts returns active products, optionally filtered by category.
 // An empty or "all" category returns every active product.
-func GetProducts(db *sql.DB, category string) ([]models.Product, error) {
+func GetProducts(ctx context.Context, db *sql.DB, category string) ([]models.Product, error) {
 	query := "SELECT id, name, slug, category, description, price, stock_quantity, unit, image_url, is_active, created_at FROM products WHERE is_active = 1"
 	args := []interface{}{}
 	if category != "" && category != "all" {
@@ -353,7 +353,7 @@ func GetProducts(db *sql.DB, category string) ([]models.Product, error) {
 	}
 	query += " ORDER BY name"
 
-	rows, err := db.Query(query, args...)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query products: %w", err)
 	}
@@ -371,8 +371,8 @@ func GetProducts(db *sql.DB, category string) ([]models.Product, error) {
 }
 
 // GetProduct returns a single product by its primary key.
-func GetProduct(db *sql.DB, id int64) (*models.Product, error) {
-	row := db.QueryRow("SELECT id, name, slug, category, description, price, stock_quantity, unit, image_url, is_active, created_at FROM products WHERE id = ?", id)
+func GetProduct(ctx context.Context, db *sql.DB, id int64) (*models.Product, error) {
+	row := db.QueryRowContext(ctx, "SELECT id, name, slug, category, description, price, stock_quantity, unit, image_url, is_active, created_at FROM products WHERE id = ?", id)
 	p, err := scanProductRow(row)
 	if err != nil {
 		return nil, fmt.Errorf("get product %d: %w", id, err)
@@ -380,9 +380,40 @@ func GetProduct(db *sql.DB, id int64) (*models.Product, error) {
 	return &p, nil
 }
 
+// GetProductsByIDs returns active products matching the given IDs in a single query.
+// This eliminates N+1 query patterns when fetching products for order items or cart refresh.
+func GetProductsByIDs(ctx context.Context, db *sql.DB, ids []int64) ([]models.Product, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	query := fmt.Sprintf("SELECT id, name, slug, category, description, price, stock_quantity, unit, image_url, is_active, created_at FROM products WHERE id IN (%s)", strings.Join(placeholders, ","))
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query products by ids: %w", err)
+	}
+	defer rows.Close()
+
+	var products []models.Product
+	for rows.Next() {
+		p, err := scanProductRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		products = append(products, p)
+	}
+	return products, rows.Err()
+}
+
 // GetOrders returns all orders ordered by newest first.
-func GetOrders(db *sql.DB) ([]models.Order, error) {
-	rows, err := db.Query("SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, created_at FROM orders ORDER BY created_at DESC")
+func GetOrders(ctx context.Context, db *sql.DB) ([]models.Order, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, created_at FROM orders ORDER BY created_at DESC")
 	if err != nil {
 		return nil, fmt.Errorf("query orders: %w", err)
 	}
@@ -403,8 +434,8 @@ func GetOrders(db *sql.DB) ([]models.Order, error) {
 
 // UpdateOrderStatus changes the status of an order by its TDJ-XXXXXX ID.
 // When transitioning to "cancelled", stock is atomically restored for all items.
-func UpdateOrderStatus(db *sql.DB, orderID string, status string) error {
-	tx, err := db.Begin()
+func UpdateOrderStatus(ctx context.Context, db *sql.DB, orderID string, status string) error {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -412,7 +443,7 @@ func UpdateOrderStatus(db *sql.DB, orderID string, status string) error {
 
 	// Fetch current status to avoid double-restoring stock.
 	var currentStatus string
-	err = tx.QueryRow("SELECT status FROM orders WHERE id = ?", orderID).Scan(&currentStatus)
+	err = tx.QueryRowContext(ctx, "SELECT status FROM orders WHERE id = ?", orderID).Scan(&currentStatus)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("order %s not found", orderID)
 	}
@@ -423,13 +454,13 @@ func UpdateOrderStatus(db *sql.DB, orderID string, status string) error {
 		return fmt.Errorf("%w: %s -> %s", ErrInvalidOrderTransition, currentStatus, status)
 	}
 
-	if _, err := tx.Exec("UPDATE orders SET status = ? WHERE id = ?", status, orderID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE orders SET status = ? WHERE id = ?", status, orderID); err != nil {
 		return fmt.Errorf("update order %s status: %w", orderID, err)
 	}
 
 	// Restore stock only when transitioning to cancelled from a non-cancelled state.
 	if status == "cancelled" && currentStatus != "cancelled" {
-		rows, err := tx.Query("SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)
+		rows, err := tx.QueryContext(ctx, "SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)
 		if err != nil {
 			return fmt.Errorf("query order items: %w", err)
 		}
@@ -440,7 +471,7 @@ func UpdateOrderStatus(db *sql.DB, orderID string, status string) error {
 			if err := rows.Scan(&productID, &quantity); err != nil {
 				return fmt.Errorf("scan order item: %w", err)
 			}
-			if _, err := tx.Exec("UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?", quantity, productID); err != nil {
+			if _, err := tx.ExecContext(ctx, "UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?", quantity, productID); err != nil {
 				return fmt.Errorf("restore stock for product %d: %w", productID, err)
 			}
 		}
@@ -473,8 +504,8 @@ func validOrderTransition(currentStatus, nextStatus string) bool {
 }
 
 // SetPaymentAuthority stores the Zarinpal authority token on an order.
-func SetPaymentAuthority(db *sql.DB, orderID, authority string) error {
-	res, err := db.Exec("UPDATE orders SET payment_authority = ? WHERE id = ? AND status = 'awaiting_payment'", authority, orderID)
+func SetPaymentAuthority(ctx context.Context, db *sql.DB, orderID, authority string) error {
+	res, err := db.ExecContext(ctx, "UPDATE orders SET payment_authority = ? WHERE id = ? AND status = 'awaiting_payment'", authority, orderID)
 	if err != nil {
 		return fmt.Errorf("set payment authority for %s: %w", orderID, err)
 	}
@@ -485,11 +516,11 @@ func SetPaymentAuthority(db *sql.DB, orderID, authority string) error {
 }
 
 // GetOrderByAuthority looks up an order by its Zarinpal authority token.
-func GetOrderByAuthority(db *sql.DB, authority string) (*models.Order, error) {
+func GetOrderByAuthority(ctx context.Context, db *sql.DB, authority string) (*models.Order, error) {
 	var o models.Order
 	var createdAt string
 	var userID sql.NullInt64
-	err := db.QueryRow(`SELECT id, customer_name, customer_phone, customer_address, postal_code,
+	err := db.QueryRowContext(ctx, `SELECT id, customer_name, customer_phone, customer_address, postal_code,
 		total_amount, status, payment_ref_id, user_id, created_at
 		FROM orders WHERE payment_authority = ?`, authority).
 		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode,
@@ -504,8 +535,8 @@ func GetOrderByAuthority(db *sql.DB, authority string) (*models.Order, error) {
 
 // ConfirmPayment marks an awaiting-payment order as pending (paid) and stores the
 // Zarinpal ref ID. Already-paid orders are treated as idempotent callbacks.
-func ConfirmPayment(db *sql.DB, orderID string, refID int64) error {
-	tx, err := db.Begin()
+func ConfirmPayment(ctx context.Context, db *sql.DB, orderID string, refID int64) error {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin confirm payment: %w", err)
 	}
@@ -513,7 +544,7 @@ func ConfirmPayment(db *sql.DB, orderID string, refID int64) error {
 
 	var currentStatus string
 	var currentRefID int64
-	err = tx.QueryRow("SELECT status, payment_ref_id FROM orders WHERE id = ?", orderID).Scan(&currentStatus, &currentRefID)
+	err = tx.QueryRowContext(ctx, "SELECT status, payment_ref_id FROM orders WHERE id = ?", orderID).Scan(&currentStatus, &currentRefID)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("order %s not found", orderID)
 	}
@@ -523,12 +554,12 @@ func ConfirmPayment(db *sql.DB, orderID string, refID int64) error {
 
 	switch currentStatus {
 	case "awaiting_payment":
-		if _, err := tx.Exec("UPDATE orders SET status = 'pending', payment_ref_id = ? WHERE id = ? AND status = 'awaiting_payment'", refID, orderID); err != nil {
+		if _, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'pending', payment_ref_id = ? WHERE id = ? AND status = 'awaiting_payment'", refID, orderID); err != nil {
 			return fmt.Errorf("confirm payment for %s: %w", orderID, err)
 		}
 	case "pending", "preparing", "dispatched":
 		if currentRefID == 0 && refID != 0 {
-			if _, err := tx.Exec("UPDATE orders SET payment_ref_id = ? WHERE id = ? AND payment_ref_id = 0", refID, orderID); err != nil {
+			if _, err := tx.ExecContext(ctx, "UPDATE orders SET payment_ref_id = ? WHERE id = ? AND payment_ref_id = 0", refID, orderID); err != nil {
 				return fmt.Errorf("store payment ref for %s: %w", orderID, err)
 			}
 		}
@@ -541,15 +572,15 @@ func ConfirmPayment(db *sql.DB, orderID string, refID int64) error {
 
 // MarkPaymentFailed sets order status to cancelled when payment verification fails.
 // Stock is restored only for orders that are still awaiting payment.
-func MarkPaymentFailed(db *sql.DB, orderID string) error {
-	tx, err := db.Begin()
+func MarkPaymentFailed(ctx context.Context, db *sql.DB, orderID string) error {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin mark payment failed: %w", err)
 	}
 	defer tx.Rollback()
 
 	var currentStatus string
-	err = tx.QueryRow("SELECT status FROM orders WHERE id = ?", orderID).Scan(&currentStatus)
+	err = tx.QueryRowContext(ctx, "SELECT status FROM orders WHERE id = ?", orderID).Scan(&currentStatus)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("order %s not found", orderID)
 	}
@@ -560,11 +591,11 @@ func MarkPaymentFailed(db *sql.DB, orderID string) error {
 		return tx.Commit()
 	}
 
-	if _, err := tx.Exec("UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'awaiting_payment'", orderID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'awaiting_payment'", orderID); err != nil {
 		return fmt.Errorf("cancel unpaid order %s: %w", orderID, err)
 	}
 
-	rows, err := tx.Query("SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)
+	rows, err := tx.QueryContext(ctx, "SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)
 	if err != nil {
 		return fmt.Errorf("query order items: %w", err)
 	}
@@ -575,7 +606,7 @@ func MarkPaymentFailed(db *sql.DB, orderID string) error {
 		if err := rows.Scan(&productID, &quantity); err != nil {
 			return fmt.Errorf("scan order item: %w", err)
 		}
-		if _, err := tx.Exec("UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?", quantity, productID); err != nil {
+		if _, err := tx.ExecContext(ctx, "UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?", quantity, productID); err != nil {
 			return fmt.Errorf("restore stock for product %d: %w", productID, err)
 		}
 	}
@@ -588,8 +619,8 @@ func MarkPaymentFailed(db *sql.DB, orderID string) error {
 
 // CancelExpiredUnpaidOrders cancels all orders in 'awaiting_payment' state that were created
 // older than ttl ago, and restores stock for all items in those orders.
-func CancelExpiredUnpaidOrders(db *sql.DB, ttl time.Duration) (int, error) {
-	tx, err := db.Begin()
+func CancelExpiredUnpaidOrders(ctx context.Context, db *sql.DB, ttl time.Duration) (int, error) {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("begin cancel expired tx: %w", err)
 	}
@@ -597,7 +628,7 @@ func CancelExpiredUnpaidOrders(db *sql.DB, ttl time.Duration) (int, error) {
 
 	cutoff := time.Now().Add(-ttl).Format("2006-01-02 15:04:05")
 
-	rows, err := tx.Query("SELECT id FROM orders WHERE status = 'awaiting_payment' AND created_at < ?", cutoff)
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM orders WHERE status = 'awaiting_payment' AND created_at < ?", cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("query expired awaiting_payment orders: %w", err)
 	}
@@ -621,11 +652,11 @@ func CancelExpiredUnpaidOrders(db *sql.DB, ttl time.Duration) (int, error) {
 	}
 
 	for _, orderID := range expiredOrderIDs {
-		if _, err := tx.Exec("UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'awaiting_payment'", orderID); err != nil {
+		if _, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'awaiting_payment'", orderID); err != nil {
 			return 0, fmt.Errorf("cancel expired order %s: %w", orderID, err)
 		}
 
-		itemRows, err := tx.Query("SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)
+		itemRows, err := tx.QueryContext(ctx, "SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)
 		if err != nil {
 			return 0, fmt.Errorf("query order items for %s: %w", orderID, err)
 		}
@@ -649,7 +680,7 @@ func CancelExpiredUnpaidOrders(db *sql.DB, ttl time.Duration) (int, error) {
 		}
 
 		for _, sr := range restores {
-			if _, err := tx.Exec("UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?", sr.quantity, sr.productID); err != nil {
+			if _, err := tx.ExecContext(ctx, "UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?", sr.quantity, sr.productID); err != nil {
 				return 0, fmt.Errorf("restore stock for product %d on order %s: %w", sr.productID, orderID, err)
 			}
 		}
@@ -664,8 +695,8 @@ func CancelExpiredUnpaidOrders(db *sql.DB, ttl time.Duration) (int, error) {
 
 // GetAllProducts returns every product (including inactive ones), ordered by name.
 // Used by the admin panel.
-func GetAllProducts(db *sql.DB) ([]models.Product, error) {
-	rows, err := db.Query("SELECT id, name, slug, category, description, price, stock_quantity, unit, image_url, is_active, created_at FROM products ORDER BY name")
+func GetAllProducts(ctx context.Context, db *sql.DB) ([]models.Product, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id, name, slug, category, description, price, stock_quantity, unit, image_url, is_active, created_at FROM products ORDER BY name")
 	if err != nil {
 		return nil, fmt.Errorf("query all products: %w", err)
 	}
@@ -683,12 +714,12 @@ func GetAllProducts(db *sql.DB) ([]models.Product, error) {
 }
 
 // UpdateProduct updates price, stock_quantity, and is_active for a given product.
-func UpdateProduct(db *sql.DB, p *models.Product) error {
+func UpdateProduct(ctx context.Context, db *sql.DB, p *models.Product) error {
 	active := 0
 	if p.IsActive {
 		active = 1
 	}
-	res, err := db.Exec("UPDATE products SET price = ?, stock_quantity = ?, is_active = ? WHERE id = ?",
+	res, err := db.ExecContext(ctx, "UPDATE products SET price = ?, stock_quantity = ?, is_active = ? WHERE id = ?",
 		p.Price, p.StockQuantity, active, p.ID)
 	if err != nil {
 		return fmt.Errorf("update product %d: %w", p.ID, err)
@@ -701,12 +732,12 @@ func UpdateProduct(db *sql.DB, p *models.Product) error {
 }
 
 // CreateProduct inserts a new product and returns its auto-generated ID.
-func CreateProduct(db *sql.DB, p *models.Product) (int64, error) {
+func CreateProduct(ctx context.Context, db *sql.DB, p *models.Product) (int64, error) {
 	active := 0
 	if p.IsActive {
 		active = 1
 	}
-	res, err := db.Exec(`INSERT INTO products (name, slug, category, description, price, stock_quantity, unit, image_url, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	res, err := db.ExecContext(ctx, `INSERT INTO products (name, slug, category, description, price, stock_quantity, unit, image_url, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Slug, p.Category, p.Description, p.Price, p.StockQuantity, p.Unit, p.ImageURL, active)
 	if err != nil {
 		return 0, fmt.Errorf("create product: %w", err)
@@ -727,14 +758,14 @@ func SlugifyName(name string) string {
 // a free one is found, so slug collisions (products.slug is UNIQUE) never
 // surface as an insert error to the admin. excludeID, when non-zero, omits that
 // product from the collision check.
-func UniqueSlug(db *sql.DB, name string, excludeID int64) (string, error) {
+func UniqueSlug(ctx context.Context, db *sql.DB, name string, excludeID int64) (string, error) {
 	base := SlugifyName(name)
 	if base == "" {
 		return "", fmt.Errorf("cannot derive slug from empty name")
 	}
 	taken := func(candidate string) (bool, error) {
 		var n int
-		err := db.QueryRow("SELECT COUNT(*) FROM products WHERE slug = ? AND id != ?", candidate, excludeID).Scan(&n)
+		err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM products WHERE slug = ? AND id != ?", candidate, excludeID).Scan(&n)
 		if err != nil {
 			return false, fmt.Errorf("check slug %q: %w", candidate, err)
 		}
@@ -796,7 +827,7 @@ func randomOrderID() string {
 
 // CreateOrder inserts an order and its items inside a single transaction.
 // The order ID is auto-generated via randomOrderID.
-func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string, error) {
+func CreateOrder(ctx context.Context, db *sql.DB, o *models.Order, items []models.OrderItem) (string, error) {
 	o.ID = randomOrderID()
 	if len(items) == 0 {
 		return "", ErrProductUnavailable
@@ -823,7 +854,7 @@ func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string,
 		quantities[item.ProductID] += item.Quantity
 	}
 
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("begin tx: %w", err)
 	}
@@ -832,7 +863,7 @@ func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string,
 	// Atomically reserve stock: the guarded UPDATE only decrements when enough
 	// inventory remains, so concurrent orders cannot oversell a product or drive
 	// stock below zero. Any failure rolls the whole order back.
-	stockStmt, err := tx.Prepare(`UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ? AND is_active = 1 AND stock_quantity >= ?`)
+	stockStmt, err := tx.PrepareContext(ctx, `UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ? AND is_active = 1 AND stock_quantity >= ?`)
 	if err != nil {
 		return "", fmt.Errorf("prepare stock update: %w", err)
 	}
@@ -844,7 +875,7 @@ func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string,
 		quantity := quantities[productID]
 		var price int
 		var isActive int
-		err := tx.QueryRow("SELECT price, is_active FROM products WHERE id = ?", productID).Scan(&price, &isActive)
+		err := tx.QueryRowContext(ctx, "SELECT price, is_active FROM products WHERE id = ?", productID).Scan(&price, &isActive)
 		if err == sql.ErrNoRows {
 			return "", fmt.Errorf("%w (product id %d)", ErrProductUnavailable, productID)
 		}
@@ -875,13 +906,13 @@ func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string,
 	}
 	o.TotalAmount = totalAmount
 
-	_, err = tx.Exec(`INSERT INTO orders (id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = tx.ExecContext(ctx, `INSERT INTO orders (id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		o.ID, o.CustomerName, o.CustomerPhone, o.CustomerAddress, o.PostalCode, o.TotalAmount, o.Status, o.UserID)
 	if err != nil {
 		return "", fmt.Errorf("insert order: %w", err)
 	}
 
-	itemStmt, err := tx.Prepare(`INSERT INTO order_items (order_id, product_id, quantity, price_per_unit) VALUES (?, ?, ?, ?)`)
+	itemStmt, err := tx.PrepareContext(ctx, `INSERT INTO order_items (order_id, product_id, quantity, price_per_unit) VALUES (?, ?, ?, ?)`)
 	if err != nil {
 		return "", fmt.Errorf("prepare order_items: %w", err)
 	}
@@ -901,11 +932,11 @@ func CreateOrder(db *sql.DB, o *models.Order, items []models.OrderItem) (string,
 
 // GetOrder retrieves a single order by its TDJ-XXXXXX ID, including the owning
 // user ID so callers can enforce ownership before acting on the order.
-func GetOrder(db *sql.DB, orderID string) (*models.Order, error) {
+func GetOrder(ctx context.Context, db *sql.DB, orderID string) (*models.Order, error) {
 	var o models.Order
 	var createdAt string
 	var userID sql.NullInt64
-	err := db.QueryRow("SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, payment_ref_id, user_id, created_at FROM orders WHERE id = ?", orderID).
+	err := db.QueryRowContext(ctx, "SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, payment_ref_id, user_id, created_at FROM orders WHERE id = ?", orderID).
 		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &o.PaymentRefID, &userID, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("get order %s: %w", orderID, err)
@@ -927,8 +958,8 @@ type PaymentOrder struct {
 // that have a stored Zarinpal authority token. These are exactly the orders a
 // reconciliation job must check with the gateway to rescue payments whose
 // callback was lost.
-func GetAwaitingPaymentOrders(db *sql.DB) ([]PaymentOrder, error) {
-	rows, err := db.Query("SELECT id, total_amount, payment_authority FROM orders WHERE status = 'awaiting_payment' AND payment_authority != ''")
+func GetAwaitingPaymentOrders(ctx context.Context, db *sql.DB) ([]PaymentOrder, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id, total_amount, payment_authority FROM orders WHERE status = 'awaiting_payment' AND payment_authority != ''")
 	if err != nil {
 		return nil, fmt.Errorf("query awaiting payment orders: %w", err)
 	}
@@ -947,13 +978,13 @@ func GetAwaitingPaymentOrders(db *sql.DB) ([]PaymentOrder, error) {
 
 // GetOrderWithItems retrieves a single order by ID along with its items and the
 // corresponding product data. Product names are mapped back from products table.
-func GetOrderWithItems(db *sql.DB, orderID string) (*models.Order, []models.OrderItem, []models.Product, error) {
-	o, err := GetOrder(db, orderID)
+func GetOrderWithItems(ctx context.Context, db *sql.DB, orderID string) (*models.Order, []models.OrderItem, []models.Product, error) {
+	o, err := GetOrder(ctx, db, orderID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	rows, err := db.Query("SELECT id, order_id, product_id, quantity, price_per_unit FROM order_items WHERE order_id = ?", orderID)
+	rows, err := db.QueryContext(ctx, "SELECT id, order_id, product_id, quantity, price_per_unit FROM order_items WHERE order_id = ?", orderID)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("get order_items: %w", err)
 	}
@@ -973,13 +1004,9 @@ func GetOrderWithItems(db *sql.DB, orderID string) (*models.Order, []models.Orde
 		return nil, nil, nil, err
 	}
 
-	products := make([]models.Product, 0, len(productIDs))
-	for _, pid := range productIDs {
-		p, err := GetProduct(db, pid)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		products = append(products, *p)
+	products, err := GetProductsByIDs(ctx, db, productIDs)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	return o, items, products, nil
@@ -988,10 +1015,10 @@ func GetOrderWithItems(db *sql.DB, orderID string) (*models.Order, []models.Orde
 // ── Users ────────────────────────────────────────────
 
 // GetUserByPhone looks up a user by their phone number.
-func GetUserByPhone(db *sql.DB, phone string) (*models.User, error) {
+func GetUserByPhone(ctx context.Context, db *sql.DB, phone string) (*models.User, error) {
 	var u models.User
 	var createdAt string
-	err := db.QueryRow("SELECT id, phone_number, created_at FROM users WHERE phone_number = ?", phone).
+	err := db.QueryRowContext(ctx, "SELECT id, phone_number, created_at FROM users WHERE phone_number = ?", phone).
 		Scan(&u.ID, &u.PhoneNumber, &createdAt)
 	if err != nil {
 		return nil, err
@@ -1001,8 +1028,8 @@ func GetUserByPhone(db *sql.DB, phone string) (*models.User, error) {
 }
 
 // CreateUser inserts a new user with the given phone number.
-func CreateUser(db *sql.DB, phone string) (*models.User, error) {
-	res, err := db.Exec("INSERT INTO users (phone_number) VALUES (?)", phone)
+func CreateUser(ctx context.Context, db *sql.DB, phone string) (*models.User, error) {
+	res, err := db.ExecContext(ctx, "INSERT INTO users (phone_number) VALUES (?)", phone)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
@@ -1015,28 +1042,28 @@ func CreateUser(db *sql.DB, phone string) (*models.User, error) {
 
 // GetOrCreateUser returns the existing user for a phone number or creates one.
 // This avoids a separate registration step — users are auto-created on first OTP request.
-func GetOrCreateUser(db *sql.DB, phone string) (*models.User, error) {
-	user, err := GetUserByPhone(db, phone)
+func GetOrCreateUser(ctx context.Context, db *sql.DB, phone string) (*models.User, error) {
+	user, err := GetUserByPhone(ctx, db, phone)
 	if err == nil {
 		return user, nil
 	}
-	return CreateUser(db, phone)
+	return CreateUser(ctx, db, phone)
 }
 
 // ── OTP ──────────────────────────────────────────────
 
 // CreateOTP stores a one-time password with a 2-minute expiry window.
-func CreateOTP(db *sql.DB, phone, code string, expiresAt time.Time) error {
-	_, err := db.Exec("INSERT INTO otp_codes (phone_number, code, expires_at) VALUES (?, ?, ?)", phone, code, expiresAt.Format("2006-01-02 15:04:05"))
+func CreateOTP(ctx context.Context, db *sql.DB, phone, code string, expiresAt time.Time) error {
+	_, err := db.ExecContext(ctx, "INSERT INTO otp_codes (phone_number, code, expires_at) VALUES (?, ?, ?)", phone, code, expiresAt.Format("2006-01-02 15:04:05"))
 	return err
 }
 
 // VerifyOTP checks that a code matches the latest unused OTP for the given phone
 // and that it has not expired. On success the OTP is marked as used.
-func VerifyOTP(db *sql.DB, phone, code string) (bool, error) {
+func VerifyOTP(ctx context.Context, db *sql.DB, phone, code string) (bool, error) {
 	var id int64
 	var expiresAt string
-	err := db.QueryRow("SELECT id, expires_at FROM otp_codes WHERE phone_number = ? AND code = ? AND is_used = 0 ORDER BY id DESC LIMIT 1", phone, code).
+	err := db.QueryRowContext(ctx, "SELECT id, expires_at FROM otp_codes WHERE phone_number = ? AND code = ? AND is_used = 0 ORDER BY id DESC LIMIT 1", phone, code).
 		Scan(&id, &expiresAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -1054,15 +1081,15 @@ func VerifyOTP(db *sql.DB, phone, code string) (bool, error) {
 		return false, nil
 	}
 
-	_, err = db.Exec("UPDATE otp_codes SET is_used = 1 WHERE id = ?", id)
+	_, err = db.ExecContext(ctx, "UPDATE otp_codes SET is_used = 1 WHERE id = ?", id)
 	return err == nil, err
 }
 
 // ── User Orders ──────────────────────────────────────
 
 // GetOrdersByUser returns all orders placed by a specific user, newest first.
-func GetOrdersByUser(db *sql.DB, userID int64) ([]models.Order, error) {
-	rows, err := db.Query("SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC", userID)
+func GetOrdersByUser(ctx context.Context, db *sql.DB, userID int64) ([]models.Order, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC", userID)
 	if err != nil {
 		return nil, fmt.Errorf("query user orders: %w", err)
 	}
@@ -1084,8 +1111,8 @@ func GetOrdersByUser(db *sql.DB, userID int64) ([]models.Order, error) {
 
 // GetUserOrdersWithItems returns a user's orders enriched with product names
 // and computed subtotals. It batches all order IDs into a single IN query.
-func GetUserOrdersWithItems(db *sql.DB, userID int64) ([]models.OrderSummary, error) {
-	orders, err := GetOrdersByUser(db, userID)
+func GetUserOrdersWithItems(ctx context.Context, db *sql.DB, userID int64) ([]models.OrderSummary, error) {
+	orders, err := GetOrdersByUser(ctx, db, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1106,7 +1133,7 @@ func GetUserOrdersWithItems(db *sql.DB, userID int64) ([]models.OrderSummary, er
 	}
 
 	query := fmt.Sprintf("SELECT oi.order_id, oi.quantity, oi.price_per_unit, p.name, p.unit FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id IN (%s) ORDER BY oi.order_id", strings.Join(placeholders, ","))
-	rows, err := db.Query(query, args...)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query order items: %w", err)
 	}

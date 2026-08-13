@@ -175,11 +175,16 @@ func (s *CartStore) Get(sessionID string) *Cart {
 	s.mu.RLock()
 	c, ok := s.carts[sessionID]
 	s.mu.RUnlock()
-	if !ok {
-		c = &Cart{}
-		s.mu.Lock()
-		s.carts[sessionID] = c
-		s.mu.Unlock()
+	if ok {
+		return c
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Double-check after acquiring write lock.
+	if c, ok = s.carts[sessionID]; ok {
+		return c
+	}
+	c = &Cart{}
+	s.carts[sessionID] = c
 	return c
 }

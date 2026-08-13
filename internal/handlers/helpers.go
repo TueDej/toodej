@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -63,17 +64,7 @@ func (h *Handler) renderCenteredError(w http.ResponseWriter, status int, msg str
 // human-readable Persian price string with thousand separators, Persian digits,
 // and the "تومان" suffix.
 func formatToman(cents int) string {
-	s := strconv.Itoa(cents)
-	n := len(s)
-	var parts []string
-	for i := n; i > 0; i -= 3 {
-		start := i - 3
-		if start < 0 {
-			start = 0
-		}
-		parts = append([]string{s[start:i]}, parts...)
-	}
-	return toPersianDigits(strings.Join(parts, ",")) + " تومان"
+	return toPersianDigits(commaInt(cents)) + " تومان"
 }
 
 // toPersianDigits converts Western digits (0-9) in a string to their Persian
@@ -93,11 +84,11 @@ func toPersianDigits(s string) string {
 
 // refreshCartFromProducts refreshes cart items with latest product data from DB
 // and adjusts quantities to not exceed available stock.
-func (h *Handler) refreshCartFromProducts(cart *Cart) {
+func (h *Handler) refreshCartFromProducts(ctx context.Context, cart *Cart) {
 	items := cart.Snapshot()
 	refreshed := make([]CartItem, 0, len(items))
 	for _, item := range items {
-		product, err := database.GetProduct(h.db, item.ProductID)
+		product, err := database.GetProduct(ctx, h.db, item.ProductID)
 		if err != nil || !product.IsActive || product.StockQuantity <= 0 {
 			continue
 		}
@@ -118,8 +109,7 @@ func (h *Handler) refreshCartFromProducts(cart *Cart) {
 
 // renderCartContent renders the "cart-content" template partial and fires a
 // cart event so the badge and toast are updated on the client.
-func (h *Handler) renderCartContent(w http.ResponseWriter, r *http.Request, event string) {
-	sid := h.getOrCreateSessionID(w, r)
+func (h *Handler) renderCartContent(w http.ResponseWriter, r *http.Request, sid, event string) {
 	cart := h.cartStore.Get(sid)
 
 	data := h.mergeData(r, map[string]any{

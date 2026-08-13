@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
@@ -41,12 +42,17 @@ type pendingReturn struct {
 // startSessionJanitor launches a background goroutine that periodically purges
 // expired session, pending-login, and pending-return entries so the in-memory
 // maps cannot grow without bound.
-func (h *Handler) startSessionJanitor() {
+func (h *Handler) startSessionJanitor(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
-		for range ticker.C {
-			h.purgeExpiredSessions(time.Now())
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				h.purgeExpiredSessions(now)
+			}
 		}
 	}()
 }
@@ -59,7 +65,7 @@ const unpaidOrderTTL = 15 * time.Minute
 // cancels orders stuck in 'awaiting_payment' for longer than unpaidOrderTTL and
 // restores their reserved stock. This prevents inventory leaks when a customer
 // abandons the Zarinpal payment gateway without returning to the callback URL.
-func (h *Handler) startUnpaidOrderJanitor() {
+func (h *Handler) startUnpaidOrderJanitor(ctx context.Context) {
 	go func() {
 		// Sweep once on startup so a server restart immediately reclaims
 		// stock from orders abandoned before the process came back up.
@@ -67,14 +73,19 @@ func (h *Handler) startUnpaidOrderJanitor() {
 
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
-		for range ticker.C {
-			h.cancelExpiredUnpaidOrders()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				h.cancelExpiredUnpaidOrders()
+			}
 		}
 	}()
 }
 
 func (h *Handler) cancelExpiredUnpaidOrders() {
-	n, err := database.CancelExpiredUnpaidOrders(h.db, unpaidOrderTTL)
+	n, err := database.CancelExpiredUnpaidOrders(context.Background(), h.db, unpaidOrderTTL)
 	if err != nil {
 		logutil.Error("cancel expired unpaid orders", "err", err)
 		return
@@ -96,14 +107,19 @@ const paymentReconcileInterval = time.Minute
 // awaiting_payment until the unpaid-order janitor cancels it. Reconciliation
 // rescues such orders by confirming them, so stock is never needlessly restored
 // and the customer is not shown a cancelled order they already paid for.
-func (h *Handler) startPaymentReconciler() {
+func (h *Handler) startPaymentReconciler(ctx context.Context) {
 	go func() {
 		h.reconcilePayments()
 
 		ticker := time.NewTicker(paymentReconcileInterval)
 		defer ticker.Stop()
-		for range ticker.C {
-			h.reconcilePayments()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				h.reconcilePayments()
+			}
 		}
 	}()
 }
@@ -113,7 +129,7 @@ func (h *Handler) startPaymentReconciler() {
 // are moved to pending via ConfirmPayment; orders that were never paid are left
 // untouched so the unpaid-order janitor reclaims their stock after the TTL.
 func (h *Handler) reconcilePayments() {
-	orders, err := database.GetAwaitingPaymentOrders(h.db)
+	orders, err := database.GetAwaitingPaymentOrders(context.Background(), h.db)
 	if err != nil {
 		logutil.Error("payment reconciliation: list orders", "err", err)
 		return
@@ -132,7 +148,7 @@ func (h *Handler) reconcilePayments() {
 		if !result.OK {
 			continue
 		}
-		if err := database.ConfirmPayment(h.db, o.ID, result.RefID); err != nil {
+		if err := database.ConfirmPayment(context.Background(), h.db, o.ID, result.RefID); err != nil {
 			logutil.Error("payment reconciliation: confirm order", "order_id", o.ID, "err", err)
 			continue
 		}

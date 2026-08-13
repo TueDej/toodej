@@ -3,8 +3,10 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"os"
+	"os/signal"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -35,7 +37,9 @@ func main() {
 
 	// ── Handler ───────────────────────────────────────
 	cartStore := handlers.NewCartStore()
-	h, err := handlers.NewHandler(db, cartStore, zarinpal, baseURL)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+	h, err := handlers.NewHandler(ctx, db, cartStore, zarinpal, baseURL)
 	if err != nil {
 		logutil.Fatal("handler init failed", "err", err)
 	}
@@ -117,8 +121,34 @@ func main() {
 
 	// ── Start ─────────────────────────────────────────
 	port := getEnv("PORT", "8080")
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           r,
+		ReadTimeout:       10 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	logutil.Info("server starting", "port", port)
-	if err := http.ListenAndServe(":"+port, r); err != nil {
+
+	// ListenAndServe blocks until the server is shut down. Run it in a
+	// goroutine so the main goroutine can wait for the interrupt signal.
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.ListenAndServe()
+	}()
+
+	// Block until SIGINT (Ctrl-C) arrives.
+	<-ctx.Done()
+	logutil.Info("shutting down...")
+
+	// Give in-flight requests up to 10 seconds to complete.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logutil.Fatal("shutdown error", "err", err)
+	}
+	if err := <-errCh; err != nil && err != http.ErrServerClosed {
 		logutil.Fatal("server stopped", "err", err)
 	}
 }

@@ -15,7 +15,7 @@ func (h *Handler) UserOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	summaries, err := database.GetUserOrdersWithItems(h.db, userID)
+	summaries, err := database.GetUserOrdersWithItems(r.Context(), h.db, userID)
 	if err != nil {
 		logutil.Error("get user orders", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -44,7 +44,7 @@ func (h *Handler) ResumePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	order, err := database.GetOrder(h.db, orderID)
+	order, err := database.GetOrder(r.Context(), h.db, orderID)
 	if err != nil {
 		logutil.Error("resume payment: get order", "err", err)
 		http.NotFound(w, r)
@@ -74,7 +74,7 @@ func (h *Handler) ResumePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := database.SetPaymentAuthority(h.db, orderID, authority); err != nil {
+	if err := database.SetPaymentAuthority(r.Context(), h.db, orderID, authority); err != nil {
 		logutil.Error("resume payment: set authority", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

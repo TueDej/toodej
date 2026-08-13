@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"path/filepath"
@@ -51,7 +52,7 @@ func TestCreateOrderPricesFromActiveProducts(t *testing.T) {
 		Status:          "awaiting_payment",
 		UserID:          userID,
 	}
-	orderID, err := CreateOrder(db, order, []models.OrderItem{{
+	orderID, err := CreateOrder(context.Background(), db, order, []models.OrderItem{{
 		ProductID:    1,
 		Quantity:     2,
 		PricePerUnit: 1,
@@ -86,7 +87,7 @@ func TestCreateOrderPricesFromActiveProducts(t *testing.T) {
 	if _, err := db.Exec("UPDATE products SET is_active = 0 WHERE id = 1"); err != nil {
 		t.Fatalf("deactivate product: %v", err)
 	}
-	_, err = CreateOrder(db, &models.Order{Status: "awaiting_payment", UserID: userID}, []models.OrderItem{{ProductID: 1, Quantity: 1}})
+	_, err = CreateOrder(context.Background(), db, &models.Order{Status: "awaiting_payment", UserID: userID}, []models.OrderItem{{ProductID: 1, Quantity: 1}})
 	if !errors.Is(err, ErrProductUnavailable) {
 		t.Fatalf("CreateOrder inactive error = %v, want ErrProductUnavailable", err)
 	}
@@ -107,17 +108,17 @@ func TestPaymentStateIsIdempotentAndDoesNotReviveCancelledOrders(t *testing.T) {
 		Status:          "awaiting_payment",
 		UserID:          userID,
 	}
-	orderID, err := CreateOrder(db, order, []models.OrderItem{{ProductID: 1, Quantity: 2}})
+	orderID, err := CreateOrder(context.Background(), db, order, []models.OrderItem{{ProductID: 1, Quantity: 2}})
 	if err != nil {
 		t.Fatalf("CreateOrder: %v", err)
 	}
-	if err := SetPaymentAuthority(db, orderID, "A0001"); err != nil {
+	if err := SetPaymentAuthority(context.Background(), db, orderID, "A0001"); err != nil {
 		t.Fatalf("SetPaymentAuthority: %v", err)
 	}
-	if err := ConfirmPayment(db, orderID, 123); err != nil {
+	if err := ConfirmPayment(context.Background(), db, orderID, 123); err != nil {
 		t.Fatalf("ConfirmPayment: %v", err)
 	}
-	if err := MarkPaymentFailed(db, orderID); err != nil {
+	if err := MarkPaymentFailed(context.Background(), db, orderID); err != nil {
 		t.Fatalf("MarkPaymentFailed paid order: %v", err)
 	}
 
@@ -136,13 +137,13 @@ func TestPaymentStateIsIdempotentAndDoesNotReviveCancelledOrders(t *testing.T) {
 		t.Fatalf("stock after failed paid callback = %d, want 3", stock)
 	}
 
-	if err := UpdateOrderStatus(db, orderID, "cancelled"); err != nil {
+	if err := UpdateOrderStatus(context.Background(), db, orderID, "cancelled"); err != nil {
 		t.Fatalf("cancel paid order: %v", err)
 	}
-	if err := ConfirmPayment(db, orderID, 456); !errors.Is(err, ErrInvalidOrderTransition) {
+	if err := ConfirmPayment(context.Background(), db, orderID, 456); !errors.Is(err, ErrInvalidOrderTransition) {
 		t.Fatalf("ConfirmPayment cancelled error = %v, want ErrInvalidOrderTransition", err)
 	}
-	if err := UpdateOrderStatus(db, orderID, "pending"); !errors.Is(err, ErrInvalidOrderTransition) {
+	if err := UpdateOrderStatus(context.Background(), db, orderID, "pending"); !errors.Is(err, ErrInvalidOrderTransition) {
 		t.Fatalf("uncancel error = %v, want ErrInvalidOrderTransition", err)
 	}
 	if err := db.QueryRow("SELECT stock_quantity FROM products WHERE id = 1").Scan(&stock); err != nil {
@@ -264,7 +265,7 @@ func TestSlugifyName(t *testing.T) {
 func TestUniqueSlug(t *testing.T) {
 	db := testDB(t)
 
-	slug, err := UniqueSlug(db, "Apple", 0)
+	slug, err := UniqueSlug(context.Background(), db, "Apple", 0)
 	if err != nil {
 		t.Fatalf("UniqueSlug: %v", err)
 	}
@@ -274,11 +275,11 @@ func TestUniqueSlug(t *testing.T) {
 
 	// A product already owns "apple": the next name mapping to the same base
 	// slug must be de-duplicated with a numeric suffix.
-	appleID, err := CreateProduct(db, &models.Product{Name: "Apple", Slug: "apple", Category: "x", Price: 1})
+	appleID, err := CreateProduct(context.Background(), db, &models.Product{Name: "Apple", Slug: "apple", Category: "x", Price: 1})
 	if err != nil {
 		t.Fatalf("CreateProduct: %v", err)
 	}
-	slug, err = UniqueSlug(db, "Apple", 0)
+	slug, err = UniqueSlug(context.Background(), db, "Apple", 0)
 	if err != nil {
 		t.Fatalf("UniqueSlug: %v", err)
 	}
@@ -287,10 +288,10 @@ func TestUniqueSlug(t *testing.T) {
 	}
 
 	// The suffix itself is taken, so it must keep climbing.
-	if _, err := CreateProduct(db, &models.Product{Name: "Apple", Slug: "apple-2", Category: "x", Price: 1}); err != nil {
+	if _, err := CreateProduct(context.Background(), db, &models.Product{Name: "Apple", Slug: "apple-2", Category: "x", Price: 1}); err != nil {
 		t.Fatalf("CreateProduct: %v", err)
 	}
-	slug, err = UniqueSlug(db, "Apple", 0)
+	slug, err = UniqueSlug(context.Background(), db, "Apple", 0)
 	if err != nil {
 		t.Fatalf("UniqueSlug: %v", err)
 	}
@@ -299,7 +300,7 @@ func TestUniqueSlug(t *testing.T) {
 	}
 
 	// excludeID ignores a product's own slug so an update can keep it.
-	slug, err = UniqueSlug(db, "Apple", appleID)
+	slug, err = UniqueSlug(context.Background(), db, "Apple", appleID)
 	if err != nil {
 		t.Fatalf("UniqueSlug exclude: %v", err)
 	}
@@ -307,7 +308,7 @@ func TestUniqueSlug(t *testing.T) {
 		t.Fatalf("excluded slug = %q, want apple", slug)
 	}
 
-	if _, err := UniqueSlug(db, "   ", 0); err == nil {
+	if _, err := UniqueSlug(context.Background(), db, "   ", 0); err == nil {
 		t.Fatal("UniqueSlug on blank name succeeded")
 	}
 }
@@ -327,12 +328,12 @@ func TestGetOrder(t *testing.T) {
 		Status:          "awaiting_payment",
 		UserID:          userID,
 	}
-	orderID, err := CreateOrder(db, order, []models.OrderItem{{ProductID: 1, Quantity: 2}})
+	orderID, err := CreateOrder(context.Background(), db, order, []models.OrderItem{{ProductID: 1, Quantity: 2}})
 	if err != nil {
 		t.Fatalf("CreateOrder: %v", err)
 	}
 
-	got, err := GetOrder(db, orderID)
+	got, err := GetOrder(context.Background(), db, orderID)
 	if err != nil {
 		t.Fatalf("GetOrder: %v", err)
 	}
@@ -340,7 +341,7 @@ func TestGetOrder(t *testing.T) {
 		t.Fatalf("GetOrder = %+v", got)
 	}
 
-	if _, err := GetOrder(db, "TDJ-NOPE00"); err == nil {
+	if _, err := GetOrder(context.Background(), db, "TDJ-NOPE00"); err == nil {
 		t.Fatal("GetOrder on missing id succeeded")
 	}
 }
@@ -360,13 +361,13 @@ func TestGetAwaitingPaymentOrders(t *testing.T) {
 		Status:          "awaiting_payment",
 		UserID:          userID,
 	}
-	orderID, err := CreateOrder(db, order, []models.OrderItem{{ProductID: 1, Quantity: 2}})
+	orderID, err := CreateOrder(context.Background(), db, order, []models.OrderItem{{ProductID: 1, Quantity: 2}})
 	if err != nil {
 		t.Fatalf("CreateOrder: %v", err)
 	}
 
 	// No authority yet → nothing to reconcile.
-	unpaid, err := GetAwaitingPaymentOrders(db)
+	unpaid, err := GetAwaitingPaymentOrders(context.Background(), db)
 	if err != nil {
 		t.Fatalf("GetAwaitingPaymentOrders: %v", err)
 	}
@@ -374,10 +375,10 @@ func TestGetAwaitingPaymentOrders(t *testing.T) {
 		t.Fatalf("awaiting orders = %d, want 0", len(unpaid))
 	}
 
-	if err := SetPaymentAuthority(db, orderID, "AUTH123"); err != nil {
+	if err := SetPaymentAuthority(context.Background(), db, orderID, "AUTH123"); err != nil {
 		t.Fatalf("SetPaymentAuthority: %v", err)
 	}
-	unpaid, err = GetAwaitingPaymentOrders(db)
+	unpaid, err = GetAwaitingPaymentOrders(context.Background(), db)
 	if err != nil {
 		t.Fatalf("GetAwaitingPaymentOrders: %v", err)
 	}
@@ -386,10 +387,10 @@ func TestGetAwaitingPaymentOrders(t *testing.T) {
 	}
 
 	// Paid orders are excluded.
-	if err := ConfirmPayment(db, orderID, 123); err != nil {
+	if err := ConfirmPayment(context.Background(), db, orderID, 123); err != nil {
 		t.Fatalf("ConfirmPayment: %v", err)
 	}
-	unpaid, err = GetAwaitingPaymentOrders(db)
+	unpaid, err = GetAwaitingPaymentOrders(context.Background(), db)
 	if err != nil {
 		t.Fatalf("GetAwaitingPaymentOrders: %v", err)
 	}
@@ -413,7 +414,7 @@ func TestCancelExpiredUnpaidOrders(t *testing.T) {
 		Status:          "awaiting_payment",
 		UserID:          userID,
 	}
-	orderID, err := CreateOrder(db, order, []models.OrderItem{{ProductID: 1, Quantity: 4}})
+	orderID, err := CreateOrder(context.Background(), db, order, []models.OrderItem{{ProductID: 1, Quantity: 4}})
 	if err != nil {
 		t.Fatalf("CreateOrder: %v", err)
 	}
@@ -431,7 +432,7 @@ func TestCancelExpiredUnpaidOrders(t *testing.T) {
 		t.Fatalf("backdate order: %v", err)
 	}
 
-	cancelledCount, err := CancelExpiredUnpaidOrders(db, 15*time.Minute)
+	cancelledCount, err := CancelExpiredUnpaidOrders(context.Background(), db, 15*time.Minute)
 	if err != nil {
 		t.Fatalf("CancelExpiredUnpaidOrders: %v", err)
 	}

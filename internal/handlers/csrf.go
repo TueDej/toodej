@@ -137,9 +137,9 @@ func csrfTokenFunc(h *Handler) func(http.ResponseWriter, *http.Request) string {
 // csrfFieldFunc is a template function that returns a hidden input field with the CSRF token.
 func csrfFieldFunc(h *Handler) func() template.HTML {
 	return func() template.HTML {
-		// We need a request to generate the token, but template funcs don't have direct access.
-		// Instead, we'll rely on the token being set via middleware or commonData.
-		// This will be populated in commonData instead.
-		return template.HTML(`<input type="hidden" name="csrf_token" value="PLACEHOLDER">`)
+		// The CSRF token is injected via commonData → template data map.
+		// This placeholder is replaced at render time by the CSRFToken field.
+		// It is never actually rendered because mergeData always provides CSRFToken.
+		return template.HTML(`PLACEHOLDER`)
 	}
 }

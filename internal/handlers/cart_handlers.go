@@ -21,7 +21,7 @@ func (h *Handler) AddToCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	product, err := database.GetProduct(h.db, productID)
+	product, err := database.GetProduct(r.Context(), h.db, productID)
 	if err != nil || !product.IsActive {
 		http.Error(w, "product not found", http.StatusNotFound)
 		return
@@ -75,7 +75,7 @@ func (h *Handler) UpdateCart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if delta > 0 {
-		product, err := database.GetProduct(h.db, productID)
+		product, err := database.GetProduct(r.Context(), h.db, productID)
 		if err != nil || !product.IsActive {
 			http.Error(w, "product not found", http.StatusNotFound)
 			return
@@ -98,7 +98,7 @@ func (h *Handler) UpdateCart(w http.ResponseWriter, r *http.Request) {
 	if delta < 0 {
 		event = "removed"
 	}
-	h.renderCartContent(w, r, event)
+	h.renderCartContent(w, r, sid, event)
 }
 
 // RemoveFromCart removes a product line from the cart entirely.
@@ -119,7 +119,7 @@ func (h *Handler) RemoveFromCart(w http.ResponseWriter, r *http.Request) {
 
 	cart.RemoveItem(productID)
 
-	h.renderCartContent(w, r, "removed")
+	h.renderCartContent(w, r, sid, "removed")
 }
 
 // ViewCart renders the full cart page.

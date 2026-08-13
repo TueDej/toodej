@@ -1,11 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"html/template"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +23,8 @@ type Handler struct {
 	cartStore        *CartStore
 	zarinpal         *payment.Zarinpal
 	baseURL          string
+	ctx              context.Context
+	cancel           context.CancelFunc
 	userSessions     map[string]session       // session ID → authenticated session
 	pendingLogins    map[string]pendingLogin  // session ID → phone during OTP flow
 	pendingNext      map[string]pendingReturn // session ID → post-login destination
@@ -76,19 +78,7 @@ func templateFuncs() template.FuncMap {
 		"persianDateTime": func(t time.Time) string {
 			return utils.FormatPersianDateTime(t)
 		},
-		"comma": func(v int) string {
-			s := strconv.Itoa(v)
-			n := len(s)
-			var parts []string
-			for i := n; i > 0; i -= 3 {
-				start := i - 3
-				if start < 0 {
-					start = 0
-				}
-				parts = append([]string{s[start:i]}, parts...)
-			}
-			return strings.Join(parts, ",")
-		},
+		"comma": commaInt,
 		"multiply": func(a, b int) int {
 			return a * b
 		},
@@ -111,7 +101,7 @@ func templateFuncs() template.FuncMap {
 
 // NewHandler initialises the Handler, parsing all HTML templates with a shared
 // function map (formatPrice, persianDate, etc.) from the templates/ directory.
-func NewHandler(db *sql.DB, cartStore *CartStore, zarinpal *payment.Zarinpal, baseURL string) (*Handler, error) {
+func NewHandler(ctx context.Context, db *sql.DB, cartStore *CartStore, zarinpal *payment.Zarinpal, baseURL string) (*Handler, error) {
 	funcMap := templateFuncs()
 
 	layoutFiles := []string{"templates/layout.html"}
@@ -141,20 +131,24 @@ func NewHandler(db *sql.DB, cartStore *CartStore, zarinpal *payment.Zarinpal, ba
 		}
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+
 	h := &Handler{
 		db:               db,
 		templates:        templates,
 		cartStore:        cartStore,
 		zarinpal:         zarinpal,
 		baseURL:          baseURL,
+		ctx:              ctx,
+		cancel:           cancel,
 		userSessions:     make(map[string]session),
 		pendingLogins:    make(map[string]pendingLogin),
 		pendingNext:      make(map[string]pendingReturn),
 		otpLimiter:       NewRateLimiter(5, time.Minute),
 		otpVerifyLimiter: NewRateLimiter(10, time.Minute),
 	}
-	h.startSessionJanitor()
-	h.startUnpaidOrderJanitor()
-	h.startPaymentReconciler()
+	h.startSessionJanitor(ctx)
+	h.startUnpaidOrderJanitor(ctx)
+	h.startPaymentReconciler(ctx)
 	return h, nil
 }

@@ -34,7 +34,7 @@ func (h *Handler) ServeSitemap(w http.ResponseWriter, r *http.Request) {
 		{Loc: baseURL + "/our-story", LastMod: today, ChangeFreq: "monthly", Priority: "0.5"},
 	}
 
-	products, err := database.GetProducts(h.db, "")
+	products, err := database.GetProducts(r.Context(), h.db, "")
 	if err != nil {
 		logutil.Error("sitemap: get products", "err", err)
 	} else {

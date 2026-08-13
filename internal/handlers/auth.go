@@ -88,7 +88,7 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := database.GetOrCreateUser(h.db, phone)
+	_, err := database.GetOrCreateUser(r.Context(), h.db, phone)
 	if err != nil {
 		logutil.Error("get or create user", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -97,7 +97,7 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 
 	code := generateOTP5()
 
-	if err := database.CreateOTP(h.db, phone, code, time.Now().Add(otpTTL)); err != nil {
+	if err := database.CreateOTP(r.Context(), h.db, phone, code, time.Now().Add(otpTTL)); err != nil {
 		logutil.Error("create otp", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -191,7 +191,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	valid, err := database.VerifyOTP(h.db, pl.phone, code)
+	valid, err := database.VerifyOTP(r.Context(), h.db, pl.phone, code)
 	if err != nil {
 		logutil.Error("verify otp", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -204,7 +204,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := database.GetUserByPhone(h.db, pl.phone)
+	user, err := database.GetUserByPhone(r.Context(), h.db, pl.phone)
 	if err != nil {
 		logutil.Error("get user", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

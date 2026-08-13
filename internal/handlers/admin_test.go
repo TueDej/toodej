@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"strings"
@@ -45,7 +46,7 @@ func TestAdminProductToggle(t *testing.T) {
 	c.authorize("admin", "admin123")
 	c.bootstrapAdmin(t)
 
-	before, err := database.GetProduct(h.db, seedProductFig)
+	before, err := database.GetProduct(context.Background(), h.db, seedProductFig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +54,7 @@ func TestAdminProductToggle(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("toggle = %d", resp.StatusCode)
 	}
-	after, err := database.GetProduct(h.db, seedProductFig)
+	after, err := database.GetProduct(context.Background(), h.db, seedProductFig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +65,7 @@ func TestAdminProductToggle(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("toggle back = %d", resp.StatusCode)
 	}
-	restored, _ := database.GetProduct(h.db, seedProductFig)
+	restored, _ := database.GetProduct(context.Background(), h.db, seedProductFig)
 	if restored.IsActive != before.IsActive {
 		t.Fatalf("product state not restored")
 	}
@@ -81,7 +82,7 @@ func TestAdminUpdateProduct(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("update product = %d", resp.StatusCode)
 	}
-	p, err := database.GetProduct(h.db, seedProductFig)
+	p, err := database.GetProduct(context.Background(), h.db, seedProductFig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +168,7 @@ func TestAdminCreateProductSlugCollision(t *testing.T) {
 // admin status flows can be exercised without the payment gateway.
 func createOrderForTest(t *testing.T, h *Handler) string {
 	t.Helper()
-	user, err := database.GetOrCreateUser(h.db, "09121234567")
+	user, err := database.GetOrCreateUser(context.Background(), h.db, "09121234567")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -179,7 +180,7 @@ func createOrderForTest(t *testing.T, h *Handler) string {
 		Status:          "pending",
 		UserID:          user.ID,
 	}
-	id, err := database.CreateOrder(h.db, order, []models.OrderItem{{ProductID: seedProductFig, Quantity: 1}})
+	id, err := database.CreateOrder(context.Background(), h.db, order, []models.OrderItem{{ProductID: seedProductFig, Quantity: 1}})
 	if err != nil {
 		t.Fatalf("create order: %v", err)
 	}
@@ -223,7 +224,7 @@ func TestAdminOrderStatusMachineEnforced(t *testing.T) {
 	orderID := createOrderForTest(t, h) // pending
 
 	// Direct DB rejects an impossible jump: pending → dispatched.
-	if err := database.UpdateOrderStatus(h.db, orderID, "dispatched"); err == nil {
+	if err := database.UpdateOrderStatus(context.Background(), h.db, orderID, "dispatched"); err == nil {
 		t.Fatal("pending → dispatched accepted")
 	}
 	// Valid step via the endpoint.
