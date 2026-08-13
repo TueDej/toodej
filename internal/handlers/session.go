@@ -227,3 +227,49 @@ func generateSessionID() string {
 	}
 	return hex.EncodeToString(b)
 }
+
+// regenerateSessionID issues a new session cookie and returns the new ID.
+// Any existing session data (authenticated user, pending login, pending redirect)
+// is migrated to the new ID so the login state is preserved. Called on login to
+// prevent session fixation: the pre-auth session ID is discarded and cannot be
+// reused by an attacker who planted it.
+func (h *Handler) regenerateSessionID(w http.ResponseWriter, r *http.Request) string {
+	cookie, err := r.Cookie("session")
+	oldSid := ""
+	if err == nil && validSessionID(cookie.Value) {
+		oldSid = cookie.Value
+	}
+
+	newSid := generateSessionID()
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    newSid,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   requestIsSecure(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(sessionTTL.Seconds()),
+	})
+	_ = ensureCSRFToken(w, r)
+
+	// Migrate existing session data to the new ID so login state is preserved.
+	if oldSid != "" && oldSid != newSid {
+		h.sessionMu.Lock()
+		if s, ok := h.userSessions[oldSid]; ok {
+			h.userSessions[newSid] = s
+			delete(h.userSessions, oldSid)
+		}
+		if pl, ok := h.pendingLogins[oldSid]; ok {
+			h.pendingLogins[newSid] = pl
+			delete(h.pendingLogins, oldSid)
+		}
+		if pr, ok := h.pendingNext[oldSid]; ok {
+			h.pendingNext[newSid] = pr
+			delete(h.pendingNext, oldSid)
+		}
+		h.sessionMu.Unlock()
+		h.cartStore.MigrateSession(oldSid, newSid)
+	}
+
+	return newSid
+}

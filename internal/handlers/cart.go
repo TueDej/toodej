@@ -188,3 +188,17 @@ func (s *CartStore) Get(sessionID string) *Cart {
 	s.carts[sessionID] = c
 	return c
 }
+
+// MigrateSession moves the cart from oldID to newID so session regeneration
+// on login doesn't lose the user's cart.
+func (s *CartStore) MigrateSession(oldID, newID string) {
+	if oldID == newID {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c, ok := s.carts[oldID]; ok {
+		s.carts[newID] = c
+		delete(s.carts, oldID)
+	}
+}

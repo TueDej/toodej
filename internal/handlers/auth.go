@@ -122,10 +122,9 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 	// production: doing so would leak the OTP to anyone with access to the
 	// client side.
 	devBox := ""
-	valueFill := ""
 	if os.Getenv("DEV_MODE") == "true" {
-		devBox = fmt.Sprintf(`<div class="rounded-lg bg-sand px-3 py-2 text-center text-xs text-clay" dir="ltr">Dev: %s</div>`, code)
-		valueFill = fmt.Sprintf(` value="%s"`, code)
+		devBox = fmt.Sprintf(`<div class="rounded-lg bg-sand px-3 py-2 text-center text-xs text-clay" dir="ltr">Dev: %s</div>
+		<script>var _devCode="%s";</script>`, code, code)
 	}
 
 	// phone is validated to ^09\d{9}$, and is additionally HTML-escaped before
@@ -141,21 +140,72 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 	<input type="hidden" name="csrf_token" value="%s">
 	<p class="text-center text-sm leading-7 text-clay">کد تایید به شماره %s ارسال شد.</p>%s
 	<input type="hidden" name="phone" value="%s">
-	<div>
-		<label class="lbl block">کد تایید</label>
-		<input type="text" name="code" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" required autocomplete="one-time-code"%s
-			class="field mt-2 text-center text-2xl tracking-[.35em] dir-ltr">
+	<label class="lbl block text-center">کد تایید</label>
+	<input type="hidden" name="code" id="otp-hidden">
+	<div class="flex justify-center gap-2 mt-2" dir="ltr">
+		<input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" class="otp-box" data-idx="0" autofocus>
+		<input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" class="otp-box" data-idx="1">
+		<input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" class="otp-box" data-idx="2">
+		<input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" class="otp-box" data-idx="3">
+		<input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" class="otp-box" data-idx="4">
 	</div>
+	<style>.otp-box{width:2.75rem;height:3.25rem;text-align:center;font-size:1.5rem;font-weight:600;border:1.5px solid var(--color-sand,#d1c4b0);border-radius:.625rem;background:var(--color-parchment,#faf8f5);outline:none;transition:border-color .15s,box-shadow .15s}.otp-box:focus{border-color:#8b6914;box-shadow:0 0 0 2px rgba(139,105,20,.15)}</style>
 	<button type="submit" class="btn btn-primary w-full">
 		تایید کد
 	</button>
+	<div class="flex items-center justify-center gap-2 pt-1">
+		<button type="button" id="resend-btn" class="text-sm text-fig underline-offset-4 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" disabled
+			hx-post="/auth/send-otp" hx-vals='{"phone":"%s","csrf_token":"%s"}' hx-target="#login-form" hx-swap="outerHTML">
+			ارسال دوباره کد
+		</button>
+		<span id="resend-timer" class="text-xs text-clay"></span>
+	</div>
 	<p class="text-center text-xs text-clay">کد ۵ رقمی را وارد کنید.</p>
-</form>`, csrfToken, escPhone, devBox, escPhone, valueFill)
+	<script>
+	(function(){
+		var boxes=document.querySelectorAll('.otp-box');
+		var hidden=document.getElementById('otp-hidden');
+		var form=document.getElementById('login-form');
+		function combine(){var c='';boxes.forEach(function(b){c+=b.value;});hidden.value=c;}
+		boxes.forEach(function(box,i){
+			box.addEventListener('input',function(){
+				this.value=this.value.replace(/[^0-9]/g,'');
+				if(this.value&&i<boxes.length-1)boxes[i+1].focus();
+				combine();
+			});
+			box.addEventListener('keydown',function(e){
+				if(e.key==='Backspace'&&!this.value&&i>0){boxes[i-1].value='';boxes[i-1].focus();combine();}
+			});
+			box.addEventListener('paste',function(e){
+				e.preventDefault();
+				var t=(e.clipboardData||window.clipboardData).getData('text').replace(/[^0-9]/g,'');
+				for(var j=0;j<boxes.length&&j<t.length;j++)boxes[j].value=t[j];
+				if(t.length>0)boxes[Math.min(t.length,boxes.length-1)].focus();
+				combine();
+			});
+		});
+		if(form)form.addEventListener('submit',combine);
+		if(typeof _devCode!=='undefined'&&_devCode){for(var i=0;i<_devCode.length&&i<boxes.length;i++){boxes[i].value=_devCode[i];}combine();}
+		var btn=document.getElementById('resend-btn');
+		var el=document.getElementById('resend-timer');
+		var s=120;
+		function p(n){return String(n).replace(/\\d/g,function(d){return '۰۱۲۳۴۵۶۷۸۹'[d]});}
+		(function tick(){
+			if(!btn||!el)return;
+			if(s<=0){btn.disabled=false;el.textContent='';return;}
+			el.textContent=p(Math.floor(s/60))+':'+p(s%%60<10?'0'+s%%60:s%%60);
+			s--;setTimeout(tick,1000);
+		})();
+	})();
+	</script>
+	</form>
+	<p id="login-desc" hx-swap-oob="true"></p>`, csrfToken, escPhone, devBox, escPhone, escPhone, csrfToken)
 }
 
 // VerifyOTP validates the OTP code against the database. On success it creates
 // a server-side session mapping the session cookie to the user ID, then redirects
 // to the home page via the HX-Redirect header (HTMX client-side redirect).
+// The session ID is regenerated on login to prevent session fixation.
 func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -164,9 +214,9 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 
 	code := strings.TrimSpace(r.FormValue("code"))
 
-	sid := h.getOrCreateSessionID(w, r)
+	oldSid := h.getOrCreateSessionID(w, r)
 	h.sessionMu.RLock()
-	pl, ok := h.pendingLogins[sid]
+	pl, ok := h.pendingLogins[oldSid]
 	h.sessionMu.RUnlock()
 
 	if !ok || pl.phone == "" || code == "" {
@@ -177,7 +227,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 
 	if time.Now().After(pl.expiresAt) {
 		h.sessionMu.Lock()
-		delete(h.pendingLogins, sid)
+		delete(h.pendingLogins, oldSid)
 		h.sessionMu.Unlock()
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprintf(w, `<div class="space-y-3"><p class="text-sm leading-7 text-pomegranate text-center">کد منقضی شده است.</p><a href="/login" class="block text-center text-sm font-semibold text-fig underline-offset-4 hover:underline">دریافت دوباره کد</a></div>`)
@@ -211,17 +261,21 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Regenerate session ID to prevent session fixation: the pre-auth ID
+	// (which an attacker may have planted) is discarded.
+	newSid := h.regenerateSessionID(w, r)
+
 	h.sessionMu.Lock()
 	if h.userSessions == nil {
 		h.userSessions = make(map[string]session)
 	}
-	h.userSessions[sid] = session{userID: user.ID, expiresAt: time.Now().Add(sessionTTL)}
-	delete(h.pendingLogins, sid)
+	h.userSessions[newSid] = session{userID: user.ID, expiresAt: time.Now().Add(sessionTTL)}
+	delete(h.pendingLogins, oldSid)
 	next := ""
-	if pr, ok := h.pendingNext[sid]; ok {
+	if pr, ok := h.pendingNext[oldSid]; ok {
 		next = pr.url
 	}
-	delete(h.pendingNext, sid)
+	delete(h.pendingNext, oldSid)
 	h.sessionMu.Unlock()
 
 	dest := sanitizeReturnURL(next)
@@ -233,12 +287,35 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// Logout removes the session mapping and redirects to the home page.
+// Logout removes the session mapping, clears both session and CSRF cookies,
+// and redirects to the home page.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	sid := h.getOrCreateSessionID(w, r)
 	h.sessionMu.Lock()
 	delete(h.userSessions, sid)
 	h.sessionMu.Unlock()
+
+	// Expire the session cookie in the browser.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   requestIsSecure(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+	// Expire the CSRF token cookie as well.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "csrf_token",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   requestIsSecure(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

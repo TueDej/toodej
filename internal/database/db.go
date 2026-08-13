@@ -1053,7 +1053,9 @@ func GetOrCreateUser(ctx context.Context, db *sql.DB, phone string) (*models.Use
 // ── OTP ──────────────────────────────────────────────
 
 // CreateOTP stores a one-time password with a 2-minute expiry window.
+// Old expired or used OTPs are purged on each call so the table stays bounded.
 func CreateOTP(ctx context.Context, db *sql.DB, phone, code string, expiresAt time.Time) error {
+	_, _ = db.ExecContext(ctx, "DELETE FROM otp_codes WHERE expires_at < datetime('now') OR is_used = 1")
 	_, err := db.ExecContext(ctx, "INSERT INTO otp_codes (phone_number, code, expires_at) VALUES (?, ?, ?)", phone, code, expiresAt.Format("2006-01-02 15:04:05"))
 	return err
 }
