@@ -449,8 +449,6 @@ if [ "$HEALTHY" -eq 1 ]; then
   printf "  ${CYAN}Local:${NC}    http://127.0.0.1:%s\n\n" "$APP_PORT"
 fi
 
-sudo_if_needed systemctl status "${APP_NAME}.service" --no-pager 2>&1 | head -14
-
 # --------------- 9. caddy prompt ---------------
 step "Caddy reverse proxy (optional)"
 read -rp "Do you want to configure a Caddy reverse proxy? [y/N]: " SETUP_CADDY
