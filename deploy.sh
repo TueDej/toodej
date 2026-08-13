@@ -46,9 +46,18 @@ banner() {
   local pad=""
   for _ in $(seq 1 $w); do pad="${pad}═"; done
   printf "\n${BOLD}${GREEN}╔${pad}╗${NC}\n"
-  printf "${BOLD}${GREEN}║${NC}  ${BOLD}%s${NC}\n" "$1"
-  for line in "${@:2}"; do
-    printf "${BOLD}${GREEN}║${NC}  %s\n" "$line"
+  for line in "$@"; do
+    local char_count inner_w pad_right
+    char_count=$(printf '%s' "$line" | wc -m)
+    inner_w=$((w - 2))
+    if [ "$char_count" -gt "$inner_w" ]; then
+      line="${line:0:$inner_w}"
+      char_count=$inner_w
+    fi
+    pad_right=$((inner_w - char_count))
+    printf "${BOLD}${GREEN}║${NC}  ${BOLD}%s${NC}" "$line"
+    printf "%${pad_right}s" ""
+    printf "${BOLD}${GREEN}║${NC}\n"
   done
   printf "${BOLD}${GREEN}╚${pad}╝${NC}\n"
 }
@@ -338,7 +347,6 @@ ok "Data directory ${DATA_DIR} ready (with templates & assets)"
 # EnvironmentFile stays root-readable via systemd while the deployer can still
 # read it back without a sudo prompt. It is never stored in the unit file.
 # '%' must be escaped to '%%' because systemd expands specifiers.
-info "Writing environment file (${ENV_FILE})..."
 sudo_if_needed mkdir -p "$ENV_DIR"
 sudo_if_needed chown root:root "$ENV_DIR"
 sudo_if_needed chmod 755 "$ENV_DIR"

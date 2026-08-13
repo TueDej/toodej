@@ -1,15 +1,47 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Toodej — development entry point. Builds and runs the server locally.
+
 # --------------- helpers ---------------
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
-info()  { printf "${GREEN}==>${NC} %s\n" "$*"; }
-warn()  { printf "${YELLOW}==>${NC} %s\n" "$*"; }
-detail(){ printf "    ${CYAN}%s${NC}\n" "$*"; }
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+STEP_NUM=0
+
+info()  { printf "  ${GREEN}▸${NC}  %s\n" "$*"; }
+warn()  { printf "  ${YELLOW}▸${NC}  %s\n" "$*"; }
+ok()    { printf "  ${GREEN}✔${NC}  %s\n" "$*"; }
+
+banner() {
+  local w=58
+  local pad=""
+  for _ in $(seq 1 $w); do pad="${pad}═"; done
+  printf "\n${BOLD}${GREEN}╔${pad}╗${NC}\n"
+  for line in "$@"; do
+    local char_count inner_w pad_right
+    char_count=$(printf '%s' "$line" | wc -m)
+    inner_w=$((w - 2))
+    if [ "$char_count" -gt "$inner_w" ]; then
+      line="${line:0:$inner_w}"
+      char_count=$inner_w
+    fi
+    pad_right=$((inner_w - char_count))
+    printf "${BOLD}${GREEN}║${NC}  ${BOLD}%s${NC}" "$line"
+    printf "%${pad_right}s" ""
+    printf "${BOLD}${GREEN}║${NC}\n"
+  done
+  printf "${BOLD}${GREEN}╚${pad}╝${NC}\n"
+}
+
+step() {
+  STEP_NUM=$((STEP_NUM + 1))
+  printf "\n${CYAN}── Step ${STEP_NUM}: %s ──${NC}\n" "$*"
+}
+
+kv() { printf "  %-26s %s\n" "$1" "$2"; }
+
+divider() { printf "  ${CYAN}────────────────────────────────────────────────────────${NC}\n"; }
 
 # --------------- defaults ---------------
-# run.sh is the development entry point: default to DEV_MODE (OTP codes shown
-# inline, default admin creds allowed) unless the caller sets it explicitly.
 export DEV_MODE="${DEV_MODE:-true}"
 export PORT="${PORT:-8080}"
 export ADMIN_USER="${ADMIN_USER:-admin}"
@@ -22,25 +54,39 @@ export ZARINPAL_SANDBOX="${ZARINPAL_SANDBOX:-true}"
 BINDIR="$(cd "$(dirname "$0")" && pwd)/bin"
 BINARY="$BINDIR/server"
 
-# --------------- steps ---------------
+banner "Toodej — development server" \
+  "mode:   DEV_MODE=${DEV_MODE}" \
+  "port:   ${PORT}" \
+  "db:     ${DB_PATH}"
+
+# --------------- build ---------------
+step "Build"
+
 info "Verifying dependencies..."
 go mod tidy
+ok "Dependencies verified"
 
-info "Building server binary..."
+info "Compiling server binary..."
 mkdir -p "$BINDIR"
 go build -o "$BINARY" ./cmd/server
 chmod +x "$BINARY"
+ok "Binary built at ${BINARY}"
 
-printf "\n${GREEN}==>${NC} Starting Toodej server\n"
-detail "Store:        http://localhost:${PORT}"
-detail "Admin:        http://localhost:${PORT}/admin"
-detail "Admin login:  ${ADMIN_USER} / ${ADMIN_PASS}"
-detail "Database:     ${DB_PATH}"
+# --------------- server ---------------
+step "Server"
+
+divider
+kv "Store:"    "http://localhost:${PORT}"
+kv "Admin:"    "http://localhost:${PORT}/admin"
+kv "Login:"    "${ADMIN_USER} / ${ADMIN_PASS}"
+kv "Database:" "${DB_PATH}"
 if [ -n "$ZARINPAL_MERCHANT_ID" ]; then
-  detail "Payment:      Zarinpal (${ZARINPAL_SANDBOX:-true})"
+  kv "Payment:" "Zarinpal (${ZARINPAL_SANDBOX:-true})"
 else
-  warn "Payment:      ZARINPAL_MERCHANT_ID not set — payments will fail"
+  warn "Payment: ZARINPAL_MERCHANT_ID not set — payments will fail"
 fi
-echo ""
+divider
+
+printf "\n  ${CYAN}Press Ctrl+C to stop${NC}\n\n"
 
 exec "$BINARY"
