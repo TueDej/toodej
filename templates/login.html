@@ -25,4 +25,61 @@
     </form>
   </div>
 </div>
+
+<script>
+(function(){
+  function initOTPBoxes(){
+    var boxes=document.querySelectorAll('.otp-box');
+    if(!boxes.length)return;
+    var hidden=document.getElementById('otp-hidden');
+    var form=document.getElementById('login-form');
+    function combine(){var c='';boxes.forEach(function(b){c+=b.value;});if(hidden)hidden.value=c;}
+    boxes.forEach(function(box,i){
+      box.removeEventListener('input',box._otpHandler);
+      box._otpHandler=function(){
+        this.value=this.value.replace(/[^0-9]/g,'');
+        if(this.value&&i<boxes.length-1)boxes[i+1].focus();
+        combine();
+      };
+      box.addEventListener('input',box._otpHandler);
+      box.removeEventListener('keydown',box._otpKeyHandler);
+      box._otpKeyHandler=function(e){
+        if(e.key==='Backspace'&&!this.value&&i>0){boxes[i-1].value='';boxes[i-1].focus();combine();}
+      };
+      box.addEventListener('keydown',box._otpKeyHandler);
+      box.removeEventListener('paste',box._otpPasteHandler);
+      box._otpPasteHandler=function(e){
+        e.preventDefault();
+        var t=(e.clipboardData||window.clipboardData).getData('text').replace(/[^0-9]/g,'');
+        for(var j=0;j<boxes.length&&j<t.length;j++)boxes[j].value=t[j];
+        if(t.length>0)boxes[Math.min(t.length,boxes.length-1)].focus();
+        combine();
+      };
+      box.addEventListener('paste',box._otpPasteHandler);
+    });
+    if(form){form.removeEventListener('submit',form._otpSubmitHandler);form._otpSubmitHandler=combine;form.addEventListener('submit',form._otpSubmitHandler);}
+    var devEl=document.getElementById('otp-dev-code');
+    if(devEl&&devEl.dataset.code){for(var i=0;i<devEl.dataset.code.length&&i<boxes.length;i++)boxes[i].value=devEl.dataset.code[i];combine();}
+  }
+
+  function initResendTimer(){
+    var btn=document.getElementById('resend-btn');
+    var el=document.getElementById('resend-timer');
+    if(!btn||!el||el.dataset.running)return;
+    el.dataset.running='1';
+    var s=120;
+    function p(n){return String(n).replace(/\d/g,function(d){return '۰۱۲۳۴۵۶۷۸۹'[d]});}
+    (function tick(){
+      if(!btn||!el)return;
+      if(s<=0){btn.disabled=false;el.textContent='';delete el.dataset.running;return;}
+      el.textContent=p(Math.floor(s/60))+':'+p(s%60<10?'0'+s%60:s%60);
+      s--;setTimeout(tick,1000);
+    })();
+  }
+
+  document.addEventListener('htmx:afterSwap',function(e){initOTPBoxes();initResendTimer();});
+  initOTPBoxes();
+  initResendTimer();
+})();
+</script>
 {{end}}
