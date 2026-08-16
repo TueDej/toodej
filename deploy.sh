@@ -192,7 +192,7 @@ EXISTING_PORT=$(read_existing "PORT")
 EXISTING_ADMIN_USER=$(read_existing "ADMIN_USER")
 EXISTING_ADMIN_PASS=$(read_existing "ADMIN_PASS")
 EXISTING_KAVENEGAR_KEY=$(read_existing "KAVENEGAR_API_KEY")
-EXISTING_KAVENEGAR_SENDER=$(read_existing "KAVENEGAR_SENDER")
+EXISTING_KAVENEGAR_TEMPLATE=$(read_existing "KAVENEGAR_TEMPLATE")
 EXISTING_ZARINPAL_MERCHANT_ID=$(read_existing "ZARINPAL_MERCHANT_ID")
 EXISTING_ZARINPAL_SANDBOX=$(read_existing "ZARINPAL_SANDBOX")
 EXISTING_APP_BASE_URL=$(read_existing "APP_BASE_URL")
@@ -239,15 +239,15 @@ validate_admin_creds "$ADMIN_USER" "$ADMIN_PASS"
 step "SMS, payment & URL configuration"
 
 KAVENEGAR_API_KEY="$(clean_input "${EXISTING_KAVENEGAR_KEY:-}")"
-KAVENEGAR_SENDER="$(clean_input "${EXISTING_KAVENEGAR_SENDER:-}")"
+KAVENEGAR_TEMPLATE="$(clean_input "${EXISTING_KAVENEGAR_TEMPLATE:-verify-otp}")"
 
 if [ -z "$KAVENEGAR_API_KEY" ]; then
   read -rp "Kavenegar API key (leave blank to log OTPs instead of SMS): " KAVENEGAR_API_KEY
   KAVENEGAR_API_KEY="$(clean_input "$KAVENEGAR_API_KEY")"
 fi
 if [ -n "$KAVENEGAR_API_KEY" ]; then
-  read -rp "Kavenegar sender number [${KAVENEGAR_SENDER:-2000660110}]: " INPUT_SENDER
-  KAVENEGAR_SENDER="$(clean_input "${INPUT_SENDER:-${KAVENEGAR_SENDER:-2000660110}}")"
+  read -rp "Kavenegar template name [${KAVENEGAR_TEMPLATE}]: " INPUT_TEMPLATE
+  KAVENEGAR_TEMPLATE="$(clean_input "${INPUT_TEMPLATE:-$KAVENEGAR_TEMPLATE}")"
 else
   warn "No Kavenegar key — OTP codes will be printed to the service logs only."
 fi
@@ -365,7 +365,7 @@ env_line() {
   env_line "ADMIN_PASS" "$ADMIN_PASS"
   env_line "DB_PATH" "$DB_PATH"
   env_line "KAVENEGAR_API_KEY" "$KAVENEGAR_API_KEY"
-  env_line "KAVENEGAR_SENDER" "$KAVENEGAR_SENDER"
+  env_line "KAVENEGAR_TEMPLATE" "$KAVENEGAR_TEMPLATE"
   env_line "ZARINPAL_MERCHANT_ID" "$ZARINPAL_MERCHANT_ID"
   env_line "ZARINPAL_SANDBOX" "$ZARINPAL_SANDBOX"
   env_line "APP_BASE_URL" "$APP_BASE_URL"
