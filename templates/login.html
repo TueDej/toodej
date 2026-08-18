@@ -28,6 +28,73 @@
 
 <script>
 (function(){
+  var lockTicking=false;
+
+  function p(n){return String(n).replace(/\d/g,function(d){return '۰۱۲۳۴۵۶۷۸۹'[d]});}
+  function otpBoxes(){return Array.prototype.slice.call(document.querySelectorAll('.otp-box'));}
+
+  // clearBoxes empties the digit boxes and refocuses the first, so a wrong code
+  // can be retyped without touching anything else on the form.
+  function clearBoxes(){
+    var boxes=otpBoxes();
+    var hidden=document.getElementById('otp-hidden');
+    boxes.forEach(function(b){b.value='';});
+    if(hidden)hidden.value='';
+    if(boxes.length&&!boxes[0].disabled)boxes[0].focus();
+  }
+
+  function setInputsDisabled(dis){
+    otpBoxes().forEach(function(b){b.disabled=dis;});
+    var phone=document.getElementById('phone');
+    if(phone)phone.disabled=dis;
+    var form=document.getElementById('login-form');
+    if(form){var submit=form.querySelector('button[type="submit"]');if(submit)submit.disabled=dis;}
+    var resend=document.getElementById('resend-btn');
+    if(resend)resend.disabled=dis;
+  }
+
+  // startLockCountdown drives the server-reported login cooldown: the inputs stay
+  // disabled until it runs out, then the user may ask for a fresh code.
+  function startLockCountdown(el){
+    if(lockTicking)return;
+    lockTicking=true;
+    setInputsDisabled(true);
+    var s=parseInt(el.dataset.seconds,10)||300;
+    (function tick(){
+      var live=document.getElementById('otp-lock-timer');
+      if(!live){lockTicking=false;setInputsDisabled(false);return;}
+      if(s<=0){
+        lockTicking=false;
+        setInputsDisabled(false);
+        var slot=document.getElementById('login-error');
+        if(slot)slot.innerHTML='<p class="text-center text-sm leading-7 text-clay">می‌توانید کد جدیدی بگیرید و دوباره تلاش کنید.</p>';
+        clearBoxes();
+        return;
+      }
+      live.textContent=p(Math.floor(s/60))+':'+p(s%60<10?'0'+s%60:s%60);
+      s--;setTimeout(tick,1000);
+    })();
+  }
+
+  // handleLoginFeedback reacts to whatever the server just swapped into the error
+  // slot. The markers are set by loginAlert/lockoutAlert in auth.go; htmx 2.x
+  // does not run scripts inside swapped content, so the page reads them instead.
+  function handleLoginFeedback(){
+    var lock=document.getElementById('otp-lock-timer');
+    if(lock){startLockCountdown(lock);return;}
+    if(document.getElementById('otp-resend-now')){
+      // The code is gone (expired or the request lapsed): allow a resend now
+      // instead of making the user wait out the cooldown timer.
+      var resend=document.getElementById('resend-btn');
+      if(resend&&!lockTicking)resend.disabled=false;
+      var timer=document.getElementById('resend-timer');
+      if(timer){timer.textContent='';timer.dataset.running='1';}
+      clearBoxes();
+      return;
+    }
+    if(document.getElementById('otp-attempt-error'))clearBoxes();
+  }
+
   function initOTPBoxes(){
     var boxes=document.querySelectorAll('.otp-box');
     if(!boxes.length)return;
@@ -68,16 +135,16 @@
     if(!btn||!el||el.dataset.running)return;
     el.dataset.running='1';
     var s=90;
-    function p(n){return String(n).replace(/\d/g,function(d){return '۰۱۲۳۴۵۶۷۸۹'[d]});}
     (function tick(){
       if(!btn||!el)return;
-      if(s<=0){btn.disabled=false;el.textContent='';delete el.dataset.running;return;}
+      // Never hand the button back while a login cooldown is still running.
+      if(s<=0){if(!lockTicking)btn.disabled=false;el.textContent='';delete el.dataset.running;return;}
       el.textContent=p(Math.floor(s/60))+':'+p(s%60<10?'0'+s%60:s%60);
       s--;setTimeout(tick,1000);
     })();
   }
 
-  document.addEventListener('htmx:afterSwap',function(e){initOTPBoxes();initResendTimer();});
+  document.addEventListener('htmx:afterSwap',function(e){initOTPBoxes();initResendTimer();handleLoginFeedback();});
   initOTPBoxes();
   initResendTimer();
 })();

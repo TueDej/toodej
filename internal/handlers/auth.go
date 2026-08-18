@@ -61,30 +61,20 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 
 	phone := strings.TrimSpace(r.FormValue("phone"))
 	if !validIranianPhone(phone) {
-		w.Header().Set("Content-Type", "text/html")
-		// Retarget into the #login-error slot so the form stays on screen.
-		w.Header().Set("HX-Retarget", "#login-error")
-		w.Header().Set("HX-Reswap", "innerHTML")
-		w.Write([]byte(`<div class="flex items-start gap-3 rounded-[1.05rem_1rem_1rem_1.1rem] border border-rose/40 bg-[#FAE6E1] px-4 py-3 text-sm leading-7 text-pomegranate" role="alert">
-      <svg class="mt-1 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
-      </svg>
-      <span>شماره تماس معتبر وارد کنید؛ شماره باید با ۰۹ شروع شده و ۱۱ رقم باشد (مثلاً ۰۹۱۲۳۴۵۶۷۸۹).</span>
-    </div>`))
+		loginAlert(w, "error", `شماره تماس معتبر وارد کنید؛ شماره باید با ۰۹ شروع شده و ۱۱ رقم باشد (مثلاً ۰۹۱۲۳۴۵۶۷۸۹).`)
+		return
+	}
+
+	// A number serving a login cooldown cannot shake it off by asking for a
+	// fresh code, otherwise the wrong-code budget would mean nothing.
+	if lock := h.otpLockRemaining(phone, clientIP(r)); lock > 0 {
+		lockoutAlert(w, lock)
 		return
 	}
 
 	// Per-phone rate limit on top of the per-IP limit applied by the router.
 	if !h.otpLimiter.Allow("phone:" + phone) {
-		w.Header().Set("Content-Type", "text/html")
-		w.Header().Set("HX-Retarget", "#login-error")
-		w.Header().Set("HX-Reswap", "innerHTML")
-		w.Write([]byte(`<div class="flex items-start gap-3 rounded-[1.05rem_1rem_1rem_1.1rem] border border-[#C98A2C]/45 bg-[#F6E9CD] px-4 py-3 text-sm leading-7 text-[#7A5A2E]" role="alert">
-      <svg class="mt-1 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
-      </svg>
-      <span>درخواست‌های زیادی ارسال کرده‌اید؛ لطفاً کمی بعد دوباره تلاش کنید.</span>
-    </div>`))
+		loginAlert(w, "warn", `درخواست‌های زیادی ارسال کرده‌اید؛ لطفاً کمی بعد دوباره تلاش کنید.`)
 		return
 	}
 
@@ -149,7 +139,10 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 		<input type="text" name="c3" maxlength="1" inputmode="numeric" pattern="[0-9]" class="otp-box" data-idx="3">
 		<input type="text" name="c4" maxlength="1" inputmode="numeric" pattern="[0-9]" class="otp-box" data-idx="4">
 	</div>
-	<style>.otp-box{width:2.75rem;height:3.25rem;text-align:center;font-size:1.5rem;font-weight:600;border:1.5px solid var(--color-sand,#d1c4b0);border-radius:.625rem;background:var(--color-parchment,#faf8f5);outline:none;transition:border-color .15s,box-shadow .15s}.otp-box:focus{border-color:#8b6914;box-shadow:0 0 0 2px rgba(139,105,20,.15)}</style>
+	<style>.otp-box{width:2.75rem;height:3.25rem;text-align:center;font-size:1.5rem;font-weight:600;border:1.5px solid var(--color-sand,#d1c4b0);border-radius:.625rem;background:var(--color-parchment,#faf8f5);outline:none;transition:border-color .15s,box-shadow .15s}.otp-box:focus{border-color:#8b6914;box-shadow:0 0 0 2px rgba(139,105,20,.15)}.otp-box:disabled{opacity:.5;cursor:not-allowed}</style>
+	<!-- ERROR SLOT — wrong/expired codes and login cooldowns are retargeted here
+	     (HX-Retarget), so the digit boxes survive a failed attempt. -->
+	<div id="login-error"></div>
 	<button type="submit" class="btn btn-primary w-full">
 		تایید کد
 	</button>
@@ -169,6 +162,11 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 // a server-side session mapping the session cookie to the user ID, then redirects
 // to the home page via the HX-Redirect header (HTMX client-side redirect).
 // The session ID is regenerated on login to prevent session fixation.
+//
+// Every rejection is retargeted into the form's #login-error slot instead of
+// replacing the form: a wrong code costs one of maxOTPFailuresPerPhone attempts,
+// not the digits the user typed. Spending the budget puts the number (and, at a
+// much looser threshold, the client IP) on an otpLockoutDuration cooldown.
 func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -185,9 +183,23 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	pl, ok := h.pendingLogins[oldSid]
 	h.sessionMu.RUnlock()
 
-	if !ok || pl.phone == "" || code == "" {
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<div class="space-y-3"><p class="text-sm leading-7 text-pomegranate text-center">کد نامعتبر است.</p><a href="/login" class="block text-center text-sm font-semibold text-fig underline-offset-4 hover:underline">دریافت دوباره کد</a></div>`)
+	ip := clientIP(r)
+
+	if !ok || pl.phone == "" {
+		loginAlert(w, "error", `درخواست ورود شما دیگر معتبر نیست؛ کد جدیدی بگیرید.`+markerResend)
+		return
+	}
+
+	// A number on cooldown is turned away before its code is even looked at, so
+	// the lockout cannot be brute-forced through.
+	if lock := h.otpLockRemaining(pl.phone, ip); lock > 0 {
+		lockoutAlert(w, lock)
+		return
+	}
+
+	// An incomplete code is a slip rather than a guess, so it costs no attempt.
+	if code == "" {
+		loginAlert(w, "error", `کد ۵ رقمی را کامل وارد کنید.`+markerAttempt)
 		return
 	}
 
@@ -195,15 +207,13 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		h.sessionMu.Lock()
 		delete(h.pendingLogins, oldSid)
 		h.sessionMu.Unlock()
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<div class="space-y-3"><p class="text-sm leading-7 text-pomegranate text-center">کد منقضی شده است.</p><a href="/login" class="block text-center text-sm font-semibold text-fig underline-offset-4 hover:underline">دریافت دوباره کد</a></div>`)
+		loginAlert(w, "error", `کد منقضی شده است؛ با «ارسال دوباره کد» کد جدیدی بگیرید.`+markerResend)
 		return
 	}
 
 	// Per-phone attempt limit on top of the per-IP limit applied by the router.
 	if !h.otpVerifyLimiter.Allow("phone:" + pl.phone) {
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<div class="space-y-3"><p class="text-sm leading-7 text-pomegranate text-center">تعداد تلاش‌ها زیاد است؛ کمی بعد دوباره تلاش کنید.</p><a href="/login" class="block text-center text-sm font-semibold text-fig underline-offset-4 hover:underline">دریافت دوباره کد</a></div>`)
+		loginAlert(w, "warn", `تعداد تلاش‌ها زیاد است؛ کمی بعد دوباره تلاش کنید.`)
 		return
 	}
 
@@ -215,10 +225,20 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !valid {
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<div class="space-y-3"><p class="text-sm leading-7 text-pomegranate text-center">کد اشتباه است یا منقضی شده.</p><a href="/login" class="block text-center text-sm font-semibold text-fig underline-offset-4 hover:underline">دریافت دوباره کد</a></div>`)
+		lock, remaining := h.recordOTPFailure(pl.phone, ip)
+		if lock > 0 {
+			logutil.Warn("otp login on cooldown after repeated wrong codes",
+				"phone_suffix", phoneSuffix(pl.phone), "ip", ip, "cooldown", otpLockoutDuration)
+			lockoutAlert(w, lock)
+			return
+		}
+		loginAlert(w, "error", fmt.Sprintf(`کد وارد شده اشتباه است؛ %s تلاش دیگر باقی مانده است.`,
+			toPersianDigits(fmt.Sprint(remaining)))+markerAttempt)
 		return
 	}
+
+	// The code was right, so the number starts from a full budget next time.
+	h.otpAttempts.reset("phone:" + pl.phone)
 
 	user, err := database.GetUserByPhone(r.Context(), h.db, pl.phone)
 	if err != nil {
@@ -285,6 +305,67 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	})
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// ── Login feedback fragments ──────────────────────────
+//
+// Rejections during the OTP exchange are written into the login page's
+// #login-error slot (via HX-Retarget) instead of being swapped over the form.
+// Both login forms carry a slot with that id, so the phone field or the digit
+// boxes stay on screen — and stay filled — whatever the server answers.
+
+// markerAttempt tags a recoverable error: the page clears the digit boxes and
+// puts the cursor back in the first one so the user can simply retype.
+const markerAttempt = `<span id="otp-attempt-error" hidden></span>`
+
+// markerResend tags an error the user can only escape by fetching a new code:
+// the page clears the boxes and re-enables the resend button immediately.
+const markerResend = `<span id="otp-resend-now" hidden></span>`
+
+// loginAlert writes an alert box into the #login-error slot. tone is "error" for
+// a rejected input or "warn" for a limit the user has to wait out. bodyHTML is
+// trusted markup assembled here, never raw user input.
+func loginAlert(w http.ResponseWriter, tone, bodyHTML string) {
+	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("HX-Retarget", "#login-error")
+	w.Header().Set("HX-Reswap", "innerHTML")
+	w.Write([]byte(alertBox(tone, bodyHTML)))
+}
+
+// alertBox renders the login page's alert markup around an HTML body.
+func alertBox(tone, bodyHTML string) string {
+	palette := "border-rose/40 bg-[#FAE6E1] text-pomegranate"
+	if tone == "warn" {
+		palette = "border-[#C98A2C]/45 bg-[#F6E9CD] text-[#7A5A2E]"
+	}
+	return `<div class="flex items-start gap-3 rounded-[1.05rem_1rem_1rem_1.1rem] border ` + palette + ` px-4 py-3 text-sm leading-7" role="alert">
+      <svg class="mt-1 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+      </svg>
+      <span>` + bodyHTML + `</span>
+    </div>`
+}
+
+// lockoutAlert reports the remaining login cooldown. The login page ticks the
+// countdown element down and keeps the inputs disabled for as long as it is on
+// screen, re-enabling them when it reaches zero.
+func lockoutAlert(w http.ResponseWriter, remaining time.Duration) {
+	secs := int(remaining.Round(time.Second).Seconds())
+	if secs < 1 {
+		secs = 1
+	}
+	loginAlert(w, "warn", fmt.Sprintf(
+		`تلاش‌های ناموفق زیادی انجام شده است؛ ورود با این شماره تا <span id="otp-lock-timer" data-seconds="%d" dir="ltr">%s</span> دیگر بسته است.`,
+		secs, toPersianDigits(fmt.Sprintf("%d:%02d", secs/60, secs%60))))
+}
+
+// phoneSuffix returns the last four digits of a phone number, so an operational
+// log line can identify a lockout without recording the whole number.
+func phoneSuffix(phone string) string {
+	if len(phone) <= 4 {
+		return phone
+	}
+	return phone[len(phone)-4:]
 }
 
 // generateOTP5 returns a cryptographically random 5-digit zero-padded string.

@@ -157,6 +157,7 @@ func newTestHandler(t *testing.T) (*Handler, *fakeGateway) {
 		pendingNext:      make(map[string]pendingReturn),
 		otpLimiter:       NewRateLimiter(100, time.Minute),
 		otpVerifyLimiter: NewRateLimiter(100, time.Minute),
+		otpAttempts:      newAttemptTracker(),
 	}
 	return h, gw
 }

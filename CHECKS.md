@@ -79,11 +79,21 @@ Confirm the server is configured and started correctly before testing:
         on the page and in the logs.
   - [ ] Invalid phone → friendly error, **no user created**, no SMS attempt.
   - [ ] Per-phone rate limit eventually blocks repeated sends (HTTP error).
+  - [ ] A number on login cooldown (see below) cannot get a new code — the countdown is shown
+        instead, so the wrong-code budget cannot be reset by resending.
 - [ ] **Verify OTP** (POST `/auth/verify-otp` with `phone` + `code`):
   - [ ] Correct code → logged in, session cookie set, **redirected to the `next` URL**
         (e.g. `/checkout`), not the homepage.
-  - [ ] Wrong / expired code → error, stays on login.
-  - [ ] Resend timer / resend button works.
+  - [ ] Wrong code → error appears **below the digit boxes**; the boxes are cleared and
+        refocused but the form itself stays (the phone number does **not** have to be
+        re-entered), and the message counts down the remaining attempts.
+  - [ ] Typing the correct code after a wrong one still logs in.
+  - [ ] Expired code → error and the resend button becomes usable immediately.
+  - [ ] **5 wrong codes** for one number → inputs disabled and a `mm:ss` cooldown (5 min)
+        ticks down; the correct code is refused while it runs. When it hits zero the inputs
+        come back with a "you can request a new code" line, and login works again.
+  - [ ] Resend timer / resend button works, and the resend button is **not** re-enabled by its
+        90-second timer while a lockout countdown is still running.
 - [ ] **Logout** (`/logout`) clears the session and CSRF cookies and redirects home; protected
       pages then require login again.
 
@@ -171,6 +181,10 @@ Confirm the server is configured and started correctly before testing:
 - [ ] **Security headers** present on responses (e.g. `X-Content-Type-Options: nosniff`, etc.).
 - [ ] **Same-origin** policy enforced for mutating requests.
 - [ ] **Rate limiters** active on login / send-otp / verify-otp / admin.
+- [ ] **OTP brute force:** 5 wrong codes lock that number out of login for 5 minutes (both
+      verify and send); many wrong codes across different numbers from one address eventually
+      lock that address too. A log line records the lockout with only the last 4 digits of
+      the number.
 - [ ] **Input validation:** phone, postal code, order id validated; bad values rejected
       gracefully (no 500s).
 - [ ] **No broken pages / 500s** during the full walkthrough (watch the logs for errors).

@@ -30,6 +30,7 @@ type Handler struct {
 	pendingNext      map[string]pendingReturn // session ID → post-login destination
 	otpLimiter       *RateLimiter             // per-phone cap on OTP sends
 	otpVerifyLimiter *RateLimiter             // per-phone cap on OTP verification attempts
+	otpAttempts      *attemptTracker          // wrong-code budget + login cooldown per phone/IP
 	sessionMu        sync.RWMutex
 }
 
@@ -146,6 +147,7 @@ func NewHandler(ctx context.Context, db *sql.DB, cartStore *CartStore, zarinpal 
 		pendingNext:      make(map[string]pendingReturn),
 		otpLimiter:       NewRateLimiter(5, time.Minute),
 		otpVerifyLimiter: NewRateLimiter(10, time.Minute),
+		otpAttempts:      newAttemptTracker(),
 	}
 	h.startSessionJanitor(ctx)
 	h.startUnpaidOrderJanitor(ctx)
