@@ -34,7 +34,7 @@
 
   {{if eq .Step 2}}
   <!-- STEP 2: ORDER REVIEW -->
-  <div class="paper-card mt-7 overflow-hidden px-7 py-7" data-reveal>
+  <div class="paper-card mt-7 overflow-hidden px-5 py-7 sm:px-7" data-reveal>
     <div class="mb-6 flex items-center gap-2.5">
       <span class="flex h-7 w-7 items-center justify-center rounded-full bg-pomegranate text-sm font-bold" style="color:var(--text-on-dark)">۲</span>
       <h2 class="font-display text-lg font-semibold text-walnut">مرور سفارش</h2>
@@ -90,11 +90,14 @@
       <input type="hidden" name="postal_code" value="{{.PostalCode}}">
 
       <div class="flex gap-3">
-        <a href="/checkout?name={{.Name}}&phone={{.Phone}}&address={{.Address}}&postal_code={{.PostalCode}}" class="btn flex-1 border border-line bg-transparent text-walnut hover:bg-sand/80">
+        <a href="/checkout?name={{.Name}}&phone={{.Phone}}&address={{.Address}}&postal_code={{.PostalCode}}" class="btn btn-compact border border-line bg-transparent text-walnut hover:bg-sand/80">
           بازگشت
         </a>
-        <button type="submit" class="btn btn-primary flex-1 text-base">
-          پرداخت و ثبت سفارش — {{formatPrice .Total}}
+        <!-- btn-stacked puts the amount on its own line on phones (see layout.html). -->
+        <button type="submit" class="btn btn-primary btn-stacked flex-1 text-base">
+          <span>پرداخت و ثبت سفارش</span>
+          <span class="btn-sep" aria-hidden="true">—</span>
+          <span>{{formatPrice .Total}}</span>
         </button>
       </div>
     </form>
