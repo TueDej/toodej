@@ -1,1 +1,1 @@
-{{define "title"}}CONFIRM{{end}}{{define "content"}}CONFIRM-PAGE{{if .Order}} id={{.Order.ID}} status={{.Order.Status}}{{end}}{{end}}
+{{define "title"}}CONFIRM{{end}}{{define "content"}}CONFIRM-PAGE{{if .Order}} id={{.Order.ID}} status={{.Order.Status}}{{end}}{{range .Items}} ITEM={{.Name}}{{end}}{{end}}

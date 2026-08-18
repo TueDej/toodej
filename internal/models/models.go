@@ -1,5 +1,5 @@
 // Package models defines the core domain types shared across the application:
-// Product, Order, OrderItem, User, and OTPCode.
+// Product, Order, OrderItem, and User.
 package models
 
 import "time"
@@ -65,13 +65,4 @@ type User struct {
 	ID          int64     `json:"id"`
 	PhoneNumber string    `json:"phone_number"`
 	CreatedAt   time.Time `json:"created_at"`
-}
-
-// OTPCode stores a one-time password for phone-based authentication.
-type OTPCode struct {
-	ID          int64     `json:"id"`
-	PhoneNumber string    `json:"phone_number"`
-	Code        string    `json:"code"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	IsUsed      bool      `json:"is_used"`
 }

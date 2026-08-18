@@ -96,10 +96,6 @@ var (
 	colorWarn  = color.New(color.FgYellow)
 	colorInfo  = color.New(color.FgGreen)
 	colorDebug = color.New(color.FgCyan)
-	// colorGrey renders low-signal lines (e.g. HTTP access logs) in an actual
-	// grey so they recede. FgHiBlack (bright black) is the portable "grey" in
-	// ANSI; a bare Faint would render near-white on the light parchment UI.
-	colorGrey = color.New(color.FgHiBlack)
 	// colorDim dims the timestamp.
 	colorDim = color.New(color.Faint)
 )
@@ -122,11 +118,10 @@ func levelColor(l slog.Level) *color.Color {
 // coloured text line. It is used instead of slog.TextHandler because the stock
 // text handler escapes control characters, which would mangle ANSI codes.
 type colorTextHandler struct {
-	w      io.Writer
-	mu     *sync.Mutex
-	level  slog.Leveler
-	attrs  []slog.Attr
-	groups []string
+	w     io.Writer
+	mu    *sync.Mutex
+	level slog.Leveler
+	attrs []slog.Attr
 }
 
 func newColorTextHandler(w io.Writer, level slog.Level) *colorTextHandler {
@@ -146,13 +141,7 @@ func (h *colorTextHandler) Handle(_ context.Context, r slog.Record) error {
 	b.WriteString(levelColor(r.Level).Sprint(r.Level.String()))
 	b.WriteByte(' ')
 
-	// HTTP access-log lines are high-volume and low-signal, so render the
-	// message itself grey to make it recede (the level keeps its own colour).
-	if r.Message == "http request" {
-		b.WriteString(colorGrey.Sprint(r.Message))
-	} else {
-		b.WriteString(r.Message)
-	}
+	b.WriteString(r.Message)
 
 	for _, a := range h.attrs {
 		h.writeAttr(&b, a, "")
@@ -200,18 +189,10 @@ func (h *colorTextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &n
 }
 
-func (h *colorTextHandler) WithGroup(name string) slog.Handler {
+func (h *colorTextHandler) WithGroup(_ string) slog.Handler {
 	n := *h
-	n.groups = append(append([]string{}, h.groups...), name)
 	return &n
 }
-
-// Set replaces the package-level Logger. Intended for tests that want a
-// deterministic logger.
-func Set(l *slog.Logger) { Logger = l }
-
-// Debug logs at debug level.
-func Debug(msg string, args ...any) { Logger.Debug(msg, args...) }
 
 // Info logs at info level.
 func Info(msg string, args ...any) { Logger.Info(msg, args...) }
@@ -228,14 +209,6 @@ func Fatal(msg string, args ...any) {
 	Logger.Error(msg, args...)
 	os.Exit(1)
 }
-
-// With returns a child logger carrying the given key/value pairs on every
-// subsequent record (e.g. a request or order id).
-func With(args ...any) *slog.Logger { return Logger.With(args...) }
-
-// FromContext is retained for callers that may thread a logger through a
-// context in the future; it currently returns the package-level logger.
-func FromContext(_ context.Context) *slog.Logger { return Logger }
 
 // statusRecorder captures the HTTP status code and written byte count so the
 // access logger can report them.

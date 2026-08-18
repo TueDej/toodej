@@ -17,9 +17,6 @@ By some random order, I don't even know...
 [ ] Add a guide for each product's benefits
 [ ] Evaluate shipment costs and add to checkout
 [ ] SMS/OTP service
-[ ] Email for support
 
 UI/UX
 -----
-
-

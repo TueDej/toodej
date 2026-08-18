@@ -5,8 +5,6 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
-
-	"html/template"
 )
 
 // CSRF token configuration
@@ -30,7 +28,13 @@ func GenerateToken() string {
 // extractToken extracts the CSRF token from request, checking:
 // 1. Form field (for regular form submissions)
 // 2. Header (for HTMX/AJAX requests)
-// 3. Cookie (fallback)
+//
+// The cookie is deliberately NOT used as a fallback source here. The double-submit
+// cookie pattern proves the request is first-party because the submitted token
+// (form/header) must match the cookie, but the cookie itself is auto-sent by the
+// browser on every request — including forged cross-site ones. Reading the cookie
+// as the submitted token would make any cross-site POST trivially pass CSRF, so
+// the token must come from a channel an attacker cannot set cross-origin.
 func extractToken(r *http.Request) string {
 	// Check form value first
 	if token := r.FormValue(csrfFormField); token != "" {
@@ -39,10 +43,6 @@ func extractToken(r *http.Request) string {
 	// Check header (used by HTMX)
 	if token := r.Header.Get(csrfHeaderName); token != "" {
 		return token
-	}
-	// Check cookie as fallback
-	if cookie, err := r.Cookie(csrfCookieName); err == nil {
-		return cookie.Value
 	}
 	return ""
 }
@@ -124,22 +124,4 @@ func ensureCSRFToken(w http.ResponseWriter, r *http.Request) string {
 	}
 
 	return token
-}
-
-// csrfTokenFunc is a template function that returns a valid CSRF token.
-// It ensures the token cookie is set.
-func csrfTokenFunc(h *Handler) func(http.ResponseWriter, *http.Request) string {
-	return func(w http.ResponseWriter, r *http.Request) string {
-		return ensureCSRFToken(w, r)
-	}
-}
-
-// csrfFieldFunc is a template function that returns a hidden input field with the CSRF token.
-func csrfFieldFunc(h *Handler) func() template.HTML {
-	return func() template.HTML {
-		// The CSRF token is injected via commonData → template data map.
-		// This placeholder is replaced at render time by the CSRFToken field.
-		// It is never actually rendered because mergeData always provides CSRFToken.
-		return template.HTML(`PLACEHOLDER`)
-	}
 }

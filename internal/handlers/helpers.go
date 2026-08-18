@@ -49,17 +49,6 @@ func (h *Handler) mergeData(r *http.Request, data map[string]any, w http.Respons
 	return data
 }
 
-// renderCenteredError is a utility for rendering error pages (unused currently
-// but kept for future error-page rendering).
-func (h *Handler) renderCenteredError(w http.ResponseWriter, status int, msg string) {
-	w.WriteHeader(status)
-	data := map[string]any{
-		"title":   http.StatusText(status),
-		"message": msg,
-	}
-	h.renderTemplate(w, "index", "content", data)
-}
-
 // formatToman formats an integer price (in the smallest currency unit) as a
 // human-readable Persian price string with thousand separators, Persian digits,
 // and the "تومان" suffix.

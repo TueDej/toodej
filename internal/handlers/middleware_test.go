@@ -155,7 +155,7 @@ func TestCSRFMiddleware(t *testing.T) {
 			withCookie("abc")(r)
 			withForm(url.Values{csrfFormField: {"xyz"}})(r)
 		}, http.StatusForbidden},
-		{"cookie fallback alone", withCookie("abc"), http.StatusOK},
+		{"cookie alone is rejected", withCookie("abc"), http.StatusForbidden},
 		{"matching cookie + header", func(r *http.Request) {
 			withCookie("abc")(r)
 			withHeader("abc")(r)
@@ -164,10 +164,10 @@ func TestCSRFMiddleware(t *testing.T) {
 			withCookie("abc")(r)
 			withHeader("xyz")(r)
 		}, http.StatusForbidden},
-		{"empty header + form", func(r *http.Request) {
+		{"empty form token is rejected", func(r *http.Request) {
 			withCookie("abc")(r)
 			withForm(url.Values{csrfFormField: {""}})(r)
-		}, http.StatusOK}, // empty request token falls through to cookie
+		}, http.StatusForbidden}, // empty request token must not fall through to the cookie
 		{"exempt verify path", func(r *http.Request) {
 			r.URL.Path = "/checkout/verify"
 		}, http.StatusOK},

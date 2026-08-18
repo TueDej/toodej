@@ -263,8 +263,8 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 	if authority == "" || status != "OK" {
 		// Payment was cancelled or failed — cancel the order and restore stock.
 		if authority != "" {
-		if order, err := database.GetOrderByAuthority(r.Context(), h.db, authority); err == nil {
-			database.MarkPaymentFailed(r.Context(), h.db, order.ID)
+			if order, err := database.GetOrderByAuthority(r.Context(), h.db, authority); err == nil {
+				database.MarkPaymentFailed(r.Context(), h.db, order.ID)
 			}
 		}
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
@@ -343,13 +343,18 @@ func (h *Handler) Confirmation(w http.ResponseWriter, r *http.Request) {
 		Unit     string
 	}
 
+	productByID := make(map[int64]models.Product, len(products))
+	for _, p := range products {
+		productByID[p.ID] = p
+	}
+
 	var itemViews []itemView
-	for i, item := range items {
+	for _, item := range items {
 		name := fmt.Sprintf("Product #%d", item.ProductID)
 		unit := ""
-		if i < len(products) {
-			name = products[i].Name
-			unit = products[i].Unit
+		if p, ok := productByID[item.ProductID]; ok {
+			name = p.Name
+			unit = p.Unit
 		}
 		itemViews = append(itemViews, itemView{
 			Name:     name,

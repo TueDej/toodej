@@ -20,20 +20,6 @@ type Cart struct {
 	Items []CartItem
 }
 
-// AddItem increments quantity if the product already exists in the cart;
-// otherwise appends a new line item with quantity 1.
-func (c *Cart) AddItem(item CartItem) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for i, existing := range c.Items {
-		if existing.ProductID == item.ProductID {
-			c.Items[i].Quantity++
-			return
-		}
-	}
-	c.Items = append(c.Items, item)
-}
-
 // AddItemLimited increments or appends a cart item only when it would not exceed
 // the latest stock quantity known by the caller. It also refreshes display fields
 // from the current product row.

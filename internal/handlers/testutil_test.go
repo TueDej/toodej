@@ -257,6 +257,14 @@ func (c *testClient) do(method, path string, form url.Values) *http.Response {
 	if form != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
+	// Mimic the browser's htmx:configRequest handler (layout.html): a real
+	// browser attaches the CSRF token from the meta tag as the X-CSRF-Token
+	// header on every mutating request. Without this, even legitimate tests
+	// would be rejected by the CSRF middleware after the cookie-fallback was
+	// removed.
+	if isMutating(method) && c.csrfToken != "" {
+		req.Header.Set(csrfHeaderName, c.csrfToken)
+	}
 	if c.authHeader != "" {
 		req.Header.Set("Authorization", c.authHeader)
 	}

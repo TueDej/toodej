@@ -228,7 +228,9 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Regenerate session ID to prevent session fixation: the pre-auth ID
-	// (which an attacker may have planted) is discarded.
+	// (which an attacker may have planted) is discarded. regenerateSessionID
+	// migrates the pending return-URL to the new ID, so we read it back from
+	// newSid below (reading oldSid would be empty after the migration).
 	newSid := h.regenerateSessionID(w, r)
 
 	h.sessionMu.Lock()
@@ -236,12 +238,12 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		h.userSessions = make(map[string]session)
 	}
 	h.userSessions[newSid] = session{userID: user.ID, expiresAt: time.Now().Add(sessionTTL)}
-	delete(h.pendingLogins, oldSid)
+	delete(h.pendingLogins, newSid)
 	next := ""
-	if pr, ok := h.pendingNext[oldSid]; ok {
+	if pr, ok := h.pendingNext[newSid]; ok {
 		next = pr.url
 	}
-	delete(h.pendingNext, oldSid)
+	delete(h.pendingNext, newSid)
 	h.sessionMu.Unlock()
 
 	dest := sanitizeReturnURL(next)

@@ -591,8 +591,18 @@ func MarkPaymentFailed(ctx context.Context, db *sql.DB, orderID string) error {
 		return tx.Commit()
 	}
 
-	if _, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'awaiting_payment'", orderID); err != nil {
+	res, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'awaiting_payment'", orderID)
+	if err != nil {
 		return fmt.Errorf("cancel unpaid order %s: %w", orderID, err)
+	}
+	// Only restore stock if THIS transaction actually moved the order out of
+	// awaiting_payment. Another caller (the unpaid-order janitor, the payment
+	// reconciler's ConfirmPayment, or a concurrent request) may have already
+	// transitioned it; if so RowsAffected is 0 and we must NOT restore, or
+	// inventory would be returned to stock twice — or, worse, for an order that
+	// was actually paid (reconciler confirmed it) — leaking stock.
+	if n, _ := res.RowsAffected(); n == 0 {
+		return tx.Commit()
 	}
 
 	rows, err := tx.QueryContext(ctx, "SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)
@@ -652,8 +662,15 @@ func CancelExpiredUnpaidOrders(ctx context.Context, db *sql.DB, ttl time.Duratio
 	}
 
 	for _, orderID := range expiredOrderIDs {
-		if _, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'awaiting_payment'", orderID); err != nil {
+		res, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'awaiting_payment'", orderID)
+		if err != nil {
 			return 0, fmt.Errorf("cancel expired order %s: %w", orderID, err)
+		}
+		// Skip stock restore if another path already transitioned this order out
+		// of awaiting_payment (e.g. the reconciler confirmed payment). Without
+		// this guard a paid order's inventory could be wrongly returned to stock.
+		if n, _ := res.RowsAffected(); n == 0 {
+			continue
 		}
 
 		itemRows, err := tx.QueryContext(ctx, "SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)

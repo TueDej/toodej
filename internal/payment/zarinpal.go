@@ -28,7 +28,6 @@ const RialPerToman = 10
 // Zarinpal is a lightweight client for the Zarinpal payment gateway (v4 API).
 type Zarinpal struct {
 	merchantID  string
-	sandbox     bool
 	requestURL  string
 	verifyURL   string
 	gatewayBase string
@@ -47,7 +46,6 @@ func New(merchantID string, sandbox bool) *Zarinpal {
 	}
 	return &Zarinpal{
 		merchantID:  merchantID,
-		sandbox:     sandbox,
 		requestURL:  requestURL,
 		verifyURL:   verifyURL,
 		gatewayBase: gatewayBase,
@@ -104,7 +102,6 @@ type paymentResponse struct {
 		Code      int    `json:"code"`
 		Message   string `json:"message"`
 	} `json:"data"`
-	Errors json.RawMessage `json:"errors"`
 }
 
 // RequestPayment initiates a payment request and returns the authority token
@@ -161,11 +158,7 @@ type verifyResponse struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
 		RefID   int64  `json:"ref_id"`
-		CardPan string `json:"card_pan"`
-		FeeType string `json:"fee_type"`
-		Fee     int    `json:"fee"`
 	} `json:"data"`
-	Errors json.RawMessage `json:"errors"`
 }
 
 // VerifyResult holds the outcome of a payment verification.

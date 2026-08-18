@@ -13,7 +13,7 @@ import (
 // handler emits ANSI codes even when stdout is not a TTY (as in `go test`).
 func forceColor() {
 	color.NoColor = false
-	for _, c := range []*color.Color{colorError, colorWarn, colorInfo, colorDebug, colorGrey, colorDim} {
+	for _, c := range []*color.Color{colorError, colorWarn, colorInfo, colorDebug, colorDim} {
 		c.EnableColor()
 	}
 }
@@ -39,7 +39,7 @@ func TestColorTextHandlerEmitsANSI(t *testing.T) {
 			t.Fatalf("expected level %q in output, got:\n%s", lvl, out)
 		}
 	}
-	// The http request line is rendered grey (dim), which still uses ANSI.
+	// The http request line is rendered like any other message.
 	if !strings.Contains(out, "http request") {
 		t.Fatalf("expected http request line, got:\n%s", out)
 	}

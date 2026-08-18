@@ -56,13 +56,21 @@ func (h *Handler) AdminOrderDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build OrderItemView slice with product names and subtotals.
+	// Look products up by ID rather than by position: GetProductsByIDs returns
+	// products in DB id order (not item order) and may omit deleted products,
+	// so a positional join would mismatch names/units or drop lines.
+	productByID := make(map[int64]models.Product, len(products))
+	for _, p := range products {
+		productByID[p.ID] = p
+	}
+
 	var itemViews []models.OrderItemView
-	for i, item := range items {
+	for _, item := range items {
 		name := ""
 		unit := ""
-		if i < len(products) {
-			name = products[i].Name
-			unit = products[i].Unit
+		if p, ok := productByID[item.ProductID]; ok {
+			name = p.Name
+			unit = p.Unit
 		}
 		itemViews = append(itemViews, models.OrderItemView{
 			Name:     name,
