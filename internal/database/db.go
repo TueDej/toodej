@@ -628,7 +628,9 @@ func MarkPaymentFailed(ctx context.Context, db *sql.DB, orderID string) error {
 }
 
 // CancelExpiredUnpaidOrders cancels all orders in 'awaiting_payment' state that were created
-// older than ttl ago, and restores stock for all items in those orders.
+// older than ttl ago, and restores stock for all items in those orders. It returns the number
+// of orders this call actually cancelled, which can be fewer than the number it selected if
+// another path transitioned one of them in the meantime.
 func CancelExpiredUnpaidOrders(ctx context.Context, db *sql.DB, ttl time.Duration) (int, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -661,6 +663,7 @@ func CancelExpiredUnpaidOrders(ctx context.Context, db *sql.DB, ttl time.Duratio
 		return 0, nil
 	}
 
+	cancelled := 0
 	for _, orderID := range expiredOrderIDs {
 		res, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'awaiting_payment'", orderID)
 		if err != nil {
@@ -669,9 +672,12 @@ func CancelExpiredUnpaidOrders(ctx context.Context, db *sql.DB, ttl time.Duratio
 		// Skip stock restore if another path already transitioned this order out
 		// of awaiting_payment (e.g. the reconciler confirmed payment). Without
 		// this guard a paid order's inventory could be wrongly returned to stock.
+		// Such an order is also not counted, so the reported total reflects the
+		// orders this call really cancelled.
 		if n, _ := res.RowsAffected(); n == 0 {
 			continue
 		}
+		cancelled++
 
 		itemRows, err := tx.QueryContext(ctx, "SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)
 		if err != nil {
@@ -707,7 +713,7 @@ func CancelExpiredUnpaidOrders(ctx context.Context, db *sql.DB, ttl time.Duratio
 		return 0, fmt.Errorf("commit cancel expired: %w", err)
 	}
 
-	return len(expiredOrderIDs), nil
+	return cancelled, nil
 }
 
 // GetAllProducts returns every product (including inactive ones), ordered by name.

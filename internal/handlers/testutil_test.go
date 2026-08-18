@@ -197,7 +197,7 @@ func routerFor(h *Handler) *chi.Mux {
 	r.Post("/auth/verify-otp", h.VerifyOTP)
 	r.Get("/logout", h.Logout)
 	r.Get("/orders", h.UserOrders)
-	r.Get("/orders/{id}/pay", h.ResumePayment)
+	r.Post("/orders/{id}/pay", h.ResumePayment)
 
 	adminLimiter := NewRateLimiter(1000, time.Minute)
 	r.Route("/admin", func(r chi.Router) {

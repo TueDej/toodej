@@ -106,8 +106,10 @@ Confirm the server is configured and started correctly before testing:
   - [ ] **IDOR check:** opening another user's confirmation URL returns `404`; that order does
         **not** appear in the other user's order history.
 - [ ] **Order history `/orders`** lists only the logged-in user's orders with correct status.
-- [ ] **Resume payment** (`/orders/{id}/pay` for an `awaiting_payment` order) re-issues a
-      Zarinpal authority and redirects to the gateway.
+- [ ] **Resume payment** (the "ادامه پرداخت" button on `/orders` for an `awaiting_payment`
+      order) re-issues a Zarinpal authority and redirects to the gateway. It is a
+      CSRF-protected `POST /orders/{id}/pay`, so it must be triggered from the page's button
+      (a bare `GET` of that URL now returns `405`).
 
 ### 1.5 Payment edge cases (verify stock integrity)
 - [ ] Place an order, then **let the gateway callback be lost** (close browser after paying):

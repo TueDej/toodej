@@ -390,8 +390,22 @@ func TestResumePayment(t *testing.T) {
 		t.Fatalf("order status = %q, want awaiting_payment", order.Status)
 	}
 
+	// Resuming mutates the order, so the route must be CSRF-protected: a POST
+	// that omits the token the browser attaches is rejected before the handler
+	// runs, and never reaches the gateway.
+	_, hitsNoToken, _ := gw.snapshot()
+	token := c.csrf()
+	c.csrfToken = ""
+	if resp := c.post("/orders/"+order.ID+"/pay", nil); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("resume without CSRF token = %d, want 403", resp.StatusCode)
+	}
+	if _, hits, _ := gw.snapshot(); hits != hitsNoToken {
+		t.Fatalf("token-less resume reached the gateway (hits %d)", hits)
+	}
+	c.csrfToken = token
+
 	_, hitsBefore, _ := gw.snapshot()
-	resp = c.get("/orders/" + order.ID + "/pay")
+	resp = c.post("/orders/"+order.ID+"/pay", nil)
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("resume payment = %d", resp.StatusCode)
 	}
@@ -411,7 +425,7 @@ func TestResumePayment(t *testing.T) {
 	// IDOR: another user cannot resume this order.
 	c2 := newTestClient(t, r)
 	c2.login(t, h.db, "09139998877")
-	resp = c2.get("/orders/" + order.ID + "/pay")
+	resp = c2.post("/orders/"+order.ID+"/pay", nil)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("IDOR resume = %d, want 404", resp.StatusCode)
 	}
@@ -422,7 +436,7 @@ func TestResumePayment(t *testing.T) {
 		t.Fatalf("verify callback = %d", resp.StatusCode)
 	}
 	_, hitsAfter, _ := gw.snapshot()
-	resp = c.get("/orders/" + order.ID + "/pay")
+	resp = c.post("/orders/"+order.ID+"/pay", nil)
 	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/orders" {
 		t.Fatalf("resume paid order = %d -> %q", resp.StatusCode, resp.Header.Get("Location"))
 	}

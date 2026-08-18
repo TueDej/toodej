@@ -102,7 +102,7 @@ func main() {
 	r.With(verifyOTPLimiter.Middleware).Post("/auth/verify-otp", h.VerifyOTP)
 	r.Get("/logout", h.Logout)
 	r.Get("/orders", h.UserOrders)
-	r.Get("/orders/{id}/pay", h.ResumePayment)
+	r.Post("/orders/{id}/pay", h.ResumePayment)
 	r.Get("/sitemap.xml", h.ServeSitemap)
 	r.Get("/robots.txt", handlers.ServeRobotsTXT)
 

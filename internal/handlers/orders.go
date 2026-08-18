@@ -32,6 +32,12 @@ func (h *Handler) UserOrders(w http.ResponseWriter, r *http.Request) {
 // awaiting_payment state: it requests a fresh authority from the gateway and
 // redirects them to the cashier. Requests for an order owned by someone else or
 // in any other state are rejected (IDOR guard), so order IDs cannot be probed.
+//
+// It is registered as POST, not GET: it mutates the order (a new gateway
+// authority is stored) and so must sit behind the CSRF and same-origin
+// middleware, which only guard mutating methods. The orders page submits it as
+// a plain form so the browser follows the 303 to the gateway itself — an htmx
+// request would try to swap the cross-origin response instead of navigating.
 func (h *Handler) ResumePayment(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.requireAuth(w, r)
 	if !ok {

@@ -43,7 +43,13 @@
         <div class="flex items-center gap-4">
           <span class="text-lg font-bold tracking-tight text-pomegranate">{{formatPrice .Order.TotalAmount}}</span>
           {{if eq .Order.Status "awaiting_payment"}}
-          <a href="/orders/{{.Order.ID}}/pay" class="btn btn-primary text-sm whitespace-nowrap">ادامه پرداخت</a>
+          <!-- Resuming payment mutates the order (a fresh gateway authority is stored),
+               so it is a CSRF-protected POST. A plain form (not htmx) is used because the
+               handler redirects to the Zarinpal cashier and the browser must navigate. -->
+          <form action="/orders/{{.Order.ID}}/pay" method="POST">
+            <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+            <button type="submit" class="btn btn-primary text-sm whitespace-nowrap">ادامه پرداخت</button>
+          </form>
           {{end}}
         </div>
       </div>
