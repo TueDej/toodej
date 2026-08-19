@@ -6,7 +6,7 @@
     <div class="text-center">
       <img src="/assets/pomegranate.svg?v=3" alt="" class="leaf-mark mx-auto h-10 w-10">
       <h1 class="mt-3 font-display text-2xl font-bold text-walnut">ورود به فروشگاه</h1>
-      <p id="login-desc" class="mt-2 text-sm leading-7 text-clay">شمارهٔ همراه را وارد کنید تا کد تأیید برایتان بفرستیم.</p>
+      <p id="login-desc" class="mt-2 text-sm leading-7 text-clay">شماره‌ی همراه را وارد کنید تا کد تایید برایتان بفرستیم.</p>
     </div>
 
     <!-- LOGIN FORM — real <form> so Enter + button click both submit via htmx (same pattern as the code form).
@@ -19,7 +19,7 @@
         <input type="tel" name="phone" id="phone" inputmode="numeric" required autocomplete="tel"
           class="field mt-2 text-left dir-ltr" placeholder="09123456789">
       </div>
-      <button type="submit" class="btn btn-primary w-full text-base">دریافت کد تأیید</button>
+      <button type="submit" class="btn btn-primary w-full text-base">دریافت کد تایید</button>
       <!-- ERROR SLOT — SendOTP errors are retargeted here (HX-Retarget), leaving the form intact -->
       <div id="login-error"></div>
     </form>

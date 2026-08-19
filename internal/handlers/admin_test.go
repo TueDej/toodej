@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -291,5 +292,80 @@ func TestAdminDashboardListsData(t *testing.T) {
 	}
 	if !strings.Contains(c.body(), orderID) {
 		t.Fatalf("dashboard missing order %q", orderID)
+	}
+}
+
+func TestAdminCreateCategoryUnauthenticated(t *testing.T) {
+	r, _, _ := newTestRouter(t)
+	anon := newTestClient(t, r)
+	resp := anon.post("/admin/categories", url.Values{"slug": {"x"}, "label": {"x"}})
+	// Unauthenticated requests must be rejected (BasicAuth → 401, or the
+	// CSRF middleware that sits ahead of it → 403). Either proves the
+	// endpoint is not openly writable.
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("unauth create category = %d, want rejected", resp.StatusCode)
+	}
+}
+
+func TestAdminCreateCategory(t *testing.T) {
+	r, h, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.authorize("admin", "admin123")
+	c.bootstrapAdmin(t)
+
+	resp := c.post("/admin/categories", url.Values{"slug": {"newcat"}, "label": {"جدید"}})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create category = %d (body: %.80s)", resp.StatusCode, c.body())
+	}
+
+	var id int64
+	var slug, label string
+	var enabled int
+	err := h.db.QueryRow("SELECT id, slug, label, is_enabled FROM categories WHERE slug = ?", "newcat").
+		Scan(&id, &slug, &label, &enabled)
+	if err != nil {
+		t.Fatalf("created category not found: %v", err)
+	}
+	if slug != "newcat" || label != "جدید" || enabled != 1 {
+		t.Fatalf("created category = %q %q enabled=%d", slug, label, enabled)
+	}
+}
+
+func TestAdminCreateCategoryDuplicate(t *testing.T) {
+	r, _, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.authorize("admin", "admin123")
+	c.bootstrapAdmin(t)
+
+	// "fig" is a seeded slug — a second insert must be rejected with 400.
+	resp := c.post("/admin/categories", url.Values{"slug": {"fig"}, "label": {"تکراری"}})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("duplicate category = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestAdminToggleCategory(t *testing.T) {
+	r, h, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.authorize("admin", "admin123")
+	c.bootstrapAdmin(t)
+
+	var id int64
+	var beforeEnabled int
+	if err := h.db.QueryRow("SELECT id, is_enabled FROM categories WHERE slug = ?", "test").Scan(&id, &beforeEnabled); err != nil {
+		t.Fatalf("read test category: %v", err)
+	}
+
+	resp := c.post("/admin/categories/"+strconv.FormatInt(id, 10)+"/toggle", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("toggle category = %d", resp.StatusCode)
+	}
+
+	var afterEnabled int
+	if err := h.db.QueryRow("SELECT is_enabled FROM categories WHERE id = ?", id).Scan(&afterEnabled); err != nil {
+		t.Fatalf("read toggled category: %v", err)
+	}
+	if afterEnabled == beforeEnabled {
+		t.Fatalf("category enabled state unchanged: %d", afterEnabled)
 	}
 }

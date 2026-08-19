@@ -146,6 +146,7 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 	<button type="submit" class="btn btn-primary w-full">
 		تایید کد
 	</button>
+	<p class="text-center text-xs text-clay">کد ۵ رقمی را وارد کنید.</p>
 	<div class="flex items-center justify-center gap-2 pt-1">
 		<button type="button" id="resend-btn" class="text-sm text-fig underline-offset-4 hover:underline disabled:opacity-40 disabled:cursor-not-allowed" disabled
 			hx-post="/auth/send-otp" hx-vals='{"phone":"%s","csrf_token":"%s"}' hx-target="#login-form" hx-swap="outerHTML">
@@ -153,7 +154,6 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 		</button>
 		<span id="resend-timer" class="text-xs text-clay"></span>
 	</div>
-	<p class="text-center text-xs text-clay">کد ۵ رقمی را وارد کنید.</p>
 	</form>
 	<p id="login-desc" hx-swap-oob="true"></p>`, csrfToken, escPhone, devBox, escPhone, escPhone, csrfToken)
 }

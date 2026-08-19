@@ -60,6 +60,16 @@ type OrderSummary struct {
 	Items []OrderItemView
 }
 
+// Category is an admin-manageable product grouping. The storefront filters
+// products by the category's Label (a free-text key held on products.category),
+// while the URL slug is the stable, English identifier used in routes.
+type Category struct {
+	ID        int64
+	Slug      string
+	Label     string
+	IsEnabled bool
+}
+
 // User represents an authenticated customer identified by their phone number.
 type User struct {
 	ID          int64     `json:"id"`

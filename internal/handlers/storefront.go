@@ -10,17 +10,6 @@ import (
 	"farmstore/internal/models"
 )
 
-// catInfo is the lightweight per-category metadata used to render the home page
-// showcase tiles — the Persian label plus a slug used in the URL, a widescreen
-// orchard photo for the tile.
-type catInfo struct {
-	Slug   string
-	Label  string
-	Image  string // CSS background image URL for the tile
-	Season string // season key for matching (spring, summer, autumn, or empty)
-	IsSVG  bool   // true if Image is an SVG icon (small centered) vs photo (cover)
-}
-
 // seasonInfo carries the copy + accent used by the seasonal banner on Home.
 // It flips between fig season and pomegranate season through the year.
 type seasonInfo struct {
@@ -36,72 +25,64 @@ type seasonInfo struct {
 	CTA              string
 }
 
-// currentSeason decides the seasonal banner based on the Gregorian month.
+// currentSeason decides the seasonal banner based on the Gregorian month,
+// pointing at the fig or pomegranate category depending on the harvest.
 func currentSeason() seasonInfo {
 	m := time.Now().Month()
 	switch {
-	case m >= 3 && m <= 5:
-		return seasonInfo{
-			Key:              "spring",
-			Label:            "فصل بهار",
-			Tag:              "تازه و سبز",
-			Heading:          "محصولات تازه‌ی بهاری",
-			Tagline:          "سبزی و میوه‌ی بهاری، تازه و بی‌افزودنی.",
-			Accent:           "#3F5D42",
-			AccentQuoteColor: "#5A8A60",
-			Image:            "/assets/toodej.webp",
-			Target:           "/products/spring",
-			CTA:              "محصولات بهار را ببین",
-		}
 	case m >= 6 && m <= 8:
 		return seasonInfo{
-			Key:              "summer",
-			Label:            "فصل تابستان",
+			Key:              "fig",
+			Label:            "فصل انجیر",
 			Tag:              "ویژه این فصل",
 			Heading:          "انجیر خشک، خوشمزه و طبیعی",
 			Tagline:          "خشک‌شده زیر آفتاب، بی‌افزودنی.",
 			Accent:           "#C98A2C",
 			AccentQuoteColor: "#E3B65C",
 			Image:            "/assets/fig-showcase.webp",
-			Target:           "/products/summer",
-			CTA:              "محصولات این فصل را ببین",
+			Target:           "/products/fig",
+			CTA:              "محصولات انجیر را ببین",
 		}
 	case m >= 9 && m <= 11:
 		return seasonInfo{
-			Key:              "autumn",
-			Label:            "فصل پاییز",
+			Key:              "pomegranate",
+			Label:            "فصل انار",
 			Tag:              "برداشت پاییز",
 			Heading:          "انار تازه، آبدار",
 			Tagline:          "از دانه‌ی تازه تا رب و آب‌انار؛ بدون هیچ افزودنی.",
 			Accent:           "#C97064",
 			AccentQuoteColor: "#D98C80",
 			Image:            "/assets/pomegranate-showcase.webp",
-			Target:           "/products/autumn",
-			CTA:              "محصولات پاییز را ببین",
+			Target:           "/products/pomegranate",
+			CTA:              "محصولات انار را ببین",
 		}
 	default:
 		return seasonInfo{
-			Key:              "dried",
-			Label:            "خشکبار",
+			Key:              "traditional",
+			Label:            "محصولات سنتی",
 			Tag:              "همیشه موجود",
-			Heading:          "خشکبار و آجیل",
-			Tagline:          "انجیر خشک، پسته، گردو و بیشتر.",
+			Heading:          "محصولات سنتی و خانگی",
+			Tagline:          "مربا، رب و ترشی خانگی؛ طعم اصیل باغ.",
 			Accent:           "#8C6F5E",
 			AccentQuoteColor: "#A68B7B",
 			Image:            "/assets/fig-showcase.webp",
-			Target:           "/products/dried",
-			CTA:              "خشکبار را ببین",
+			Target:           "/products/traditional",
+			CTA:              "محصولات سنتی را ببین",
 		}
 	}
 }
 
 // featuredProducts flattens a small mixed selection of active products from
-// all categories for the storefront "منتخب این فصل" row.
+// the enabled categories for the storefront "منتخب این فصل" row.
 func (h *Handler) featuredProducts(ctx context.Context) []models.Product {
 	const max = 5
-	var out []models.Product
-	for _, cat := range []string{database.CategorySpring, database.CategorySummer, database.CategoryAutumn, database.CategoryDried, database.CategoryProcessed} {
-		ps, err := database.GetProducts(ctx, h.db, cat)
+	out := make([]models.Product, 0, max)
+	cats, err := database.GetEnabledCategories(ctx, h.db)
+	if err != nil {
+		return out
+	}
+	for _, cat := range cats {
+		ps, err := database.GetProducts(ctx, h.db, cat.Label)
 		if err != nil {
 			continue
 		}
@@ -116,43 +97,9 @@ func (h *Handler) featuredProducts(ctx context.Context) []models.Product {
 }
 
 // Home renders the main storefront page — hero, story strip, featured products,
-// seasonal banner, and the five category showcase tiles.
+// and the seasonal banner.
 func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
-	cats := []catInfo{
-		{
-			Slug:   "spring",
-			Label:  database.CategorySpring,
-			Image:  "/assets/blossoms-and-sky.webp",
-			Season: "spring",
-		},
-		{
-			Slug:   "summer",
-			Label:  database.CategorySummer,
-			Image:  "/assets/summer.webp",
-			Season: "summer",
-		},
-		{
-			Slug:   "autumn",
-			Label:  database.CategoryAutumn,
-			Image:  "/assets/autumn.webp",
-			Season: "autumn",
-		},
-		{
-			Slug:  "dried",
-			Label: database.CategoryDried,
-			Image: "/assets/bowl-nuts.svg?v=3",
-			IsSVG: true,
-		},
-		{
-			Slug:  "processed",
-			Label: database.CategoryProcessed,
-			Image: "/assets/rewilding-meadow.svg?v=3",
-			IsSVG: true,
-		},
-	}
-
 	data := h.mergeData(r, map[string]any{
-		"Categories":    cats,
 		"Featured":      h.featuredProducts(r.Context()),
 		"Season":        currentSeason(),
 		"CurrentSeason": currentSeason().Key,
@@ -162,38 +109,32 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 }
 
 // ProductsPage renders the listing for a single category — reusing the same
-// product card markup as before.
+// product card markup as before. The "all" slug is a special always-available
+// filter; any other slug resolves to a seeded category and 404s when missing or
+// disabled.
 func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("category")
 
 	var category, currentFilter, label string
-	switch slug {
-	case "spring":
-		category = database.CategorySpring
-		currentFilter = "spring"
-		label = database.CategorySpring
-	case "summer":
-		category = database.CategorySummer
-		currentFilter = "summer"
-		label = database.CategorySummer
-	case "autumn":
-		category = database.CategoryAutumn
-		currentFilter = "autumn"
-		label = database.CategoryAutumn
-	case "dried":
-		category = database.CategoryDried
-		currentFilter = "dried"
-		label = database.CategoryDried
-	case "processed":
-		category = database.CategoryProcessed
-		currentFilter = "processed"
-		label = database.CategoryProcessed
-	case "all":
+	if slug == "all" {
 		category = "all"
 		currentFilter = "all"
 		label = "همه محصولات"
-	default:
-		http.NotFound(w, r)
+	} else {
+		cat, err := database.GetCategoryBySlug(r.Context(), h.db, slug)
+		if err != nil || !cat.IsEnabled {
+			http.NotFound(w, r)
+			return
+		}
+		category = cat.Label
+		currentFilter = cat.Slug
+		label = cat.Label
+	}
+
+	cats, err := database.GetEnabledCategories(r.Context(), h.db)
+	if err != nil {
+		logutil.Error("enabled categories", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
@@ -206,9 +147,9 @@ func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 
 	data := h.mergeData(r, map[string]any{
 		"Products":      products,
+		"Categories":    cats,
 		"CurrentFilter": currentFilter,
 		"CategoryLabel": label,
-		"CategorySlug":  currentFilter,
 	}, w)
 
 	h.render(w, "products", data)

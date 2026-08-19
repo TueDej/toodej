@@ -10,23 +10,23 @@
   <!-- faint golden hour dappling -->
   <div class="absolute inset-0 opacity-[.18] bg-[radial-gradient(ellipse_at_28%_82%,rgba(201,138,44,.5),transparent_62%)]"></div>
   <div class="relative mx-auto flex min-h-[100dvh] max-w-5xl flex-col justify-center px-5 pb-28 lg:px-8" data-reveal>
-    <h1 class="max-w-3xl font-display text-[2.5rem] font-extrabold leading-[1.18] md:text-6xl"
+    <h1 class="max-w-3xl font-display text-[2.5rem] font-extrabold leading-[1.18] md:text-6xl mt-28 md:mt-32"
         style="text-shadow:0 2px 18px rgba(20,14,10,.55)">
-       محصولات طبیعی،<br>مستقیم از باغ
+       از دست‌های ما<br>تا سفره شما
      </h1>
     <p class="mt-5 max-w-xl text-base leading-8 md:text-lg" style="color:var(--text-on-dark); opacity:.9; text-shadow:0 1px 10px rgba(20,14,10,.5)">
-       انجیر خشک، انار، خشکبار و محصولات فصل — تازه، طبیعی و بی‌افزودنی.
+       انجیر خشک، انار، خشکبار و محصولات فصل — تازه و درجه یک.
      </p>
   </div>
 
   <!-- scroll cue -->
-    <a href="#story" class="group absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center text-parchment/80 transition-colors hover:text-parchment" aria-label="به پایین بروید">
-      <span class="scroll-cue-arrow block h-6 w-6">
-      <svg class="h-full w-full" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+<a href="#story" class="group absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center justify-center text-parchment/80 transition-colors hover:text-parchment" aria-label="به پایین بروید">
+      <span class="scroll-cue-arrow flex h-14 w-14 items-center justify-center">
+      <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
         <path stroke-linecap="round" stroke-linejoin="round" d="M2 7l10 7 10-7"/>
       </svg>
     </span>
-  </a>
+    </a>
 
   <style>
     @keyframes scrollCue {
@@ -47,26 +47,17 @@
     <div class="grid items-center gap-12 lg:grid-cols-12">
       <div class="lg:col-span-6">
         <div class="relative mx-auto max-w-md" data-reveal>
-          <div class="tape" aria-hidden="true"></div>
           <div class="rotate-[-1.6deg] overflow-hidden rounded-2xl border border-line bg-sand shadow-lift">
-            <img src="/assets/fig-showcase.webp" alt="انجیرها در حال خشک شدن زیر آفتاب" class="aspect-[4/3] w-full object-cover">
+            <img src="/assets/IMG_0830.webp" alt="انجیرها در حال خشک شدن زیر آفتاب" class="aspect-[4/3] w-full object-cover">
           </div>
-          <p class="absolute -bottom-4 start-3 rounded-2xl bg-parchment px-3 py-1.5 text-xs text-clay shadow-soft" style="transform:rotate(-1.2deg)">
-            انجیر خشک
-          </p>
         </div>
       </div>
 
       <div class="lg:col-span-6">
-        <div data-reveal>
-          <h2 class="font-display text-3xl font-bold leading-[1.3] text-walnut md:text-4xl">
-            ساده و طبیعی
-          </h2>
-        </div>
-        <div class="paper-card-sand overflow-hidden mt-7 max-w-xl px-7 py-6" data-reveal style="transform:rotate(.5deg)">
-          <p class="text-base leading-8 text-walnut">
-            محصولات ساده و طبیعی — همان‌طور که باید باشند.
-          </p>
+        <div class="relative mx-auto max-w-md" data-reveal>
+          <div class="rotate-[1.6deg] overflow-hidden rounded-2xl border border-line bg-sand shadow-lift">
+            <img src="/assets/pomegranate-showcase.webp" alt="دانه‌های انار رسیده" class="aspect-[4/3] w-full object-cover">
+          </div>
         </div>
       </div>
     </div>
@@ -110,7 +101,7 @@
           <span class="border-b-2 border-[var(--saffron)] pb-2">انجیر خشک</span>، طعم تابستان
         </h2>
         <p class="mt-6 max-w-xl text-base leading-8" style="color:var(--text-on-dark); opacity:.9">خشک‌شده زیر آفتاب، بی‌افزودنی.</p>
-        <a href="/products/summer" class="btn btn-primary mt-8 text-base">انجیر خشک را ببین</a>
+        <a href="/products/fig" class="btn btn-primary mt-8 text-base">انجیر خشک را ببین</a>
       </div>
     </div>
 
@@ -123,17 +114,17 @@
           <span class="border-b-2 border-[var(--pomegranate)] pb-2">انار تازه</span>، طعم پاییز
         </h2>
         <p class="mt-6 max-w-xl text-base leading-8" style="color:var(--text-on-dark); opacity:.9">انار تازه؛ دانه یا آب‌گرفته.</p>
-        <a href="/products/autumn" class="btn btn-primary mt-8 text-base">انار را ببین</a>
+        <a href="/products/pomegranate" class="btn btn-primary mt-8 text-base">انار را ببین</a>
       </div>
     </div>
   </div>
 
   <!-- nav arrows -->
   <button class="season-nav season-nav-prev" onclick="seasonSlide(-1)" aria-label="اسلاید قبلی">
-    <svg class="h-9 w-9" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M17 2l-7 10 7 10"/></svg>
+    <svg class="h-9 w-9" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M15.5 2l-7 10 7 10"/></svg>
   </button>
   <button class="season-nav season-nav-next" onclick="seasonSlide(1)" aria-label="اسلاید بعدی">
-    <svg class="h-9 w-9" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M7 2l7 10-7 10"/></svg>
+    <svg class="h-9 w-9" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M8.5 2l7 10-7 10"/></svg>
   </button>
 
   <!-- dots -->
@@ -184,8 +175,10 @@
     .season-dot.active { background: var(--saffron); transform: scale(1.3); }
 
     @media (max-width: 640px) {
-      .season-nav { width: 3.25rem; }
+      /* arrows crowd the small screen — touch swipe replaces them */
+      .season-nav { display: none; }
       .season-slide > .relative { padding-inline-start: 3rem; padding-inline-end: 2.5rem; }
+      .season-slides { touch-action: pan-y; cursor: grab; }
     }
   </style>
 
@@ -211,6 +204,38 @@
         clearInterval(timer);
         timer = setInterval(function(){ go(current + 1); }, 5000);
       }
+
+      // Touch / finger-drag swipe (mobile): horizontal drag advances slides.
+      // Vertical scrolls pass through; only a clearly horizontal drag is grabbed.
+      var slider = document.getElementById('season-slider');
+      var startX = null, startY = null, dragging = false;
+
+      slider.addEventListener('touchstart', function(e) {
+        if (e.touches.length !== 1) { startX = null; return; }
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        dragging = false;
+      }, { passive: true });
+
+      slider.addEventListener('touchmove', function(e) {
+        if (startX === null) return;
+        var dx = e.touches[0].clientX - startX;
+        var dy = e.touches[0].clientY - startY;
+        if (!dragging && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+          dragging = true;
+        }
+        if (dragging) { e.preventDefault(); }  // lock vertical scroll while swiping
+      }, { passive: false });
+
+      slider.addEventListener('touchend', function(e) {
+        if (startX === null) { return; }
+        var dx = e.changedTouches[0].clientX - startX;
+        if (Math.abs(dx) > 50) {
+          seasonSlide(dx < 0 ? 1 : -1);  // drag left → next, drag right → prev
+        }
+        startX = null; startY = null; dragging = false;
+      }, { passive: true });
+
       resetTimer();
     })();
   </script>

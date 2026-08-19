@@ -211,6 +211,8 @@ func routerFor(h *Handler) *chi.Mux {
 		r.Post("/products/{id}/toggle", h.AdminToggleProduct)
 		r.Post("/products/{id}", h.AdminUpdateProduct)
 		r.Post("/products", h.AdminCreateProduct)
+		r.Post("/categories", h.AdminCreateCategory)
+		r.Post("/categories/{id}/toggle", h.AdminToggleCategory)
 	})
 
 	return r

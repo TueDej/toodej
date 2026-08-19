@@ -14,7 +14,7 @@
       <div>
         <h1 class="font-display text-3xl font-bold text-walnut md:text-4xl">{{.CategoryLabel}}</h1>
         <p class="mt-2 max-w-xl text-sm leading-7 text-clay">
-          {{if eq .CurrentFilter "spring"}}محصولات تازه‌ی بهاری.{{else if eq .CurrentFilter "summer"}}محصولات تازه‌ی تابستانی.{{else if eq .CurrentFilter "autumn"}}محصولات تازه‌ی پاییزی.{{else if eq .CurrentFilter "dried"}}خشکبار و آجیل.{{else if eq .CurrentFilter "all"}}تمام محصولات طبیعی و سنتی ما در یک نگاه.{{else}}محصولات سنتی.{{end}}
+          {{if eq .CurrentFilter "all"}}تمام محصولات طبیعی و سنتی ما در یک نگاه.{{else if eq .CurrentFilter "fig"}}انجیر تازه و خشک، مستقیم از باغ.{{else if eq .CurrentFilter "pomegranate"}}انار تازه، آبدار و طبیعی.{{else if eq .CurrentFilter "traditional"}}محصولات سنتی و خانگی، با طعم اصیل.{{else if eq .CurrentFilter "test"}}test{{else}}{{.CategoryLabel}}{{end}}
         </p>
       </div>
     </div>
@@ -38,36 +38,21 @@
               همه محصولات
             </a>
           </li>
+          {{range .Categories}}
           <li>
-            <a href="/products/spring"
-              class="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition {{if eq .CurrentFilter "spring"}}bg-pomegranate shadow-soft{{else}}text-walnut hover:bg-sand/80{{end}}"{{if eq .CurrentFilter "spring"}} style="color:var(--text-on-dark)"{{end}}>
-              بهار
+            {{if .IsEnabled}}
+            <a href="/products/{{.Slug}}"
+              class="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition {{if eq $.CurrentFilter .Slug}}bg-pomegranate shadow-soft{{else}}text-walnut hover:bg-sand/80{{end}}"{{if eq $.CurrentFilter .Slug}} style="color:var(--text-on-dark)"{{end}}>
+              {{.Label}}
             </a>
+            {{else}}
+            <div aria-disabled="true" class="flex cursor-not-allowed items-center justify-between rounded-xl px-4 py-3 text-sm font-medium text-clay/60">
+              <span>{{.Label}}</span>
+              <span class="rounded-full bg-sand px-2 py-0.5 text-[10px] font-semibold text-clay">به‌زودی</span>
+            </div>
+            {{end}}
           </li>
-          <li>
-            <a href="/products/summer"
-              class="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition {{if eq .CurrentFilter "summer"}}bg-pomegranate shadow-soft{{else}}text-walnut hover:bg-sand/80{{end}}"{{if eq .CurrentFilter "summer"}} style="color:var(--text-on-dark)"{{end}}>
-              تابستان
-            </a>
-          </li>
-          <li>
-            <a href="/products/autumn"
-              class="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition {{if eq .CurrentFilter "autumn"}}bg-pomegranate shadow-soft{{else}}text-walnut hover:bg-sand/80{{end}}"{{if eq .CurrentFilter "autumn"}} style="color:var(--text-on-dark)"{{end}}>
-              پاییز
-            </a>
-          </li>
-          <li>
-            <a href="/products/dried"
-              class="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition {{if eq .CurrentFilter "dried"}}bg-pomegranate shadow-soft{{else}}text-walnut hover:bg-sand/80{{end}}"{{if eq .CurrentFilter "dried"}} style="color:var(--text-on-dark)"{{end}}>
-              خشکبار
-            </a>
-          </li>
-          <li>
-            <a href="/products/processed"
-              class="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition {{if eq .CurrentFilter "processed"}}bg-pomegranate shadow-soft{{else}}text-walnut hover:bg-sand/80{{end}}"{{if eq .CurrentFilter "processed"}} style="color:var(--text-on-dark)"{{end}}>
-              سنتی
-            </a>
-          </li>
+          {{end}}
         </ul>
       </div>
     </aside>

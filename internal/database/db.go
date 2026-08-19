@@ -18,14 +18,9 @@ import (
 	"farmstore/internal/models"
 )
 
-// Category constants for the five product categories on the storefront.
-const (
-	CategorySpring    = "بهار"
-	CategorySummer    = "تابستان"
-	CategoryAutumn    = "پاییز"
-	CategoryDried     = "خشکبار"
-	CategoryProcessed = "سنتی"
-)
+// ErrDuplicateCategory is returned by CreateCategory when the requested slug
+// already belongs to an existing category.
+var ErrDuplicateCategory = errors.New("duplicate category slug")
 
 // ErrInsufficientStock is returned by CreateOrder when an ordered quantity
 // exceeds the remaining stock of a product. The enclosing transaction is rolled
@@ -62,6 +57,10 @@ func Init(dbPath string) (*sql.DB, error) {
 
 	if err := seed(db); err != nil {
 		return nil, fmt.Errorf("seed: %w", err)
+	}
+
+	if err := seedCategories(db); err != nil {
+		return nil, fmt.Errorf("seed categories: %w", err)
 	}
 
 	return db, nil
@@ -122,6 +121,13 @@ func migrate(db *sql.DB) error {
 		code         TEXT    NOT NULL,
 		expires_at   TEXT    NOT NULL,
 		is_used      INTEGER NOT NULL DEFAULT 0
+	);
+
+	CREATE TABLE IF NOT EXISTS categories (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		slug       TEXT    NOT NULL UNIQUE,
+		label      TEXT    NOT NULL,
+		is_enabled INTEGER NOT NULL DEFAULT 1
 	);
 	`
 	_, err := db.Exec(schema)
@@ -308,22 +314,9 @@ func seed(db *sql.DB) error {
 		Price, Stock                      int
 		Unit                              string
 	}{
-		{"انجیر تازه ارگانیک", "انجیر-تازه-ارگانیک", "تابستان", "شیرین، نرم و پر از فیبر.", 1299000, 50, "۱ کیلوگرم"},
-		{"انار تازه ملس", "انار-تازه-ملس", "پاییز", "شیرین، آبدار و پر از آنتی‌اکسیدان.", 899000, 60, "۱ کیلوگرم"},
-		{"مربای انجیر خانگی", "مربای-انجیر-خانگی", "سنتی", "آهسته‌پز با انجیر طبیعی و بدون افزودنی.", 950000, 30, "شیشه ۲۵۰ گرمی"},
-		{"رب انار خالص", "رب-انار-خالص", "سنتی", "غلیظ و ترش و شیرین؛ عالی برای سس و خورشت.", 1200000, 25, "بطری ۵۰۰ میلی‌لیتر"},
-		{"آب انار طبیعی", "آب-انار-طبیعی", "سنتی", "تازه و بدون شکر و مواد افزودنی.", 790000, 40, "بطری ۵۰۰ میلی‌لیتر"},
-		{"انجیر خشک اعلی", "انجیر-خشک-اعلی", "خشکبار", "خشک شده زیر آفتاب، شیرین و طبیعی.", 1899000, 40, "۵۰۰ گرم"},
-		{"پسته اکبری", "پسته-اکبری", "خشکبار", "مرغوب، خوش‌رنگ و خوش‌طعم.", 3490000, 20, "۲۵۰ گرم"},
-		{"به‌لیمو تازه", "به‌لیمو-تازه", "بهار", "عطر دل‌انگیز بهاری، مناسب دمنوش و غذا.", 450000, 35, "۲۵۰ گرم"},
-		{"نعناع تازه", "نعناع-تازه", "بهار", "سبز، خوش‌عطر و مناسب تزئین و دمنوش.", 350000, 50, "دسته"},
-		{"هلو تازه", "هلو-تازه", "تابستان", "آبدار و شیرین، رسیده و خوش‌طعم.", 750000, 45, "۱ کیلوگرم"},
-		{"سیب قرمز", "سیب-قرمز", "پاییز", "ترش و شیرین، ترد و تازه.", 650000, 60, "۱ کیلوگرم"},
-		{"مغز گردو", "مغز-گردو", "خشکبار", "تازه و خوش‌طعم، بدون نمک.", 2100000, 30, "۲۵۰ گرم"},
-		{"ترشی مخلوط", "ترشی-مخلوط", "سنتی", "خانگی و آهسته‌پز، طعم اصیل.", 680000, 25, "شیشه ۵۰۰ گرمی"},
-		{"گیلاس تازه", "گیلاس-تازه", "بهار", "شیرین و رسیده، بهترین کیفیت فصل.", 1200000, 30, "۱ کیلوگرم"},
-		{"طالبی", "طالبی", "تابستان", "شیرین و آبدار، مناسب سالاد و دسر.", 550000, 40, "۱ کیلوگرم"},
-		{"کدو حلوایی", "کدو-حلوایی", "پاییز", "شیرین و مناسب پخت و پز.", 480000, 35, "۱ کیلوگرم"},
+		{"test1", "test1", "test", "", 1299000, 50, "عدد"},
+		{"test2", "test2", "test", "", 899000, 60, "عدد"},
+		{"test3", "test3", "test", "", 950000, 30, "عدد"},
 	}
 
 	stmt, err := db.Prepare(`INSERT INTO products (name, slug, category, description, price, stock_quantity, unit) VALUES (?, ?, ?, ?, ?, ?, ?)`)
@@ -340,6 +333,152 @@ func seed(db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// seedCategories populates the categories table with the default taxonomy when
+// it is empty. This runs once per fresh database.
+func seedCategories(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM categories").Scan(&count); err != nil {
+		return fmt.Errorf("count categories: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+
+	rows := []struct {
+		Slug   string
+		Label  string
+		Enable bool
+	}{
+		{"fig", "انجیر", true},
+		{"traditional", "محصولات سنتی/خانگی", true},
+		{"pomegranate", "انار", true},
+		{"test", "test", true},
+	}
+
+	stmt, err := db.Prepare(`INSERT INTO categories (slug, label, is_enabled) VALUES (?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare category insert: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, c := range rows {
+		enabled := 0
+		if c.Enable {
+			enabled = 1
+		}
+		if _, err := stmt.Exec(c.Slug, c.Label, enabled); err != nil {
+			return fmt.Errorf("insert category %q: %w", c.Slug, err)
+		}
+		logutil.Info("seeded category", "slug", c.Slug, "label", c.Label)
+	}
+
+	return nil
+}
+
+// GetCategories returns every category ordered by id.
+func GetCategories(ctx context.Context, db *sql.DB) ([]models.Category, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id, slug, label, is_enabled FROM categories ORDER BY id")
+	if err != nil {
+		return nil, fmt.Errorf("query categories: %w", err)
+	}
+	defer rows.Close()
+
+	var cats []models.Category
+	for rows.Next() {
+		c, err := scanCategoryRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		cats = append(cats, c)
+	}
+	return cats, rows.Err()
+}
+
+// GetEnabledCategories returns only the categories that are currently enabled.
+// A nil slice is returned (never error) when there are none, so callers can
+// range over it safely without nil-panic guards.
+func GetEnabledCategories(ctx context.Context, db *sql.DB) ([]models.Category, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id, slug, label, is_enabled FROM categories WHERE is_enabled = 1 ORDER BY id")
+	if err != nil {
+		return nil, fmt.Errorf("query enabled categories: %w", err)
+	}
+	defer rows.Close()
+
+	var cats []models.Category
+	for rows.Next() {
+		c, err := scanCategoryRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		cats = append(cats, c)
+	}
+	return cats, rows.Err()
+}
+
+// GetCategoryBySlug returns the category with the given slug, or sql.ErrNoRows
+// if no such category exists.
+func GetCategoryBySlug(ctx context.Context, db *sql.DB, slug string) (*models.Category, error) {
+	row := db.QueryRowContext(ctx, "SELECT id, slug, label, is_enabled FROM categories WHERE slug = ?", slug)
+	c, err := scanCategoryRow(row)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// CreateCategory inserts a new category after trimming and validating its slug
+// and label. A duplicate slug returns ErrDuplicateCategory.
+func CreateCategory(ctx context.Context, db *sql.DB, slug, label string) (int64, error) {
+	slug = strings.TrimSpace(slug)
+	label = strings.TrimSpace(label)
+	if slug == "" || label == "" {
+		return 0, fmt.Errorf("category slug and label are required")
+	}
+
+	var existing int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM categories WHERE slug = ?", slug).Scan(&existing); err != nil {
+		return 0, fmt.Errorf("check category slug: %w", err)
+	}
+	if existing > 0 {
+		return 0, ErrDuplicateCategory
+	}
+
+	res, err := db.ExecContext(ctx, "INSERT INTO categories (slug, label, is_enabled) VALUES (?, ?, 1)", slug, label)
+	if err != nil {
+		return 0, fmt.Errorf("create category: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+// UpdateCategoryEnabled flips the enabled flag for a category by id.
+func UpdateCategoryEnabled(ctx context.Context, db *sql.DB, id int64, enabled bool) error {
+	on := 0
+	if enabled {
+		on = 1
+	}
+	res, err := db.ExecContext(ctx, "UPDATE categories SET is_enabled = ? WHERE id = ?", on, id)
+	if err != nil {
+		return fmt.Errorf("update category enabled: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("category %d not found", id)
+	}
+	return nil
+}
+
+// scanCategoryRow scans a category row from either a *sql.Row or *sql.Rows.
+func scanCategoryRow(s interface {
+	Scan(dest ...interface{}) error
+}) (models.Category, error) {
+	var c models.Category
+	var isEnabled int
+	if err := s.Scan(&c.ID, &c.Slug, &c.Label, &isEnabled); err != nil {
+		return c, err
+	}
+	c.IsEnabled = isEnabled == 1
+	return c, nil
 }
 
 // GetProducts returns active products, optionally filtered by category.

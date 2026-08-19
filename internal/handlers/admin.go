@@ -31,9 +31,17 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	categories, err := database.GetCategories(r.Context(), h.db)
+	if err != nil {
+		logutil.Error("admin categories", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
 	data := h.mergeData(r, map[string]any{
-		"Orders":   orders,
-		"Products": products,
+		"Orders":     orders,
+		"Products":   products,
+		"Categories": categories,
 	}, w)
 	h.render(w, "admin", data)
 }
@@ -295,6 +303,95 @@ func (h *Handler) AdminCreateProduct(w http.ResponseWriter, r *http.Request) {
 
 	product.ID = id
 	h.renderProductRow(w, *product)
+}
+
+// AdminCreateCategory creates a new category from the admin form and prepends
+// its row to the categories table via HTMX.
+func (h *Handler) AdminCreateCategory(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	slug := strings.TrimSpace(r.FormValue("slug"))
+	label := strings.TrimSpace(r.FormValue("label"))
+	if slug == "" || label == "" {
+		http.Error(w, "slug and label are required", http.StatusBadRequest)
+		return
+	}
+
+	id, err := database.CreateCategory(r.Context(), h.db, slug, label)
+	if err != nil {
+		if errors.Is(err, database.ErrDuplicateCategory) {
+			http.Error(w, "duplicate category slug", http.StatusBadRequest)
+			return
+		}
+		logutil.Error("create category", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	h.renderCategoryRow(w, models.Category{ID: id, Slug: slug, Label: label, IsEnabled: true})
+}
+
+// AdminToggleCategory flips the enabled state of a category and re-renders its
+// table row via HTMX.
+func (h *Handler) AdminToggleCategory(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	catID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid category id", http.StatusBadRequest)
+		return
+	}
+
+	row, err := h.loadCategory(r, catID)
+	if err != nil {
+		http.Error(w, "category not found", http.StatusNotFound)
+		return
+	}
+
+	row.IsEnabled = !row.IsEnabled
+	if err := database.UpdateCategoryEnabled(r.Context(), h.db, row.ID, row.IsEnabled); err != nil {
+		logutil.Error("toggle category", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	h.renderCategoryRow(w, *row)
+}
+
+// loadCategory fetches a single category by id for the toggle handler.
+func (h *Handler) loadCategory(r *http.Request, id int64) (*models.Category, error) {
+	row := h.db.QueryRowContext(r.Context(), "SELECT id, slug, label, is_enabled FROM categories WHERE id = ?", id)
+	var c models.Category
+	var isEnabled int
+	if err := row.Scan(&c.ID, &c.Slug, &c.Label, &isEnabled); err != nil {
+		return nil, err
+	}
+	c.IsEnabled = isEnabled == 1
+	return &c, nil
+}
+
+// renderCategoryRow returns the HTML for a single <tr> in the admin categories
+// table. This is used as the HTMX response for category create/toggle.
+func (h *Handler) renderCategoryRow(w http.ResponseWriter, c models.Category) {
+	w.Header().Set("Content-Type", "text/html")
+	row := fmt.Sprintf(`<tr id="category-%d" class="border-b border-line/70 transition hover:bg-sand/40">
+    <td class="px-4 py-3 text-sm text-clay font-mono tracking-wider">%d</td>
+    <td class="px-4 py-3 text-sm font-medium text-walnut">%s</td>
+    <td class="px-4 py-3 text-sm text-clay">%s</td>
+    <td class="px-4 py-3">
+      <button dir="ltr" hx-post="/admin/categories/%d/toggle" hx-target="#category-%d" hx-swap="outerHTML"
+        class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none %s">
+        <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out %s"></span>
+      </button>
+    </td>
+  </tr>`,
+		c.ID, c.ID, htmlEscape(c.Label), htmlEscape(c.Slug),
+		c.ID, c.ID,
+		toggleBg(c.IsEnabled), toggleTranslate(c.IsEnabled))
+
+	fmt.Fprint(w, row)
 }
 
 // renderProductRow returns the HTML for a single <tr> in the admin products table.

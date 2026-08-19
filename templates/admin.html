@@ -11,6 +11,8 @@
       class="tab-btn tab-active">مدیریت سفارش‌ها</button>
     <button data-tab="products"
       class="tab-btn">مدیریت محصولات</button>
+    <button data-tab="categories"
+      class="tab-btn">مدیریت دسته‌بندی</button>
   </div>
 
   <!-- ORDERS TAB PANEL — orders table; rows link to detail page -->
@@ -80,11 +82,7 @@
           <div>
             <label class="lbl block text-xs">دسته‌بندی *</label>
             <select name="category" required class="field mt-1.5 text-sm">
-              <option value="بهار">بهار</option>
-              <option value="تابستان">تابستان</option>
-              <option value="پاییز">پاییز</option>
-              <option value="خشکبار">خشکبار</option>
-              <option value="سنتی">سنتی</option>
+              {{range .Categories}}{{if .IsEnabled}}<option value="{{.Label}}">{{.Label}}</option>{{end}}{{end}}
             </select>
           </div>
           <div>
@@ -105,7 +103,7 @@
           </div>
         </div>
         <div class="mt-5 flex gap-2">
-          <button type="submit" class="btn btn-forest px-5 py-2.5 text-sm">ذخیرهٔ محصول</button>
+          <button type="submit" class="btn btn-forest px-5 py-2.5 text-sm">ذخیره‌ی محصول</button>
           <button type="button" onclick="this.closest('#new-product-form').classList.add('hidden')" class="btn btn-ghost px-5 py-2.5 text-sm">انصراف</button>
         </div>
       </form>
@@ -151,6 +149,65 @@
           </tr>
           {{else}}
           <tr><td colspan="6" class="px-4 py-14 text-center text-clay">هنوز محصولی ثبت نشده است.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- CATEGORIES TAB PANEL — add a category and toggle its enabled state -->
+  <div data-tab-panel="categories" class="hidden">
+    <div class="mb-4">
+      <button onclick="document.getElementById('new-category-form').classList.toggle('hidden')"
+        class="btn btn-forest px-5 py-2.5 text-sm">+ افزودن دسته‌بندی جدید</button>
+    </div>
+
+    <div id="new-category-form" class="mb-6 hidden paper-card-sand p-6">
+      <h3 class="mb-4 font-display text-lg font-semibold text-walnut">دسته‌بندی جدید</h3>
+      <form hx-post="/admin/categories" hx-target="#categories-tbody" hx-swap="afterbegin" hx-on::after-request="this.reset()">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="lbl block text-xs">نامک (انگلیسی) *</label>
+            <input type="text" name="slug" required placeholder="مثلاً fig" class="field mt-1.5 text-sm ltr">
+          </div>
+          <div>
+            <label class="lbl block text-xs">برچسب *</label>
+            <input type="text" name="label" required placeholder="مثلاً انجیر" class="field mt-1.5 text-sm">
+          </div>
+        </div>
+        <div class="mt-5 flex gap-2">
+          <button type="submit" class="btn btn-forest px-5 py-2.5 text-sm">ذخیره‌ی دسته‌بندی</button>
+          <button type="button" onclick="this.closest('#new-category-form').classList.add('hidden')" class="btn btn-ghost px-5 py-2.5 text-sm">انصراف</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="overflow-x-auto border border-line bg-parchment shadow-soft" style="border-radius:var(--radius-card)">
+      <table class="w-full text-right text-sm">
+        <thead class="bg-sand/70 text-xs">
+          <tr>
+            <th class="px-4 py-3.5 font-semibold text-fig">شناسه</th>
+            <th class="px-4 py-3.5 font-semibold text-fig">برچسب</th>
+            <th class="px-4 py-3.5 font-semibold text-fig">نامک</th>
+            <th class="px-4 py-3.5 font-semibold text-fig">فعال</th>
+          </tr>
+        </thead>
+        <tbody id="categories-tbody">
+          {{range .Categories}}
+          <tr id="category-{{.ID}}" class="border-b border-line/70 transition hover:bg-sand/40">
+            <td class="px-4 py-3 text-clay">{{.ID}}</td>
+            <td class="px-4 py-3 font-medium text-walnut">{{.Label}}</td>
+            <td class="px-4 py-3 text-clay">{{.Slug}}</td>
+            <td class="px-4 py-3">
+              <button dir="ltr" hx-post="/admin/categories/{{.ID}}/toggle" hx-target="#category-{{.ID}}" hx-swap="outerHTML" hx-include="closest tr"
+                class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out {{if .IsEnabled}}bg-pomegranate{{else}}bg-line{{end}}">
+                <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out {{if .IsEnabled}}translate-x-5{{else}}translate-x-0{{end}}"></span>
+              </button>
+            </td>
+          </tr>
+          {{else}}
+          <tr><td colspan="4" class="px-4 py-14 text-center text-clay">هنوز دسته‌بندی ثبت نشده است.</td></tr>
           {{end}}
         </tbody>
       </table>

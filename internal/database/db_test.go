@@ -455,3 +455,76 @@ func TestCancelExpiredUnpaidOrders(t *testing.T) {
 		t.Fatalf("restored stock = %d, want 10", stock)
 	}
 }
+
+func TestGetCategoriesReturnsSeed(t *testing.T) {
+	db := testDB(t)
+	cats, err := GetCategories(context.Background(), db)
+	if err != nil {
+		t.Fatalf("GetCategories: %v", err)
+	}
+	if len(cats) != 4 {
+		t.Fatalf("category count = %d, want 4", len(cats))
+	}
+	enabled, err := GetEnabledCategories(context.Background(), db)
+	if err != nil {
+		t.Fatalf("GetEnabledCategories: %v", err)
+	}
+	if len(enabled) != 4 {
+		t.Fatalf("enabled category count = %d, want 4", len(enabled))
+	}
+}
+
+func TestGetCategoryBySlug(t *testing.T) {
+	db := testDB(t)
+	cat, err := GetCategoryBySlug(context.Background(), db, "fig")
+	if err != nil {
+		t.Fatalf("GetCategoryBySlug fig: %v", err)
+	}
+	if cat.Label != "انجیر" || !cat.IsEnabled {
+		t.Fatalf("fig category = %+v", cat)
+	}
+
+	if _, err := GetCategoryBySlug(context.Background(), db, "nope"); err == nil {
+		t.Fatal("GetCategoryBySlug missing slug succeeded")
+	}
+}
+
+func TestCreateCategoryDuplicateRejected(t *testing.T) {
+	db := testDB(t)
+	if _, err := CreateCategory(context.Background(), db, "fresh", "تازه"); err != nil {
+		t.Fatalf("CreateCategory: %v", err)
+	}
+	// Duplicate slug must be rejected with ErrDuplicateCategory.
+	if _, err := CreateCategory(context.Background(), db, "fresh", "تازه دیگر"); !errors.Is(err, ErrDuplicateCategory) {
+		t.Fatalf("duplicate CreateCategory err = %v, want ErrDuplicateCategory", err)
+	}
+	// Empty slug/label must be rejected.
+	if _, err := CreateCategory(context.Background(), db, "  ", "x"); err == nil {
+		t.Fatal("CreateCategory accepted blank slug")
+	}
+}
+
+func TestUpdateCategoryEnabled(t *testing.T) {
+	db := testDB(t)
+	cat, err := GetCategoryBySlug(context.Background(), db, "test")
+	if err != nil {
+		t.Fatalf("get test category: %v", err)
+	}
+	if err := UpdateCategoryEnabled(context.Background(), db, cat.ID, false); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	reload, err := GetCategoryBySlug(context.Background(), db, "test")
+	if err != nil {
+		t.Fatalf("reload test: %v", err)
+	}
+	if reload.IsEnabled {
+		t.Fatal("category still enabled after disable")
+	}
+	enabled, err := GetEnabledCategories(context.Background(), db)
+	if err != nil {
+		t.Fatalf("GetEnabledCategories: %v", err)
+	}
+	if len(enabled) != 3 {
+		t.Fatalf("enabled after disable = %d, want 3", len(enabled))
+	}
+}

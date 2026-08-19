@@ -40,9 +40,9 @@ func TestUserJourneyEndToEnd(t *testing.T) {
 		t.Fatalf("security header missing on home")
 	}
 
-	resp = c.get("/products/summer")
+	resp = c.get("/products/test")
 	if resp.StatusCode != http.StatusOK || !strings.Contains(c.body(), "PRODUCTS-PAGE") {
-		t.Fatalf("products/summer = %d %q", resp.StatusCode, c.body())
+		t.Fatalf("products/test = %d %q", resp.StatusCode, c.body())
 	}
 	resp = c.get("/products/unknown")
 	if resp.StatusCode != http.StatusNotFound {
