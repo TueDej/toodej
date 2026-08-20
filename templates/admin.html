@@ -6,13 +6,21 @@
     <h1 class="font-display text-3xl font-bold text-walnut md:text-4xl">پنل مدیریت</h1>
   </div>
 
-  <div class="mb-7 mt-6 flex flex-wrap gap-2" data-reveal>
-    <button data-tab="orders"
-      class="tab-btn tab-active">مدیریت سفارش‌ها</button>
-    <button data-tab="products"
-      class="tab-btn">مدیریت محصولات</button>
-    <button data-tab="categories"
-      class="tab-btn">مدیریت دسته‌بندی</button>
+  <div class="mb-7 mt-6 flex min-h-[2.75rem] flex-wrap items-center justify-between gap-2" data-reveal>
+    <div class="flex flex-wrap gap-2">
+      <button data-tab="orders"
+        class="tab-btn tab-active">مدیریت سفارش‌ها</button>
+      <button data-tab="products"
+        class="tab-btn">مدیریت محصولات</button>
+      <button data-tab="categories"
+        class="tab-btn">مدیریت دسته‌بندی</button>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button data-add-tab="products" onclick="document.getElementById('new-product-form').classList.toggle('hidden')"
+        class="btn btn-forest px-5 py-2.5 text-sm hidden">+ افزودن محصول جدید</button>
+      <button data-add-tab="categories" onclick="document.getElementById('new-category-form').classList.toggle('hidden')"
+        class="btn btn-forest px-5 py-2.5 text-sm hidden">+ افزودن دسته‌بندی جدید</button>
+    </div>
   </div>
 
   <!-- ORDERS TAB PANEL — orders table; rows link to detail page -->
@@ -65,11 +73,6 @@
 
   <!-- PRODUCTS TAB PANEL — inline editable price/stock fields and toggle switches -->
   <div data-tab-panel="products" class="hidden">
-    <div class="mb-4">
-      <button onclick="document.getElementById('new-product-form').classList.toggle('hidden')"
-        class="btn btn-forest px-5 py-2.5 text-sm">+ افزودن محصول جدید</button>
-    </div>
-
     <div id="new-product-form" class="mb-6 hidden paper-card-sand p-6">
       <h3 class="mb-4 font-display text-lg font-semibold text-walnut">محصول جدید</h3>
       <form hx-post="/admin/products" hx-target="#products-tbody" hx-swap="afterbegin" hx-on::after-request="this.reset()">
@@ -157,11 +160,6 @@
 
   <!-- CATEGORIES TAB PANEL — add a category and toggle its enabled state -->
   <div data-tab-panel="categories" class="hidden">
-    <div class="mb-4">
-      <button onclick="document.getElementById('new-category-form').classList.toggle('hidden')"
-        class="btn btn-forest px-5 py-2.5 text-sm">+ افزودن دسته‌بندی جدید</button>
-    </div>
-
     <div id="new-category-form" class="mb-6 hidden paper-card-sand p-6">
       <h3 class="mb-4 font-display text-lg font-semibold text-walnut">دسته‌بندی جدید</h3>
       <form hx-post="/admin/categories" hx-target="#categories-tbody" hx-swap="afterbegin" hx-on::after-request="this.reset()">
@@ -224,6 +222,9 @@ document.addEventListener('click', function(e) {
   document.querySelectorAll('[data-tab]').forEach(function(el) { el.classList.remove('tab-active'); });
   document.querySelector('[data-tab-panel="' + tab + '"]').classList.remove('hidden');
   btn.classList.add('tab-active');
+  document.querySelectorAll('[data-add-tab]').forEach(function(el) { el.classList.add('hidden'); });
+  var addBtn = document.querySelector('[data-add-tab="' + tab + '"]');
+  if (addBtn) addBtn.classList.remove('hidden');
 });
 
 document.addEventListener('input', function(e) {

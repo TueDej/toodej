@@ -85,7 +85,12 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	code := generateOTP5()
+	code, err := generateOTP5()
+	if err != nil {
+		logutil.Error("generate otp", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 
 	if err := database.CreateOTP(r.Context(), h.db, phone, code, time.Now().Add(otpTTL)); err != nil {
 		logutil.Error("create otp", "err", err)
@@ -369,11 +374,12 @@ func phoneSuffix(phone string) string {
 }
 
 // generateOTP5 returns a cryptographically random 5-digit zero-padded string.
-// If crypto/rand fails it falls back to "12345" rather than crashing.
-func generateOTP5() string {
+// It fails closed: if crypto/rand cannot produce entropy it returns an error
+// rather than a predictable fallback code, so an OTP is never guessable.
+func generateOTP5() (string, error) {
 	n, err := rand.Int(rand.Reader, big.NewInt(100000))
 	if err != nil {
-		return "12345"
+		return "", fmt.Errorf("generate otp: %w", err)
 	}
-	return fmt.Sprintf("%05d", n.Int64())
+	return fmt.Sprintf("%05d", n.Int64()), nil
 }

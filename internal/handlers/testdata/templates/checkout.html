@@ -1,1 +1,1 @@
-{{define "title"}}CHECKOUT{{end}}{{define "content"}}CHECKOUT-PAGE{{if .Error}} error={{.Error}}{{end}}{{end}}
+{{define "title"}}CHECKOUT{{end}}{{define "content"}}CHECKOUT-PAGE{{if .RemovedItems}}REMOVED={{range .RemovedItems}}{{.Name}};{{end}}{{end}}{{if .OverStockItems}}OVERSTOCK={{range .OverStockItems}}{{.Name}}:{{.Available}};{{end}}{{end}}{{if .Error}} error={{.Error}}{{end}}{{end}}

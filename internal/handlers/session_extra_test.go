@@ -44,7 +44,10 @@ func TestPurgeExpiredSessions(t *testing.T) {
 func TestGenerateOTP5(t *testing.T) {
 	seen := make(map[string]bool)
 	for i := 0; i < 1000; i++ {
-		code := generateOTP5()
+		code, err := generateOTP5()
+		if err != nil {
+			t.Fatalf("generateOTP5() returned error: %v", err)
+		}
 		if len(code) != 5 {
 			t.Fatalf("generateOTP5() = %q, want 5 digits", code)
 		}

@@ -22,8 +22,10 @@ func (h *Handler) CheckoutForm(w http.ResponseWriter, r *http.Request) {
 
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
-	h.refreshCartFromProducts(r.Context(), cart)
-	if cart.Count() == 0 {
+	removed, overStock := h.refreshCartFromProducts(r.Context(), cart)
+	// If items were dropped because they became unavailable, surface the change
+	// to the user instead of silently redirecting them away from checkout.
+	if cart.Count() == 0 && len(removed) == 0 && len(overStock) == 0 {
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
 	}
@@ -38,12 +40,14 @@ func (h *Handler) CheckoutForm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := h.mergeData(r, map[string]any{
-		"Total":      cart.Total(),
-		"Phone":      phone,
-		"Step":       1,
-		"Name":       r.URL.Query().Get("name"),
-		"Address":    r.URL.Query().Get("address"),
-		"PostalCode": r.URL.Query().Get("postal_code"),
+		"Total":          cart.Total(),
+		"Phone":          phone,
+		"Step":           1,
+		"Name":           r.URL.Query().Get("name"),
+		"Address":        r.URL.Query().Get("address"),
+		"PostalCode":     r.URL.Query().Get("postal_code"),
+		"RemovedItems":   removed,
+		"OverStockItems": overStock,
 	}, w)
 	h.render(w, "checkout", data)
 }
@@ -82,7 +86,7 @@ func (h *Handler) PreviewCheckout(w http.ResponseWriter, r *http.Request) {
 
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
-	h.refreshCartFromProducts(r.Context(), cart)
+	removed, overStock := h.refreshCartFromProducts(r.Context(), cart)
 	if cart.Count() == 0 {
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
@@ -91,13 +95,15 @@ func (h *Handler) PreviewCheckout(w http.ResponseWriter, r *http.Request) {
 	items := cart.Snapshot()
 
 	data := h.mergeData(r, map[string]any{
-		"Step":       2,
-		"Total":      cart.Total(),
-		"Items":      items,
-		"Name":       name,
-		"Phone":      phone,
-		"Address":    address,
-		"PostalCode": postalCode,
+		"Step":          2,
+		"Total":         cart.Total(),
+		"Items":         items,
+		"RemovedItems":  removed,
+		"OverStockItems": overStock,
+		"Name":          name,
+		"Phone":         phone,
+		"Address":       address,
+		"PostalCode":    postalCode,
 	}, w)
 	h.render(w, "checkout", data)
 }
@@ -137,7 +143,26 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 
 	sid := h.getOrCreateSessionID(w, r)
 	cart := h.cartStore.Get(sid)
-	h.refreshCartFromProducts(r.Context(), cart)
+	removed, overStock := h.refreshCartFromProducts(r.Context(), cart)
+	if len(removed) > 0 || len(overStock) > 0 {
+		// Some cart items became unavailable, or the cart quantity exceeds the
+		// remaining stock, between viewing the cart and paying. Reject the order
+		// rather than silently dropping lines or overselling; the user must
+		// review the cart before trying again.
+		data := h.mergeData(r, map[string]any{
+			"Total":          cart.Total(),
+			"Phone":          phone,
+			"Step":           1,
+			"Name":           name,
+			"Address":        address,
+			"PostalCode":     postalCode,
+			"RemovedItems":   removed,
+			"OverStockItems": overStock,
+		}, w)
+		w.WriteHeader(http.StatusConflict)
+		h.render(w, "checkout", data)
+		return
+	}
 
 	items := cart.Snapshot()
 
@@ -180,6 +205,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 				"Name":       name,
 				"Address":    address,
 				"PostalCode": postalCode,
+				"Items":      cart.Snapshot(),
 			}, w)
 			w.WriteHeader(http.StatusConflict)
 			h.render(w, "checkout", data)
@@ -249,8 +275,10 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	gatewayURL := h.zarinpal.GatewayURL(authority)
 	logutil.Info("redirecting to payment gateway", "order_id", orderID)
 
-	cart.Clear()
-	w.Header().Set("HX-Trigger", "cartUpdated")
+	// NOTE: the cart is intentionally NOT cleared here. Clearing it before the
+	// gateway redirect would lose the user's cart if the 303 redirect failed
+	// (network error, closed connection) with no confirmed order. The cart is
+	// cleared only after a *successful* payment verification in VerifyPayment.
 	http.Redirect(w, r, gatewayURL, http.StatusSeeOther)
 }
 
@@ -295,8 +323,20 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 
 	if result.OK {
 		if err := database.ConfirmPayment(r.Context(), h.db, order.ID, result.RefID); err != nil {
-			logutil.Error("confirm payment", "err", err)
+			// The gateway reports the payment succeeded, but we could not attach
+			// it to the order (it was cancelled, or already finalized). Showing a
+			// "payment successful" confirmation here would lie to the customer —
+			// their order is gone while the gateway took their money. Send them
+			// back to the cart so the paid-but-unconfirmed order can be resolved,
+			// and keep their cart intact rather than clearing it.
+			logutil.Error("confirm payment failed despite gateway success", "err", err, "order_id", order.ID)
+			http.Redirect(w, r, "/cart?error=payment_failed", http.StatusSeeOther)
+			return
 		}
+		// Cart is cleared only now that the payment is confirmed, so a failed
+		// gateway redirect can never drop the user's cart without an order.
+		sid := h.getOrCreateSessionID(w, r)
+		h.cartStore.Get(sid).Clear()
 		http.Redirect(w, r, fmt.Sprintf("/checkout/confirmation/%s", order.ID), http.StatusSeeOther)
 		return
 	} else {

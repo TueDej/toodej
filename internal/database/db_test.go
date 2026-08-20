@@ -456,6 +456,59 @@ func TestCancelExpiredUnpaidOrders(t *testing.T) {
 	}
 }
 
+// TestCancelExpiredUnpaidOrdersKeepsFreshOrders guards against a timezone bug
+// where the cutoff was formatted in the server's local time while created_at is
+// stored in UTC (datetime('now')). In a non-UTC zone (e.g. +03:30) that made
+// every freshly-created awaiting_payment order look hours old, so the janitor
+// cancelled new orders within a single tick. The cutoff is now computed in
+// SQLite's UTC clock, so a brand-new order must survive the sweep.
+func TestCancelExpiredUnpaidOrdersKeepsFreshOrders(t *testing.T) {
+	db := testDB(t)
+	if _, err := db.Exec("UPDATE products SET price = 100, stock_quantity = 10, is_active = 1 WHERE id = 1"); err != nil {
+		t.Fatalf("update product: %v", err)
+	}
+	userID := createTestUser(t, db)
+
+	order := &models.Order{
+		CustomerName:    "Customer",
+		CustomerPhone:   "09123456789",
+		CustomerAddress: "Address",
+		PostalCode:      "1234567890",
+		Status:          "awaiting_payment",
+		UserID:          userID,
+	}
+	orderID, err := CreateOrder(context.Background(), db, order, []models.OrderItem{{ProductID: 1, Quantity: 4}})
+	if err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+	// Leave created_at at its default (now, UTC) — a brand-new order.
+
+	cancelledCount, err := CancelExpiredUnpaidOrders(context.Background(), db, 15*time.Minute)
+	if err != nil {
+		t.Fatalf("CancelExpiredUnpaidOrders: %v", err)
+	}
+	if cancelledCount != 0 {
+		t.Fatalf("cancelledCount = %d, want 0 (fresh order must survive)", cancelledCount)
+	}
+
+	var status string
+	if err := db.QueryRow("SELECT status FROM orders WHERE id = ?", orderID).Scan(&status); err != nil {
+		t.Fatalf("query status: %v", err)
+	}
+	if status != "awaiting_payment" {
+		t.Fatalf("fresh order status = %s, want awaiting_payment", status)
+	}
+
+	// Stock must remain reserved (not restored) since nothing was cancelled.
+	var stock int
+	if err := db.QueryRow("SELECT stock_quantity FROM products WHERE id = 1").Scan(&stock); err != nil {
+		t.Fatalf("query stock: %v", err)
+	}
+	if stock != 6 {
+		t.Fatalf("stock = %d, want 6 (still reserved)", stock)
+	}
+}
+
 func TestGetCategoriesReturnsSeed(t *testing.T) {
 	db := testDB(t)
 	cats, err := GetCategories(context.Background(), db)

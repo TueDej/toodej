@@ -85,6 +85,15 @@ func (h *Handler) startUnpaidOrderJanitor(ctx context.Context) {
 }
 
 func (h *Handler) cancelExpiredUnpaidOrders() {
+	// Reconcile BEFORE reclaiming stock: a customer who is still in the Zarinpal
+	// gateway — or whose payment callback was delayed — may have already paid.
+	// If we cancelled their awaiting_payment order here we would return its
+	// reserved stock, letting another shopper grab it while the original
+	// customer's payment succeeds but their order is marked cancelled. Asking the
+	// gateway first keeps paid orders (and their stock) intact; only genuinely
+	// unpaid orders are then cancelled by CancelExpiredUnpaidOrders below.
+	h.reconcilePayments()
+
 	n, err := database.CancelExpiredUnpaidOrders(context.Background(), h.db, unpaidOrderTTL)
 	if err != nil {
 		logutil.Error("cancel expired unpaid orders", "err", err)

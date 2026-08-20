@@ -693,8 +693,17 @@ func ConfirmPayment(ctx context.Context, db *sql.DB, orderID string, refID int64
 
 	switch currentStatus {
 	case "awaiting_payment":
-		if _, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'pending', payment_ref_id = ? WHERE id = ? AND status = 'awaiting_payment'", refID, orderID); err != nil {
+		res, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'pending', payment_ref_id = ? WHERE id = ? AND status = 'awaiting_payment'", refID, orderID)
+		if err != nil {
 			return fmt.Errorf("confirm payment for %s: %w", orderID, err)
+		}
+		// The status may have changed between the SELECT above and this UPDATE
+		// (e.g. the unpaid-order janitor cancelled the order and restored its
+		// stock). If no row was actually updated we must not report success, or
+		// the caller would treat a paid order as confirmed while its stock was
+		// already returned — leaking inventory.
+		if n, _ := res.RowsAffected(); n == 0 {
+			return fmt.Errorf("%w: order %s was already transitioned before confirmation", ErrInvalidOrderTransition, orderID)
 		}
 	case "pending", "preparing", "dispatched":
 		if currentRefID == 0 && refID != 0 {
@@ -777,9 +786,19 @@ func CancelExpiredUnpaidOrders(ctx context.Context, db *sql.DB, ttl time.Duratio
 	}
 	defer tx.Rollback()
 
-	cutoff := time.Now().Add(-ttl).Format("2006-01-02 15:04:05")
+	// Compute the cutoff in SQLite's own clock (UTC), matching how created_at is
+	// stored via datetime('now'). Building the cutoff in Go and formatting it in
+	// the server's local timezone would compare against UTC-stored timestamps and
+	// treat every freshly-created awaiting_payment order as hours old — the local
+	// vs UTC offset (e.g. +03:30) makes the janitor cancel new orders within a
+	// single tick instead of after the intended TTL.
+	minutes := int(ttl.Minutes())
+	if minutes < 0 {
+		minutes = 0
+	}
+	cutoffMod := fmt.Sprintf("-%d minutes", minutes)
 
-	rows, err := tx.QueryContext(ctx, "SELECT id FROM orders WHERE status = 'awaiting_payment' AND created_at < ?", cutoff)
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM orders WHERE status = 'awaiting_payment' AND datetime(created_at) < datetime('now', '"+cutoffMod+"')")
 	if err != nil {
 		return 0, fmt.Errorf("query expired awaiting_payment orders: %w", err)
 	}
@@ -987,19 +1006,30 @@ func randomOrderID() string {
 	return "TDJ-" + string(b)
 }
 
+// pricedItem is a product line resolved during order creation: its ID, the
+// quantity ordered, and the price captured at purchase time.
+type pricedItem struct {
+	productID    int64
+	quantity     int
+	pricePerUnit int
+}
+
+// maxOrderIDAttempts bounds the retry loop used when a randomly generated order
+// ID collides with an existing one. Collisions are vanishingly rare for TDJ-XXXXXX
+// (a 36^6 space) but not impossible; without a retry the unique-constraint insert
+// would fail and the customer's order would be lost.
+const maxOrderIDAttempts = 5
+
 // CreateOrder inserts an order and its items inside a single transaction.
-// The order ID is auto-generated via randomOrderID.
+// The order ID is auto-generated via randomOrderID. If a generated ID collides
+// with an existing order (primary-key/unique violation), a fresh ID is tried up
+// to maxOrderIDAttempts times before giving up, so a collision can never drop the
+// order.
 func CreateOrder(ctx context.Context, db *sql.DB, o *models.Order, items []models.OrderItem) (string, error) {
-	o.ID = randomOrderID()
 	if len(items) == 0 {
 		return "", ErrProductUnavailable
 	}
 
-	type pricedItem struct {
-		productID    int64
-		quantity     int
-		pricePerUnit int
-	}
 	productOrder := make([]int64, 0, len(items))
 	quantities := make(map[int64]int, len(items))
 	maxInt := int(^uint(0) >> 1)
@@ -1016,6 +1046,28 @@ func CreateOrder(ctx context.Context, db *sql.DB, o *models.Order, items []model
 		quantities[item.ProductID] += item.Quantity
 	}
 
+	var lastErr error
+	for attempt := 0; attempt < maxOrderIDAttempts; attempt++ {
+		o.ID = randomOrderID()
+		id, err := createOrderTx(ctx, db, o, productOrder, quantities, maxInt)
+		if err == nil {
+			return id, nil
+		}
+		lastErr = err
+		// Only a primary-key collision on the random ID is worth retrying; any
+		// other error (insufficient stock, DB failure, ...) is returned at once.
+		if !isUniqueConstraintError(err) {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("create order: order id generation exhausted after %d attempts: %w", maxOrderIDAttempts, lastErr)
+}
+
+// createOrderTx performs the stock reservation and row inserts for a single order
+// using the caller-assigned o.ID. The whole operation runs in one transaction so
+// a failure rolls back cleanly, including any stock reserved before a colliding
+// insert forces a retry. It returns the order ID on success.
+func createOrderTx(ctx context.Context, db *sql.DB, o *models.Order, productOrder []int64, quantities map[int64]int, maxInt int) (string, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("begin tx: %w", err)
@@ -1090,6 +1142,14 @@ func CreateOrder(ctx context.Context, db *sql.DB, o *models.Order, items []model
 		return "", fmt.Errorf("commit tx: %w", err)
 	}
 	return o.ID, nil
+}
+
+// isUniqueConstraintError reports whether err is a SQLite UNIQUE constraint
+// violation — used to retry order creation when a randomly generated TDJ-XXXXXX
+// ID happens to already exist. modernc.org/sqlite surfaces the standard SQLite
+// "UNIQUE constraint failed" message, which we match.
+func isUniqueConstraintError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
 // GetOrder retrieves a single order by its TDJ-XXXXXX ID, including the owning

@@ -24,12 +24,36 @@
     </li>
   </ol>
 
-  <p class="mt-6 text-sm leading-7 text-clay">
-    مبلغ قابل پرداخت: <span class="font-bold text-pomegranate">{{formatPrice .Total}}</span>
-  </p>
-
   {{if .Error}}
   <div class="mt-5 rounded-2xl border border-rose/40 px-5 py-4 text-sm leading-7 text-pomegranate" style="background:var(--toast-error)" role="alert">{{.Error}}</div>
+  {{end}}
+
+  {{if .RemovedItems}}
+  <div class="mt-5 rounded-2xl border border-saffron/40 bg-sand px-5 py-4 text-sm leading-7 text-walnut" role="alert">
+    <span class="font-semibold">موجودی برخی محصولات تغییر کرده است و از سبد حذف شدند:</span>
+    <ul class="mt-2 list-inside list-disc space-y-1">
+      {{range .RemovedItems}}
+      <li>{{.Name}}</li>
+      {{end}}
+    </ul>
+  </div>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      showToast('موجودی برخی محصولات تغییر کرده است؛ لطفاً سبد خرید را بررسی کنید', 'bg-[var(--toast-error)]', 'var(--pomegranate)');
+    });
+  </script>
+  {{end}}
+
+  {{if .OverStockItems}}
+  <div class="mt-5 rounded-2xl border border-saffron/40 bg-sand px-5 py-4 text-sm leading-7 text-walnut" role="alert">
+    <span class="font-semibold">موجودی برخی محصولات محدودتر از تعداد انتخابی شماست:</span>
+    <ul class="mt-2 list-inside list-disc space-y-1">
+      {{range .OverStockItems}}
+      <li>{{.Name}} — موجودی: {{.Available | persianDigits}}</li>
+      {{end}}
+    </ul>
+    <p class="mt-2 text-clay">لطفاً تعداد را در صفحه سبد خرید کم کنید و دوباره تلاش کنید.</p>
+  </div>
   {{end}}
 
   {{if eq .Step 2}}

@@ -339,15 +339,16 @@ func TestCheckoutEdgeCases(t *testing.T) {
 		t.Fatalf("empty-cart created %d orders", n)
 	}
 
-	// Add to cart then drop stock to 0: the cart is refreshed at checkout so
-	// the item is dropped and the user is sent back instead of overselling.
+	// Add to cart then drop stock to 0: refreshCartFromProducts removes the
+	// unavailable item, and PlaceOrder rejects the order (409, "stock changed")
+	// instead of silently redirecting — no order is created and nothing is oversold.
 	c.addToCart(t, seedProductFig)
 	if _, err := h.db.Exec("UPDATE products SET stock_quantity = 0 WHERE id = ?", seedProductFig); err != nil {
 		t.Fatal(err)
 	}
 	resp = c.post("/checkout", validShipment())
-	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/cart" {
-		t.Fatalf("zero-stock checkout = %d -> %q", resp.StatusCode, resp.Header.Get("Location"))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("zero-stock checkout = %d -> %q, want 409", resp.StatusCode, resp.Header.Get("Location"))
 	}
 	if n := countOrders(t, h.db); n != 0 {
 		t.Fatalf("zero-stock checkout created %d orders", n)
@@ -496,5 +497,250 @@ func TestPaymentReconciliationLeavesUnpaidOrdersAlone(t *testing.T) {
 	order = lastOrder(t, h.db)
 	if order.Status != "awaiting_payment" {
 		t.Fatalf("order status = %q, want awaiting_payment", order.Status)
+	}
+}
+
+// setCartQuantity inflates a cart line directly (bypassing the stock-capped add
+// path) so tests can simulate a cart holding more units than remain in stock —
+// the over-stock race this suite guards against.
+func setCartQuantity(t *testing.T, h *Handler, c *testClient, productID int64, qty int) {
+	t.Helper()
+	sid, ok := c.cookies["session"]
+	if !ok || sid.Value == "" {
+		t.Fatal("no session cookie to locate cart")
+	}
+	cart := h.cartStore.Get(sid.Value)
+	for i := range cart.Items {
+		if cart.Items[i].ProductID == productID {
+			cart.Items[i].Quantity = qty
+			return
+		}
+	}
+	t.Fatalf("product %d not in cart", productID)
+}
+
+// TestCheckoutOverStockStep1Warns verifies that when a cart line exceeds the
+// remaining stock, the step-1 checkout form proactively surfaces an over-stock
+// warning instead of letting the user reach the payment button unaware.
+func TestCheckoutOverStockStep1Warns(t *testing.T) {
+	r, h, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.login(t, h.db, "09121234567")
+	c.addToCart(t, seedProductFig)
+
+	// Drop the remaining stock below the cart quantity, then inflate the cart.
+	if _, err := h.db.Exec("UPDATE products SET stock_quantity = 2 WHERE id = ?", seedProductFig); err != nil {
+		t.Fatal(err)
+	}
+	setCartQuantity(t, h, c, seedProductFig, 5)
+
+	resp := c.get("/checkout")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /checkout = %d", resp.StatusCode)
+	}
+	if !strings.Contains(c.body(), "OVERSTOCK=") {
+		t.Fatalf("step 1 missing overstock warning: %q", c.body())
+	}
+	if !strings.Contains(c.body(), ":2;") {
+		t.Fatalf("step 1 overstock warning missing available count: %q", c.body())
+	}
+}
+
+// TestCheckoutOverStockPreviewWarns verifies the same proactive warning appears
+// on step 2 (order review) before the user clicks "pay".
+func TestCheckoutOverStockPreviewWarns(t *testing.T) {
+	r, h, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.login(t, h.db, "09121234567")
+	c.addToCart(t, seedProductFig)
+
+	if _, err := h.db.Exec("UPDATE products SET stock_quantity = 2 WHERE id = ?", seedProductFig); err != nil {
+		t.Fatal(err)
+	}
+	setCartQuantity(t, h, c, seedProductFig, 5)
+
+	resp := c.post("/checkout/preview", validShipment())
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("preview = %d", resp.StatusCode)
+	}
+	if !strings.Contains(c.body(), "OVERSTOCK=") {
+		t.Fatalf("preview missing overstock warning: %q", c.body())
+	}
+}
+
+// TestCheckoutOverStockRejectedAtPlaceOrder ensures that even if a user ignores
+// the warning and submits, PlaceOrder refuses the order (409) rather than
+// overselling — closing the race between viewing the cart and paying.
+func TestCheckoutOverStockRejectedAtPlaceOrder(t *testing.T) {
+	r, h, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.login(t, h.db, "09121234567")
+	c.addToCart(t, seedProductFig)
+
+	if _, err := h.db.Exec("UPDATE products SET stock_quantity = 2 WHERE id = ?", seedProductFig); err != nil {
+		t.Fatal(err)
+	}
+	setCartQuantity(t, h, c, seedProductFig, 5)
+
+	resp := c.post("/checkout", validShipment())
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("overstock place order = %d -> %q, want 409 (body: %s)", resp.StatusCode, resp.Header.Get("Location"), c.body())
+	}
+	if !strings.Contains(c.body(), "OVERSTOCK=") {
+		t.Fatalf("rejection missing overstock warning: %q", c.body())
+	}
+	if n := countOrders(t, h.db); n != 0 {
+		t.Fatalf("overstock checkout created %d orders", n)
+	}
+	if got := productStock(t, h.db, seedProductFig); got != 2 {
+		t.Fatalf("stock changed despite rejected order: %d, want 2", got)
+	}
+}
+
+// TestCheckoutOverStockTwoUsers is the integration case: user 1 reserves stock
+// first, leaving less than user 2's cart quantity. User 2's preview must still
+// warn about the over-stock line even though user 2 never saw a stale "in stock"
+// banner.
+func TestCheckoutOverStockTwoUsers(t *testing.T) {
+	r, h, _ := newTestRouter(t)
+	c1 := newTestClient(t, r)
+	c1.login(t, h.db, "09121234567")
+	c1.addToCart(t, seedProductFig)
+
+	// User 1 places an order, reserving 1 unit of stock.
+	stockBefore := productStock(t, h.db, seedProductFig)
+	resp := c1.post("/checkout", validShipment())
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("user1 place order = %d", resp.StatusCode)
+	}
+	if got := productStock(t, h.db, seedProductFig); got != stockBefore-1 {
+		t.Fatalf("user1 stock after order = %d, want %d", got, stockBefore-1)
+	}
+
+	// User 2 adds the same product and inflates the cart beyond what remains.
+	c2 := newTestClient(t, r)
+	c2.login(t, h.db, "09139998877")
+	c2.addToCart(t, seedProductFig)
+	remaining := productStock(t, h.db, seedProductFig)
+	setCartQuantity(t, h, c2, seedProductFig, remaining+5)
+
+	resp = c2.post("/checkout/preview", validShipment())
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("user2 preview = %d", resp.StatusCode)
+	}
+	if !strings.Contains(c2.body(), "OVERSTOCK=") {
+		t.Fatalf("user2 preview missing overstock warning: %q", c2.body())
+	}
+}
+
+// TestVerifyPaymentNoFalseSuccessWhenConfirmFails ensures that when the gateway
+// reports a successful payment but the order can no longer be confirmed (e.g. it
+// was cancelled before the callback arrived), VerifyPayment does NOT show a
+// "payment successful" confirmation. Showing success would lie to a customer
+// whose order is actually cancelled — and whose stock was already handed to
+// another shopper.
+func TestVerifyPaymentNoFalseSuccessWhenConfirmFails(t *testing.T) {
+	r, h, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.login(t, h.db, "09121234567")
+	c.addToCart(t, seedProductFig)
+
+	resp := c.post("/checkout", validShipment())
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("place order = %d", resp.StatusCode)
+	}
+	order := lastOrder(t, h.db)
+	if order.Status != "awaiting_payment" || order.PaymentAuthority == "" {
+		t.Fatalf("order not awaiting/authority: %+v", order)
+	}
+
+	// Simulate the order having been cancelled (e.g. abandoned) before the
+	// gateway callback reaches us.
+	if _, err := h.db.Exec("UPDATE orders SET status = 'cancelled' WHERE id = ?", order.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Gateway says paid, but confirmation cannot attach to a cancelled order.
+	resp = c.get("/checkout/verify?Authority=" + order.PaymentAuthority + "&Status=OK")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("verify = %d", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/cart?error=payment_failed" {
+		t.Fatalf("verify redirected to %q, want /cart?error=payment_failed", loc)
+	}
+}
+
+// TestUnpaidJanitorKeepsPaidOrders verifies the unpaid-order janitor reconciles
+// (asks the gateway) before cancelling. A customer who paid but whose callback
+// was delayed keeps their order and its reserved stock, instead of losing it —
+// which would otherwise free the stock for a later shopper while the original
+// customer is shown a successful payment.
+func TestUnpaidJanitorKeepsPaidOrders(t *testing.T) {
+	r, h, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.login(t, h.db, "09121234567")
+	c.addToCart(t, seedProductFig)
+	stockBefore := productStock(t, h.db, seedProductFig)
+
+	resp := c.post("/checkout", validShipment())
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("place order = %d", resp.StatusCode)
+	}
+	order := lastOrder(t, h.db)
+	if order.PaymentAuthority == "" {
+		t.Fatal("order has no authority")
+	}
+
+	// Age the order past the TTL so it looks abandoned; the fake gateway still
+	// reports it as paid.
+	if _, err := h.db.Exec("UPDATE orders SET created_at = datetime('now','-20 minutes') WHERE id = ?", order.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	h.cancelExpiredUnpaidOrders()
+
+	o, err := database.GetOrder(context.Background(), h.db, order.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Status != "pending" {
+		t.Fatalf("paid expired order status = %q, want pending", o.Status)
+	}
+	if got := productStock(t, h.db, seedProductFig); got != stockBefore-1 {
+		t.Fatalf("stock after janitor = %d, want %d (stock must stay reserved)", got, stockBefore-1)
+	}
+}
+
+// TestUnpaidJanitorCancelsUnpaid verifies that an expired order the gateway
+// confirms was never paid is still cancelled and its stock restored.
+func TestUnpaidJanitorCancelsUnpaid(t *testing.T) {
+	r, h, gw := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.login(t, h.db, "09121234567")
+	c.addToCart(t, seedProductPome)
+	stockBefore := productStock(t, h.db, seedProductPome)
+
+	resp := c.post("/checkout", validShipment())
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("place order = %d", resp.StatusCode)
+	}
+	order := lastOrder(t, h.db)
+
+	gw.setVerifyCode(102) // gateway reports the payment never happened
+	if _, err := h.db.Exec("UPDATE orders SET created_at = datetime('now','-20 minutes') WHERE id = ?", order.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	h.cancelExpiredUnpaidOrders()
+
+	o, err := database.GetOrder(context.Background(), h.db, order.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Status != "cancelled" {
+		t.Fatalf("unpaid expired order status = %q, want cancelled", o.Status)
+	}
+	if got := productStock(t, h.db, seedProductPome); got != stockBefore {
+		t.Fatalf("stock after cancel = %d, want %d", got, stockBefore)
 	}
 }

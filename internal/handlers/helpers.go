@@ -71,20 +71,46 @@ func toPersianDigits(s string) string {
 	return b.String()
 }
 
-// refreshCartFromProducts refreshes cart items with latest product data from DB
-// and adjusts quantities to not exceed available stock.
-func (h *Handler) refreshCartFromProducts(ctx context.Context, cart *Cart) {
+// StockProblem describes a cart line that can no longer be ordered as-is.
+// It is surfaced to the user (and rejected at order placement) rather than
+// silently mutating the cart behind their back.
+//
+//   - Removed items: the product is missing, inactive, or fully out of stock.
+//     Available is 0, and the item is dropped from the cart entirely.
+//   - OverStock items: the product is in stock but the cart quantity exceeds the
+//     remaining stock. Available holds the stock that is actually left, and the
+//     item is kept in the cart so the user can reduce the quantity themselves.
+type StockProblem struct {
+	ProductID int64
+	Name      string
+	Quantity  int // requested quantity currently in the cart
+	Available int // remaining stock (0 for items that became unavailable)
+}
+
+// refreshCartFromProducts refreshes cart items with the latest product display
+// data (name, price, unit, image) and returns two classes of stock problems:
+//
+//   - removed: items that are no longer purchasable (missing, inactive, or out of
+//     stock) — these are dropped from the cart.
+//   - overStock: items still in stock but whose cart quantity exceeds the
+//     remaining stock — these are kept so the user can reduce the quantity.
+//
+// Quantities are intentionally NOT capped: an over-stock quantity is surfaced to
+// the user and rejected at order placement (ErrInsufficientStock) so the cart is
+// never silently mutated. Callers must warn the user and must not place an order
+// while either slice is non-empty.
+func (h *Handler) refreshCartFromProducts(ctx context.Context, cart *Cart) (removed, overStock []StockProblem) {
 	items := cart.Snapshot()
 	refreshed := make([]CartItem, 0, len(items))
 	for _, item := range items {
 		product, err := database.GetProduct(ctx, h.db, item.ProductID)
 		if err != nil || !product.IsActive || product.StockQuantity <= 0 {
-			continue
-		}
-		if item.Quantity > product.StockQuantity {
-			item.Quantity = product.StockQuantity
-		}
-		if item.Quantity <= 0 {
+			removed = append(removed, StockProblem{
+				ProductID: item.ProductID,
+				Name:      item.Name,
+				Quantity:  item.Quantity,
+				Available: 0,
+			})
 			continue
 		}
 		item.Name = product.Name
@@ -92,8 +118,19 @@ func (h *Handler) refreshCartFromProducts(ctx context.Context, cart *Cart) {
 		item.Unit = product.Unit
 		item.ImageURL = product.ImageURL
 		refreshed = append(refreshed, item)
+		// Disabled cart lines (cap bypassed) show up here: the requested
+		// quantity is greater than what is actually left in stock.
+		if item.Quantity > product.StockQuantity {
+			overStock = append(overStock, StockProblem{
+				ProductID: item.ProductID,
+				Name:      product.Name,
+				Quantity:  item.Quantity,
+				Available: product.StockQuantity,
+			})
+		}
 	}
 	cart.ReplaceItems(refreshed)
+	return removed, overStock
 }
 
 // renderCartContent renders the "cart-content" template partial and fires a
