@@ -61,7 +61,7 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 
 	phone := strings.TrimSpace(r.FormValue("phone"))
 	if !validIranianPhone(phone) {
-		loginAlert(w, "error", `شماره تماس معتبر وارد کنید؛ شماره باید با ۰۹ شروع شده و ۱۱ رقم باشد (مثلاً ۰۹۱۲۳۴۵۶۷۸۹).`)
+		loginAlert(w, "error", `شماره تماس معتبر وارد کنید؛ شماره باید با 09 شروع شود. دقت کنید ارقام انگلیسی باشند.`)
 		return
 	}
 
@@ -343,8 +343,8 @@ func alertBox(tone, bodyHTML string) string {
 	if tone == "warn" {
 		palette = "border-[#C98A2C]/45 bg-[#F6E9CD] text-[#7A5A2E]"
 	}
-	return `<div class="flex items-start gap-3 rounded-[1.05rem_1rem_1rem_1.1rem] border ` + palette + ` px-4 py-3 text-sm leading-7" role="alert">
-      <svg class="mt-1 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+	return `<div class="flex items-center gap-4 rounded-[1.05rem_1rem_1rem_1.1rem] border ` + palette + ` px-4 py-3 text-sm leading-7" role="alert">
+      <svg class="h-14 w-14 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
       </svg>
       <span>` + bodyHTML + `</span>

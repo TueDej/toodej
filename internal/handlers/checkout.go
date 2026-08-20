@@ -74,7 +74,7 @@ func (h *Handler) PreviewCheckout(w http.ResponseWriter, r *http.Request) {
 		sid := h.getOrCreateSessionID(w, r)
 		cart := h.cartStore.Get(sid)
 		data := h.mergeData(r, map[string]any{
-			"Error": "اطلاعات تماس، آدرس و کد پستی را به‌درستی وارد کنید.",
+			"Error": "اطلاعات تماس، آدرس و کد پستی را به‌درستی وارد کنید. دقت کنید ارقام انگلیسی باشند.",
 			"Total": cart.Total(),
 			"Phone": phone,
 			"Step":  1,
@@ -131,7 +131,7 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 		sid := h.getOrCreateSessionID(w, r)
 		cart := h.cartStore.Get(sid)
 		data := h.mergeData(r, map[string]any{
-			"Error": "اطلاعات تماس، آدرس و کد پستی را به‌درستی وارد کنید.",
+			"Error": "اطلاعات تماس، آدرس و کد پستی را به‌درستی وارد کنید. دقت کنید ارقام انگلیسی باشند.",
 			"Total": cart.Total(),
 			"Phone": phone,
 			"Step":  1,
