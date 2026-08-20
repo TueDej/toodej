@@ -983,10 +983,12 @@ func scanProductRow(s interface {
 	return p, nil
 }
 
-// parseTime parses an SQLite datetime string into time.Time.
-// Returns time.Now() on parse failure so templates never receive a zero time.
+// parseTime parses an SQLite datetime string into time.Time. Timestamps are
+// stored by SQLite as UTC (datetime('now')), so the string is parsed in the UTC
+// location to recover the correct instant. Returns time.Now() on parse failure
+// so templates never receive a zero time.
 func parseTime(s string) time.Time {
-	t, err := time.Parse("2006-01-02 15:04:05", s)
+	t, err := time.ParseInLocation("2006-01-02 15:04:05", s, time.UTC)
 	if err != nil {
 		return time.Now()
 	}

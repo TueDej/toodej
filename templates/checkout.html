@@ -88,11 +88,11 @@
           </div>
           <div class="min-w-0">
             <span class="block truncate font-medium text-walnut">{{.Name}}</span>
-            <span class="text-xs text-clay">{{.Unit}}</span>
+            <span class="text-xs text-clay">{{.Quantity | persianDigits}} × {{.Unit}}</span>
           </div>
         </div>
-        <div class="flex items-center gap-4 flex-shrink-0">
-          <span class="text-xs text-clay">{{.Quantity | persianDigits}} × {{formatPrice .Price}}</span>
+        <div class="flex flex-col items-end text-left flex-shrink-0">
+          <span class="text-xs text-clay">{{formatPrice .Price}}</span>
           <span class="font-bold text-pomegranate">{{formatPrice (multiply .Price .Quantity)}}</span>
         </div>
       </div>

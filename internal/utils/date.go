@@ -10,17 +10,23 @@ import (
 	"github.com/yaa110/go-persian-calendar"
 )
 
+// iranZone is the Iran timezone (UTC+03:30). Iran abolished DST in 1401 (2022),
+// so it is +03:30 year-round. All customer-facing dates are displayed in this
+// zone so submission times show in Tehran time rather than the UTC in which the
+// database stores them.
+var iranZone = time.FixedZone("Iran", 3*3600+30*60)
+
 // FormatPersianDate converts a time.Time to a Persian date string like
 // "۲۵ شهریور ۱۴۰۳" (day, Persian month name, year).
 func FormatPersianDate(t time.Time) string {
-	pt := ptime.New(t)
+	pt := ptime.New(t.In(iranZone))
 	return toPersianDigits(pt.Day()) + " " + pt.Month().String() + " " + toPersianDigits(pt.Year())
 }
 
 // FormatPersianDateTime converts a time.Time to a Persian date-time string like
 // "۲۵ شهریور ۱۴۰۳ - ۱۴:۳۰".
 func FormatPersianDateTime(t time.Time) string {
-	pt := ptime.New(t)
+	pt := ptime.New(t.In(iranZone))
 	return toPersianDigits(pt.Day()) + " " + pt.Month().String() + " " + toPersianDigits(pt.Year()) +
 		" - " + toPersianDigits(pt.Hour()) + ":" + toPersianDigits(pt.Minute())
 }
@@ -28,7 +34,7 @@ func FormatPersianDateTime(t time.Time) string {
 // FormatPersianDateSlash converts a time.Time to a slash-separated Persian date
 // like "۱۴۰۳/۶/۲۵" (year/month/day).
 func FormatPersianDateSlash(t time.Time) string {
-	pt := ptime.New(t)
+	pt := ptime.New(t.In(iranZone))
 	return toPersianDigits(pt.Year()) + "/" + toPersianDigits(int(pt.Month())) + "/" + toPersianDigits(pt.Day())
 }
 
