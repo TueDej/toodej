@@ -2,8 +2,6 @@
 
 A Persian-language e-commerce web application for a small farm selling fresh figs, pomegranates, and derived products. Built with Go, HTMX, and Tailwind CSS — zero JavaScript framework, zero build step.
 
-**Repo:** https://github.com/TueDej/toodej
-
 ## Tech Stack
 
 | Layer     | Technology |
