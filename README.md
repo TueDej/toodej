@@ -2,6 +2,8 @@
 
 A Persian-language e-commerce web application for a small farm selling fresh figs, pomegranates, and derived products. Built with Go, HTMX, and Tailwind CSS — zero JavaScript framework, zero build step.
 
+**Repo:** https://github.com/TueDej/toodej
+
 ## Tech Stack
 
 | Layer     | Technology |
@@ -20,7 +22,7 @@ A Persian-language e-commerce web application for a small farm selling fresh fig
 
 ```bash
 # Clone the repository
-git clone <repo-url>
+git clone https://github.com/TueDej/toodej.git
 cd toodej
 
 # Run in development mode (OTP codes logged to stdout, no SMS needed)
