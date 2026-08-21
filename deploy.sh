@@ -28,51 +28,26 @@ sudo_if_needed() {
 }
 
 # --------------- colors & output ---------------
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; BOLD='\033[1m'; NC='\033[0m'
+GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
 STEP_NUM=0
 
 # info  — normal progress message
-info()  { printf "  ${GREEN}▸${NC}  %s\n" "$*"; }
+info()  { printf "  ${DIM}→${NC}  %s\n" "$*"; }
 # warn  — something non-fatal that the user should notice
-warn()  { printf "  ${YELLOW}▸${NC}  %s\n" "$*"; }
+warn()  { printf "  ${YELLOW}!${NC}  %s\n" "$*"; }
 # ok    — task completed successfully
-ok()    { printf "  ${GREEN}✔${NC}  %s\n" "$*"; }
+ok()    { printf "  ${GREEN}✓${NC}  %s\n" "$*"; }
 # fail  — fatal error, prints to stderr and exits
 fail()  { printf "  ${RED}✗${NC}  %s\n" "$*" >&2; exit 1; }
 
-# banner — top-of-script header box
-banner() {
-  local w=58
-  local pad=""
-  for _ in $(seq 1 $w); do pad="${pad}═"; done
-  printf "\n${BOLD}${GREEN}╔${pad}╗${NC}\n"
-  for line in "$@"; do
-    local char_count inner_w pad_right
-    char_count=$(printf '%s' "$line" | wc -m)
-    inner_w=$((w - 2))
-    if [ "$char_count" -gt "$inner_w" ]; then
-      line="${line:0:$inner_w}"
-      char_count=$inner_w
-    fi
-    pad_right=$((inner_w - char_count))
-    printf "${BOLD}${GREEN}║${NC}  ${BOLD}%s${NC}" "$line"
-    printf "%${pad_right}s" ""
-    printf "${BOLD}${GREEN}║${NC}\n"
-  done
-  printf "${BOLD}${GREEN}╚${pad}╝${NC}\n"
-}
-
-# step — numbered section header (auto-increments)
+# step — numbered section header
 step() {
   STEP_NUM=$((STEP_NUM + 1))
-  printf "\n${CYAN}── Step ${STEP_NUM}: %s ──${NC}\n" "$*"
+  printf "\n${CYAN}${BOLD}Step ${STEP_NUM}:${NC} %s\n" "$*"
 }
 
-# kv — key/value pair for summary tables (26-char label column)
-kv() { printf "  %-26s %s\n" "$1" "$2"; }
-
-# divider — thin horizontal rule
-divider() { printf "  ${CYAN}────────────────────────────────────────────────────────${NC}\n"; }
+# kv — key/value pair for summary tables (22-char label column)
+kv() { printf "  %-22s %s\n" "$1" "$2"; }
 
 usage() {
   cat <<'EOF'
@@ -95,9 +70,8 @@ for arg in "$@"; do
   esac
 done
 
-banner "Toodej — production deployment" \
-  "repo:    ${SCRIPT_DIR}" \
-  "started: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+printf "\n${BOLD}${GREEN}Toodej${NC} — production deployment\n"
+printf "  ${DIM}repo:${NC} ${SCRIPT_DIR}   ${DIM}started:${NC} $(date '+%Y-%m-%d %H:%M:%S %Z')\n"
 
 # --------------- 0. prerequisite check ---------------
 missing=""
@@ -427,12 +401,11 @@ else
 fi
 
 ELAPSED=$((SECONDS - START_TIME))
-banner "Deployment complete" \
-  "elapsed: $((ELAPSED / 3600))h $(((ELAPSED % 3600) / 60))m $((ELAPSED % 60))s" \
-  "status:  $([ "$HEALTHY" -eq 1 ] && echo "service is healthy" || echo "service may still be starting")"
+printf "\n${BOLD}${GREEN}Deployment complete${NC}\n"
+printf "  ${DIM}elapsed:${NC} $((ELAPSED / 3600))h $(((ELAPSED % 3600) / 60))m $((ELAPSED % 60))s\n"
+printf "  ${DIM}status:${NC}  $([ "$HEALTHY" -eq 1 ] && echo "service is healthy" || echo "service may still be starting")\n"
 
 step "Deployment summary"
-divider
 kv "Service unit:" "${APP_NAME}.service"
 kv "Port:" "$APP_PORT"
 kv "Admin user:" "$ADMIN_USER"
@@ -442,11 +415,10 @@ kv "App base URL:" "$APP_BASE_URL"
 kv "Zarinpal sandbox:" "${ZARINPAL_SANDBOX:-false}"
 kv "Kavenegar configured:" "$([ -n "$KAVENEGAR_API_KEY" ] && echo "yes" || echo "no")"
 kv "Env file:" "${ENV_FILE} (640, root:${DEPLOYER_GROUP})"
-divider
-printf "\n  ${CYAN}Logs:${NC}     sudo journalctl -u %s -f\n" "${APP_NAME}.service"
+printf "\n  ${DIM}Logs:${NC}     sudo journalctl -u %s -f\n" "${APP_NAME}.service"
 
 if [ "$HEALTHY" -eq 1 ]; then
-  printf "  ${CYAN}Local:${NC}    http://127.0.0.1:%s\n\n" "$APP_PORT"
+  printf "  ${DIM}Local:${NC}    http://127.0.0.1:%s\n\n" "$APP_PORT"
 fi
 
 # --------------- 9. caddy prompt ---------------

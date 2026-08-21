@@ -4,42 +4,18 @@ set -euo pipefail
 # Toodej — development entry point. Builds and runs the server locally.
 
 # --------------- helpers ---------------
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
 STEP_NUM=0
-
-info()  { printf "  ${GREEN}▸${NC}  %s\n" "$*"; }
-warn()  { printf "  ${YELLOW}▸${NC}  %s\n" "$*"; }
-ok()    { printf "  ${GREEN}✔${NC}  %s\n" "$*"; }
-
-banner() {
-  local w=58
-  local pad=""
-  for _ in $(seq 1 $w); do pad="${pad}═"; done
-  printf "\n${BOLD}${GREEN}╔${pad}╗${NC}\n"
-  for line in "$@"; do
-    local char_count inner_w pad_right
-    char_count=$(printf '%s' "$line" | wc -m)
-    inner_w=$((w - 2))
-    if [ "$char_count" -gt "$inner_w" ]; then
-      line="${line:0:$inner_w}"
-      char_count=$inner_w
-    fi
-    pad_right=$((inner_w - char_count))
-    printf "${BOLD}${GREEN}║${NC}  ${BOLD}%s${NC}" "$line"
-    printf "%${pad_right}s" ""
-    printf "${BOLD}${GREEN}║${NC}\n"
-  done
-  printf "${BOLD}${GREEN}╚${pad}╝${NC}\n"
-}
 
 step() {
   STEP_NUM=$((STEP_NUM + 1))
-  printf "\n${CYAN}── Step ${STEP_NUM}: %s ──${NC}\n" "$*"
+  printf "\n${CYAN}${BOLD}Step ${STEP_NUM}:${NC} %s\n" "$*"
 }
 
-kv() { printf "  %-26s %s\n" "$1" "$2"; }
-
-divider() { printf "  ${CYAN}────────────────────────────────────────────────────────${NC}\n"; }
+info()  { printf "  ${DIM}→${NC}  %s\n" "$*"; }
+warn()  { printf "  ${YELLOW}!${NC}  %s\n" "$*"; }
+ok()    { printf "  ${GREEN}✓${NC}  %s\n" "$*"; }
+kv()    { printf "  %-22s %s\n" "$1" "$2"; }
 
 # --------------- defaults ---------------
 export DEV_MODE="${DEV_MODE:-true}"
@@ -54,10 +30,11 @@ export ZARINPAL_SANDBOX="${ZARINPAL_SANDBOX:-true}"
 BINDIR="$(cd "$(dirname "$0")" && pwd)/bin"
 BINARY="$BINDIR/server"
 
-banner "Toodej — development server" \
-  "mode:   DEV_MODE=${DEV_MODE}" \
-  "port:   ${PORT}" \
-  "db:     ${DB_PATH}"
+MODE_LABEL="dev"
+[ "$DEV_MODE" != "true" ] && MODE_LABEL="production"
+
+printf "\n${BOLD}${GREEN}Toodej${NC} — development server\n"
+printf "  ${DIM}mode:${NC} ${MODE_LABEL}   ${DIM}port:${NC} ${PORT}   ${DIM}db:${NC} ${DB_PATH}\n"
 
 # --------------- build ---------------
 step "Build"
@@ -75,7 +52,6 @@ ok "Binary built at ${BINARY}"
 # --------------- server ---------------
 step "Server"
 
-divider
 kv "Store:"    "http://localhost:${PORT}"
 kv "Admin:"    "http://localhost:${PORT}/admin"
 kv "Login:"    "${ADMIN_USER} / ${ADMIN_PASS}"
@@ -85,8 +61,7 @@ if [ -n "$ZARINPAL_MERCHANT_ID" ]; then
 else
   warn "Payment: ZARINPAL_MERCHANT_ID not set — payments will fail"
 fi
-divider
 
-printf "\n  ${CYAN}Press Ctrl+C to stop${NC}\n\n"
+printf "\n  ${DIM}Press Ctrl+C to stop${NC}\n\n"
 
 exec "$BINARY"
