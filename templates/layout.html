@@ -448,9 +448,9 @@
   </main>
 
   <!-- ============ FOOTER ============ -->
-  <footer class="relative overflow-hidden bg-forest" style="color:var(--text-on-dark)">
-    <div class="mx-auto max-w-5xl px-5 py-14 lg:px-8">
-      <div class="grid gap-12 sm:grid-cols-2 lg:grid-cols-4">
+  <footer class="relative overflow-hidden bg-forest" style="color:var(--text-on-dark);min-height:100vh;display:flex;flex-direction:column">
+    <div class="mx-auto w-full max-w-5xl px-5 lg:px-8 flex-1 flex flex-col">
+      <div class="grid gap-12 sm:grid-cols-2 lg:grid-cols-4 pt-24 pb-12">
         <div class="sm:col-span-2 lg:col-span-1">
           <a href="/" class="flex items-center gap-2.5">
             <span class="font-display text-2xl font-bold text-sand">تودج</span>
@@ -461,15 +461,18 @@
           </p>
         </div>
         <div>
-          <h3 class="mb-4 border-b border-sand/25 pb-2 font-display text-lg font-semibold text-sand">خرید</h3>
-          <ul class="space-y-2.5 text-sm text-sand/80">
-            <li><a href="/products/all" class="transition hover:text-saffron">همه محصولات</a></li>
+          <h3 class="mb-5 border-b border-sand/25 pb-3 font-display text-lg font-semibold text-sand">خرید</h3>
+          <ul class="space-y-3.5 text-sm text-sand/80">
             <li><a href="/cart" class="transition hover:text-saffron">سبد خرید</a></li>
+            <li><a href="/products/all" class="transition hover:text-saffron">همه محصولات</a></li>
+            {{range .Categories}}
+            <li><a href="/products/{{.Slug}}" class="transition hover:text-saffron">{{.Label}}</a></li>
+            {{end}}
           </ul>
         </div>
         <div>
-          <h3 class="mb-4 border-b border-sand/25 pb-2 font-display text-lg font-semibold text-sand">ارتباط با ما</h3>
-          <ul class="space-y-2.5 text-sm">
+          <h3 class="mb-5 border-b border-sand/25 pb-3 font-display text-lg font-semibold text-sand">ارتباط با ما</h3>
+          <ul class="space-y-3.5 text-sm">
             <li class="flex items-baseline justify-between gap-4">
               <span class="text-sand/70">تماس</span>
               <span dir="ltr" class="text-sand">+989904196349</span>
@@ -504,7 +507,7 @@
         </div>
       </div>
 
-      <div class="mt-12 flex flex-col items-center justify-between gap-3 border-t border-sand/20 pt-6 text-xs leading-relaxed text-sand/60 sm:flex-row">
+      <div class="mt-auto flex flex-col items-center justify-between gap-3 border-t border-sand/20 pt-6 pb-8 text-xs leading-relaxed text-sand/60 sm:flex-row">
         <p class="flex items-center gap-1.5">
           <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
             <circle cx="12" cy="12" r="9"/>

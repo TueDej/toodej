@@ -72,10 +72,7 @@ func main() {
 		logutil.Warn("using default admin credentials (DEV_MODE only)", "admin_user", adminUser)
 	}
 
-	// Rate limiters: per-IP budgets for the auth surface and admin panel.
-	loginLimiter := handlers.NewRateLimiter(20, time.Minute)
-	sendOTPLimiter := handlers.NewRateLimiter(5, time.Minute)
-	verifyOTPLimiter := handlers.NewRateLimiter(10, time.Minute)
+	// Rate limiter: per-IP budget for the admin panel.
 	adminLimiter := handlers.NewRateLimiter(30, time.Minute)
 
 	// Public routes
@@ -97,9 +94,9 @@ func main() {
 	r.Post("/checkout", h.PlaceOrder)
 	r.Get("/checkout/verify", h.VerifyPayment)
 	r.Get("/checkout/confirmation/{id}", h.Confirmation)
-	r.With(loginLimiter.Middleware).Get("/login", h.LoginPage)
-	r.With(sendOTPLimiter.Middleware).Post("/auth/send-otp", h.SendOTP)
-	r.With(verifyOTPLimiter.Middleware).Post("/auth/verify-otp", h.VerifyOTP)
+	r.Get("/login", h.LoginPage)
+	r.Post("/auth/send-otp", h.SendOTP)
+	r.Post("/auth/verify-otp", h.VerifyOTP)
 	r.Get("/logout", h.Logout)
 	r.Get("/orders", h.UserOrders)
 	r.Post("/orders/{id}/pay", h.ResumePayment)

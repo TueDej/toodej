@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"farmstore/internal/database"
+	"farmstore/internal/logutil"
 )
 
 // commonData returns template data that is shared across all pages — currently
@@ -28,10 +29,17 @@ func (h *Handler) commonData(r *http.Request, w http.ResponseWriter) map[string]
 	}
 	// Ensure CSRF token is set and include it in template data
 	csrfToken := ensureCSRFToken(w, r)
+	// Load enabled categories for the footer navigation
+	categories, err := database.GetEnabledCategories(r.Context(), h.db)
+	if err != nil {
+		logutil.Error("load categories for footer", "err", err)
+		categories = nil
+	}
 	return map[string]any{
-		"LoggedIn":  loggedIn,
-		"CartCount": cartCount,
-		"CSRFToken": csrfToken,
+		"LoggedIn":   loggedIn,
+		"CartCount":  cartCount,
+		"CSRFToken":  csrfToken,
+		"Categories": categories,
 	}
 }
 
