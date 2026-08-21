@@ -93,26 +93,26 @@
   <div class="season-slides">
     <!-- slide 1: fig -->
     <div class="season-slide active" data-index="0">
-      <div class="absolute inset-0 bg-cover bg-center opacity-45" style="background-image:url('/assets/fig-showcase.webp')"></div>
+      <div class="season-bg absolute inset-0 bg-cover bg-center" style="background-image:url('/assets/fig-showcase.webp')"></div>
       <div class="absolute inset-0 bg-gradient-to-l from-[rgba(36,28,22,0.82)] via-[rgba(36,28,22,0.5)] to-transparent"></div>
-      <div class="relative mx-auto max-w-5xl px-5 py-10 lg:px-8">
+      <div class="season-content relative mx-auto max-w-5xl px-5 py-10 lg:px-8">
         <h2 class="max-w-2xl font-display text-3xl font-bold leading-[1.25] md:text-5xl" style="color:var(--text-on-dark)">
-          انجیر خشک، طعم تابستان
+           انجیر خشک، طعم تابستان
         </h2>
-        <p class="mt-6 max-w-xl text-base leading-8" style="color:var(--text-on-dark); opacity:.9">خشک‌شده زیر آفتاب، بی‌افزودنی.</p>
+         <p class="mt-6 max-w-xl text-base leading-8" style="color:var(--text-on-dark); opacity:.9">خشک‌شده زیر آفتاب؛ سرشار از فیبر، کلسیم و پتاسیم برای سلامت قلب، هضم و انرژی طبیعی.</p>
         <a href="/products/fig" class="btn btn-primary mt-8 text-base">انجیر خشک را ببین</a>
       </div>
     </div>
 
     <!-- slide 2: pomegranate -->
     <div class="season-slide" data-index="1">
-      <div class="absolute inset-0 bg-cover bg-center opacity-45" style="background-image:url('/assets/pomegranate-showcase.webp')"></div>
+      <div class="season-bg absolute inset-0 bg-cover bg-center" style="background-image:url('/assets/pomegranate-showcase.webp')"></div>
       <div class="absolute inset-0 bg-gradient-to-l from-[rgba(36,28,22,0.82)] via-[rgba(36,28,22,0.5)] to-transparent"></div>
-      <div class="relative mx-auto max-w-5xl px-5 py-10 lg:px-8">
+      <div class="season-content relative mx-auto max-w-5xl px-5 py-10 lg:px-8">
         <h2 class="max-w-2xl font-display text-3xl font-bold leading-[1.25] md:text-5xl" style="color:var(--text-on-dark)">
-          انار تازه، طعم پاییز
+           انار تازه، طعم پاییز
         </h2>
-        <p class="mt-6 max-w-xl text-base leading-8" style="color:var(--text-on-dark); opacity:.9">انار تازه؛ دانه یا آب‌گرفته.</p>
+         <p class="mt-6 max-w-xl text-base leading-8" style="color:var(--text-on-dark); opacity:.9">انار تازه؛ دانه یا آب‌گرفته. سرشار از آنتی‌اکسیدان و ویتامین C؛ برای تقویت ایمنی و سلامت قلب. ارسال فقط به شیراز و حومه.</p>
         <a href="/products/pomegranate" class="btn btn-primary mt-8 text-base">انار را ببین</a>
       </div>
     </div>
@@ -141,11 +141,38 @@
       position: absolute; inset: 0;
       display: flex; align-items: center;
       opacity: 0; visibility: hidden;
-      transition: opacity .6s ease, visibility .6s ease;
+      transition: opacity .7s ease, visibility .7s ease;
+      will-change: opacity, visibility;
     }
     .season-slide.active { opacity: 1; visibility: visible; }
+
+    /* Parallax layers */
     .season-slide > .absolute { z-index: 0; }
-    .season-slide > .relative { z-index: 1; width: 100%; padding-inline-start: 6rem; padding-inline-end: 6rem; }
+    .season-slide > .season-content { z-index: 1; width: 100%; padding-inline-start: 6rem; padding-inline-end: 6rem; }
+
+    /* Background image layer — slow Ken Burns-style scale + fade */
+    .season-bg {
+      opacity: 0;
+      transform: scale(1.08);
+      transition: opacity .9s ease, transform .9s ease-out;
+      will-change: opacity, transform;
+    }
+    .season-slide.active .season-bg {
+      opacity: .45;
+      transform: scale(1);
+    }
+
+    /* Text content layer — rises into place, faster than bg */
+    .season-content {
+      opacity: 0;
+      transform: translateY(50px);
+      transition: opacity .7s ease .15s, transform .7s ease-out .15s;
+      will-change: opacity, transform;
+    }
+    .season-slide.active .season-content {
+      opacity: 1;
+      transform: translateY(0);
+    }
 
     .season-nav {
       position: absolute; top: 0; bottom: 0; z-index: 10;
@@ -162,7 +189,7 @@
     .season-nav-next { right: 0; }
 
     .season-dots {
-      position: absolute; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+      position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%);
       z-index: 10; display: flex; gap: .5rem;
     }
     .season-dot {
@@ -176,8 +203,18 @@
     @media (max-width: 640px) {
       /* arrows crowd the small screen — touch swipe replaces them */
       .season-nav { display: none; }
-      .season-slide > .relative { padding-inline-start: 3rem; padding-inline-end: 2.5rem; }
+      .season-slide > .season-content { padding-inline-start: 3rem; padding-inline-end: 2.5rem; }
       .season-slides { touch-action: pan-y; cursor: grab; }
+    }
+
+    /* Respect reduced motion preference */
+    @media (prefers-reduced-motion: reduce) {
+      .season-bg, .season-content, .season-slide {
+        transition: opacity .01s linear !important;
+        transform: none !important;
+      }
+      .season-bg { opacity: .45 !important; }
+      .season-content { opacity: 1 !important; }
     }
   </style>
 
