@@ -90,6 +90,7 @@ func (h *Handler) featuredProducts(ctx context.Context) []models.Product {
 			if len(out) >= max {
 				return out
 			}
+			p.Images = productImages(ctx, h.db, p.ID)
 			out = append(out, p)
 		}
 	}
@@ -143,6 +144,12 @@ func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 		logutil.Error("products page", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	// Attach each product's gallery so the shared product card can render a
+	// slider when the product has several images.
+	for i := range products {
+		products[i].Images = productImages(r.Context(), h.db, products[i].ID)
 	}
 
 	data := h.mergeData(r, map[string]any{

@@ -18,6 +18,10 @@ type Product struct {
 	ImageURL      string    `json:"image_url"`
 	IsActive      bool      `json:"is_active"`
 	CreatedAt     time.Time `json:"created_at"`
+
+	// Images is a display-only gallery (ordered paths) populated by handlers
+	// via the images table; it is never persisted through Product itself.
+	Images []string `json:"images,omitempty"`
 }
 
 // Order represents a customer order with a TDJ-XXXXXX ID, customer details,
