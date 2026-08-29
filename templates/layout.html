@@ -124,13 +124,14 @@
       box-shadow:var(--shadow-card-hover);
       border-color:var(--border-fig);
     }
-    /* product-card gallery slider: hide the scrollbar; swipe/scroll still works.
-       touch-action:pan-y keeps vertical page scrolling native over the card;
-       horizontal swiping is handled in JS (see the touchstart handler below). */
-    .pc-track{ scrollbar-width:none; -ms-overflow-style:none; touch-action:pan-y; }
+    /* product-card gallery slider: native touch scrolling (momentum + snap),
+       with overscroll contained so swiping past the first/last image never
+       chains into page scrolling. Scrollbar hidden; swipe/scroll still works. */
+    .pc-track{
+      scrollbar-width:none; -ms-overflow-style:none;
+      overscroll-behavior-x:contain;
+    }
     .pc-track::-webkit-scrollbar{ display:none; }
-    /* snap is suspended while a finger drags the track 1:1 */
-    .pc-track.pc-dragging{ scroll-snap-type:none; }
 
     /* ---- wax-seal stamp (hand-stamped ink mark) ------------------------ */
     .wax-seal{
@@ -680,44 +681,6 @@
       observeReveals();
       document.body.addEventListener('htmx:afterSwap', observeReveals);
     })();
-  </script>
-
-  <!-- product-card gallery: finger swipe. touch-action:pan-y keeps vertical
-       page scrolling native; when a touch on a track moves predominantly
-       horizontally, the track is dragged 1:1 and snaps to the nearest image
-       on release. Vertical gestures are left to the browser (page scroll). -->
-  <script>
-    document.addEventListener('touchstart', function (e) {
-      var t = e.target.closest ? e.target.closest('.pc-track') : null;
-      if (!t || t.scrollWidth <= t.clientWidth) { return; }
-      var sx = e.touches[0].clientX, sy = e.touches[0].clientY;
-      var sl = t.scrollLeft, locked = null;
-      function onMove(ev) {
-        var dx = ev.touches[0].clientX - sx, dy = ev.touches[0].clientY - sy;
-        if (locked === null) {
-          if (Math.abs(dx) < 6 && Math.abs(dy) < 6) { return; }
-          locked = Math.abs(dx) > Math.abs(dy);
-          if (locked) { t.classList.add('pc-dragging'); }
-        }
-        if (locked) {
-          ev.preventDefault();
-          t.scrollLeft = sl - dx;
-        }
-      }
-      function onEnd() {
-        document.removeEventListener('touchmove', onMove);
-        document.removeEventListener('touchend', onEnd);
-        document.removeEventListener('touchcancel', onEnd);
-        if (locked) {
-          var i = Math.max(0, Math.min(t.children.length - 1, Math.round(t.scrollLeft / t.clientWidth)));
-          t.scrollTo({ left: i * t.clientWidth, behavior: 'smooth' });
-          setTimeout(function () { t.classList.remove('pc-dragging'); }, 450);
-        }
-      }
-      document.addEventListener('touchmove', onMove, { passive: false });
-      document.addEventListener('touchend', onEnd);
-      document.addEventListener('touchcancel', onEnd);
-    });
   </script>
 
   <!-- CSRF token injection for HTMX requests -->
