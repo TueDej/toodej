@@ -269,11 +269,31 @@ else
 fi
 
 info "Compiling all packages as a pre-flight check..."
-GOTOOLCHAIN=local go build ./...
+# -trimpath must match the release build below: Go's build-cache keys include
+# the flag set, so a plain 'go build ./...' here would leave the release build
+# with a cold cache and it would recompile the whole tree (including
+# modernc.org/sqlite) from scratch — minutes of silence on a small VPS.
+GOTOOLCHAIN=local go build -trimpath ./...
 ok "All packages compile"
 
-info "Building release binary..."
-GOTOOLCHAIN=local go build -trimpath -ldflags="-s -w" -o "./bin/${APP_NAME}" ./cmd/server
+info "Building release binary (first run can take a few minutes)..."
+BUILD_START=$SECONDS
+GOTOOLCHAIN=local go build -trimpath -ldflags="-s -w" -o "./bin/${APP_NAME}" ./cmd/server &
+BUILD_PID=$!
+SPIN='-\|/'
+SPIN_I=0
+while kill -0 "$BUILD_PID" 2>/dev/null; do
+  SPIN_CHAR="${SPIN:SPIN_I%4:1}"
+  SPIN_I=$((SPIN_I + 1))
+  printf "\r  ${DIM}→${NC}  Building release binary... %c  %3ds" "$SPIN_CHAR" "$((SECONDS - BUILD_START))"
+  sleep 1
+done
+if wait "$BUILD_PID"; then
+  printf "\r  ${GREEN}✓${NC}  Release binary built in %ds                                \n" "$((SECONDS - BUILD_START))"
+else
+  printf "\n"
+  fail "Release build failed"
+fi
 chmod +x "./bin/${APP_NAME}"
 ok "Binary built at ./bin/${APP_NAME}"
 
