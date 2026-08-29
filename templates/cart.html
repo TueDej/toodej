@@ -15,13 +15,31 @@
 
 {{define "cart-content"}}
 <!-- CART CONTENT PARTIAL — swapped into #cart-content on quantity/remove changes -->
+<style>
+  /* Cart image slider: hide the scrollbar; swipe/scroll still works. */
+  .ci-track { scrollbar-width: none; -ms-overflow-style: none; }
+  .ci-track::-webkit-scrollbar { display: none; }
+</style>
 {{if .Items}}
 <div class="mt-8 space-y-5">
   {{range .Items}}
   <article class="paper-card overflow-hidden px-5 py-4 transition hover:border-fig/30 lg:flex lg:items-center lg:gap-5">
     <!-- row 1 (mobile) / inline (desktop): thumb + name + remove -->
     <div class="flex items-center gap-3 lg:min-w-0 lg:flex-1 lg:gap-4">
-      <!-- thumb -->
+      <!-- thumb: single image, or a swipeable slider when the product has a gallery -->
+      {{if gt (len .Images) 1}}
+      <div class="relative flex-shrink-0" dir="ltr">
+        <div class="ci-track flex h-14 w-14 overflow-x-auto snap-x snap-mandatory overflow-y-hidden rounded-2xl border border-line/70 bg-sand lg:h-16 lg:w-16">
+          {{range .Images}}
+          <img src="{{.}}" alt="{{$.Name}}" class="h-full w-full flex-shrink-0 snap-center object-cover">
+          {{end}}
+        </div>
+        <button type="button" onclick="var s=this.parentElement.querySelector('.ci-track'); s.scrollBy({left:-s.clientWidth,behavior:'smooth'})"
+          class="absolute -right-1 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full border border-line bg-parchment text-[9px] leading-none text-clay shadow-sm" title="تصویر قبلی" aria-label="تصویر قبلی">‹</button>
+        <button type="button" onclick="var s=this.parentElement.querySelector('.ci-track'); s.scrollBy({left:s.clientWidth,behavior:'smooth'})"
+          class="absolute -left-1 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full border border-line bg-parchment text-[9px] leading-none text-clay shadow-sm" title="تصویر بعدی" aria-label="تصویر بعدی">›</button>
+      </div>
+      {{else}}
       <div class="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-sand border border-line/70 lg:h-16 lg:w-16">
         {{if .ImageURL}}
         <img src="{{.ImageURL}}" alt="{{.Name}}" class="h-full w-full object-cover">
@@ -29,6 +47,7 @@
         <img src="/assets/fig.svg?v=3" alt="" class="h-7 w-7 opacity-50">
         {{end}}
       </div>
+      {{end}}
 
       <!-- name + unit -->
       <div class="min-w-0 flex-1">

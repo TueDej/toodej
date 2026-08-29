@@ -1,1 +1,15 @@
-{{define "title"}}ORDER-DETAIL{{end}}{{define "content"}}ORDER-DETAIL-PAGE{{if .Order}} id={{.Order.ID}} status={{.Order.Status}}{{end}}{{range .Items}} ITEM={{.Name}}{{end}}{{end}}
+{{define "title"}}ORDER-DETAIL{{end}}{{define "content"}}ORDER-DETAIL-PAGE{{if .Order}} id={{.Order.ID}} status={{.Order.Status}}{{end}}{{range .Items}} ITEM={{.Name}}{{end}}
+<div id="order-status-controls" class="flex items-center gap-3">
+  <span class="rounded-full border border-dashed px-3 py-1 text-xs font-semibold {{statusColor .Order.Status}}"
+        style="background:var(--surface-warm)">{{statusLabel .Order.Status}}</span>
+  {{if and (ne .Order.Status "cancelled") (ne .Order.Status "awaiting_payment")}}
+  <select name="status" class="field-inline status-select" data-color="{{statusVar .Order.Status}}"
+    style="color:{{statusVar .Order.Status}}"
+    hx-post="/admin/orders/{{.Order.ID}}/status-badge" hx-trigger="change"
+    hx-target="#order-status-controls" hx-swap="outerHTML">
+    {{range statusOptions .Order.Status}}
+    <option value="{{.}}" {{if eq . $.Order.Status}}selected{{end}}>{{statusLabel .}}</option>
+    {{end}}
+  </select>
+  {{end}}
+</div>{{end}}

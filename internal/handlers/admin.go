@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -96,8 +97,82 @@ func (h *Handler) AdminOrderDetail(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "order-detail", data)
 }
 
-// AdminUpdateOrderStatusBadge returns just the updated status <span> badge
-// for the order detail page (HTMX target).
+// isKnownOrderStatus reports whether s is one of the five order statuses.
+func isKnownOrderStatus(s string) bool {
+	_, ok := statusLabels[s]
+	return ok
+}
+
+// orderTransitionToast sets an HX-Trigger header carrying an adminToast event
+// so the admin panel shows a Persian explanation of why the status change was
+// rejected. HTMX skips the swap for non-2xx responses, so the header (plus the
+// page's htmx:responseError fallback listener) is the only feedback channel.
+func orderTransitionToast(w http.ResponseWriter, message string) {
+	payload, _ := json.Marshal(map[string]string{"message": message})
+	w.Header().Set("HX-Trigger", `{"adminToast":`+string(payload)+`}`)
+}
+
+// orderStatusSelectHTML renders the status <select> for an order, offering only
+// the current status and the forward (and cancel) options that
+// database.ValidOrderStatusOptions permits. A cancelled order is terminal: the
+// select is disabled with an explanatory tooltip so it can never be moved back.
+func (h *Handler) orderStatusSelectHTML(w http.ResponseWriter, r *http.Request, orderID, current string) string {
+	disabled := ""
+	title := ""
+	if current == "cancelled" {
+		disabled = "disabled"
+		title = `title="سفارش لغو شده است؛ این وضعیت نهایی است و تغییر نمی‌کند."`
+	}
+
+	var opts strings.Builder
+	for _, s := range database.ValidOrderStatusOptions(current) {
+		sel := ""
+		if s == current {
+			sel = `selected `
+		}
+		fmt.Fprintf(&opts, `<option value="%s" %s>%s</option>`, s, sel, statusLabels[s])
+	}
+
+	return fmt.Sprintf(`<input type="hidden" name="csrf_token" value="%s">
+    <select name="status" class="field-inline w-40 status-select" data-color="%s" %s %s
+      hx-post="/admin/orders/%s/status" hx-trigger="change" hx-target="#order-%s-status" hx-swap="outerHTML" hx-include="closest td">
+      %s
+    </select>`,
+		ensureCSRFToken(w, r), statusVar(current), disabled, title, orderID, orderID, opts.String())
+}
+
+// orderStatusControlsHTML renders the order-detail page's status controls: the
+// colored badge plus a forward-only select. For a cancelled (terminal) order
+// only the badge is shown.
+func (h *Handler) orderStatusControlsHTML(r *http.Request, orderID, current string) string {
+	badge := fmt.Sprintf(`<span class="rounded-full border border-dashed px-3 py-1 text-xs font-semibold" style="background:var(--surface-warm);color:%s">%s</span>`,
+		statusVar(current), statusLabels[current])
+
+	if current == "cancelled" || current == "awaiting_payment" {
+		// No manual control: cancelled is final, awaiting_payment is managed
+		// by the payment flow itself.
+		return `<div id="order-status-controls" class="flex items-center gap-3">` + badge + `</div>`
+	}
+
+	var opts strings.Builder
+	for _, s := range database.ValidOrderStatusOptions(current) {
+		sel := ""
+		if s == current {
+			sel = `selected `
+		}
+		fmt.Fprintf(&opts, `<option value="%s" %s>%s</option>`, s, sel, statusLabels[s])
+	}
+
+	return fmt.Sprintf(`<div id="order-status-controls" class="flex items-center gap-3">%s
+  <select name="status" class="field-inline status-select" data-color="%s" style="color:%s"
+    hx-post="/admin/orders/%s/status-badge" hx-trigger="change" hx-target="#order-status-controls" hx-swap="outerHTML">
+    %s
+  </select>
+</div>`, badge, statusVar(current), statusVar(current), orderID, opts.String())
+}
+
+// AdminUpdateOrderStatusBadge returns the order-detail page's status controls
+// (badge + forward-only select) as the HTMX target after a status change.
 func (h *Handler) AdminUpdateOrderStatusBadge(w http.ResponseWriter, r *http.Request) {
 	orderID := r.PathValue("id")
 	if !validOrderID(orderID) {
@@ -106,14 +181,14 @@ func (h *Handler) AdminUpdateOrderStatusBadge(w http.ResponseWriter, r *http.Req
 	}
 
 	status := r.FormValue("status")
-	valid := map[string]bool{"pending": true, "preparing": true, "dispatched": true, "cancelled": true, "awaiting_payment": true}
-	if !valid[status] {
+	if !isKnownOrderStatus(status) {
 		http.Error(w, "invalid status", http.StatusBadRequest)
 		return
 	}
 
 	if err := database.UpdateOrderStatus(r.Context(), h.db, orderID, status); err != nil {
 		if errors.Is(err, database.ErrInvalidOrderTransition) {
+			orderTransitionToast(w, "تغییر وضعیت سفارش به عقب مجاز نیست؛ وضعیت فقط رو به جلو تغییر می‌کند.")
 			http.Error(w, "invalid status transition", http.StatusBadRequest)
 			return
 		}
@@ -123,13 +198,14 @@ func (h *Handler) AdminUpdateOrderStatusBadge(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<span class="rounded-full border border-dashed px-3 py-1 text-xs font-semibold" style="background:var(--surface-warm);color:%s">%s</span>`,
-		statusVar(status), statusLabels[status])
+	fmt.Fprint(w, h.orderStatusControlsHTML(r, orderID, status))
 }
 
 // AdminUpdateOrderStatus updates the status of an order via an HTMX POST from
-// the admin panel's inline <select>. It returns the new <td> with the updated
-// <select> so the page does not need a full reload.
+// the admin panel's inline <select>. It returns the new <td> with an updated
+// <select> that offers only the statuses the order may still move to
+// (forward-only; cancelled is terminal). Backward transitions are rejected by
+// the database's state machine and surface as a Persian toast via HX-Trigger.
 func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
 	orderID := r.PathValue("id")
 	if !validOrderID(orderID) {
@@ -138,14 +214,14 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 	}
 
 	status := r.FormValue("status")
-	valid := map[string]bool{"pending": true, "preparing": true, "dispatched": true, "cancelled": true, "awaiting_payment": true}
-	if !valid[status] {
+	if !isKnownOrderStatus(status) {
 		http.Error(w, "invalid status", http.StatusBadRequest)
 		return
 	}
 
 	if err := database.UpdateOrderStatus(r.Context(), h.db, orderID, status); err != nil {
 		if errors.Is(err, database.ErrInvalidOrderTransition) {
+			orderTransitionToast(w, "تغییر وضعیت سفارش به عقب مجاز نیست؛ وضعیت فقط رو به جلو تغییر می‌کند.")
 			http.Error(w, "invalid status transition", http.StatusBadRequest)
 			return
 		}
@@ -155,24 +231,9 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-
-	order := []string{"awaiting_payment", "pending", "preparing", "dispatched", "cancelled"}
-
-	var opts strings.Builder
-	for _, s := range order {
-		sel := ""
-		if s == status {
-			sel = `selected `
-		}
-		fmt.Fprintf(&opts, `<option value="%s" %s>%s</option>`, s, sel, statusLabels[s])
-	}
-
 	fmt.Fprintf(w, `<td id="order-%s-status" class="px-4 py-3" onclick="event.stopPropagation()">
-    <select name="status" class="field-inline w-40 status-select" data-color="%s"
-      hx-post="/admin/orders/%s/status" hx-trigger="change" hx-target="#order-%s-status" hx-swap="outerHTML">
-      %s
-    </select>
-  </td>`, orderID, statusVar(status), orderID, orderID, opts.String())
+    %s
+  </td>`, orderID, h.orderStatusSelectHTML(w, r, orderID, status))
 }
 
 // ── Product Management ────────────────────────────────
@@ -302,7 +363,11 @@ func (h *Handler) AdminCreateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 
 	product.ID = id
+	w.Header().Set("Content-Type", "text/html")
 	h.renderProductRow(w, *product)
+	// Out-of-band swap: re-open the modal in edit mode for the just-created
+	// product, where the image gallery is now live.
+	fmt.Fprint(w, renderModalOOB(h.renderProductEditModal(r, product)))
 }
 
 // AdminCreateCategory creates a new category from the admin form and prepends
@@ -331,7 +396,12 @@ func (h *Handler) AdminCreateCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.renderCategoryRow(w, models.Category{ID: id, Slug: slug, Label: label, IsEnabled: true})
+	newCat := models.Category{ID: id, Slug: slug, Label: label, IsEnabled: true}
+	w.Header().Set("Content-Type", "text/html")
+	h.renderCategoryRow(w, newCat)
+	// Out-of-band swap: re-open the modal in edit mode for the just-created
+	// category, where the image gallery is now live.
+	fmt.Fprint(w, renderModalOOB(h.renderCategoryEditModal(r, newCat)))
 }
 
 // AdminToggleCategory flips the enabled state of a category and re-renders its
@@ -373,7 +443,7 @@ func (h *Handler) loadCategory(r *http.Request, id int64) (*models.Category, err
 }
 
 // renderCategoryRow returns the HTML for a single <tr> in the admin categories
-// table. This is used as the HTMX response for category create/toggle.
+// table. This is used as the HTMX response for category create/toggle/update.
 func (h *Handler) renderCategoryRow(w http.ResponseWriter, c models.Category) {
 	w.Header().Set("Content-Type", "text/html")
 	row := fmt.Sprintf(`<tr id="category-%d" class="border-b border-line/70 transition hover:bg-sand/40">
@@ -386,10 +456,16 @@ func (h *Handler) renderCategoryRow(w http.ResponseWriter, c models.Category) {
         <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out %s"></span>
       </button>
     </td>
+    <td class="px-4 py-3">
+      <button type="button" hx-get="/admin/categories/%d/edit" hx-target="#admin-modal" hx-swap="innerHTML"
+        class="rounded-full border border-line px-3 py-1 text-xs text-clay transition hover:border-fig hover:text-fig"
+        title="ویرایش دسته‌بندی">ویرایش</button>
+    </td>
   </tr>`,
 		c.ID, c.ID, htmlEscape(c.Label), htmlEscape(c.Slug),
 		c.ID, c.ID,
-		toggleBg(c.IsEnabled), toggleTranslate(c.IsEnabled))
+		toggleBg(c.IsEnabled), toggleTranslate(c.IsEnabled),
+		c.ID)
 
 	fmt.Fprint(w, row)
 }
@@ -423,13 +499,19 @@ func (h *Handler) renderProductRow(w http.ResponseWriter, p models.Product) {
         <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out %s"></span>
       </button>
     </td>
+    <td class="px-4 py-3">
+      <button type="button" hx-get="/admin/products/%d/edit" hx-target="#admin-modal" hx-swap="innerHTML"
+        class="rounded-full border border-line px-3 py-1 text-xs text-clay transition hover:border-fig hover:text-fig"
+        title="ویرایش محصول">ویرایش</button>
+    </td>
   </tr>`,
 		p.ID, inactiveClass,
 		p.ID, htmlEscape(p.Name), htmlEscape(p.Category),
 		commaInt(p.Price), p.ID, p.ID,
 		p.StockQuantity, p.ID, p.ID,
 		p.ID, p.ID,
-		toggleBg(p.IsActive), toggleTranslate(p.IsActive))
+		toggleBg(p.IsActive), toggleTranslate(p.IsActive),
+		p.ID)
 
 	fmt.Fprint(w, row)
 }

@@ -251,6 +251,16 @@
     }
     .field::placeholder{ color:rgba(140,111,94,.6); }
     .field:focus{ border-color:var(--saffron); box-shadow:0 0 0 3px rgba(201,138,44,.2); outline:none; }
+    /* Custom select chevron: the native arrow is drawn hard against the
+       inline-end edge (the left side in RTL) and padding cannot move it —
+       it only pushes the text. Draw our own with breathing room instead. */
+    select.field{
+      -webkit-appearance:none; appearance:none;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%238c6f5e' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat:no-repeat;
+      background-position:left 1.05rem center;
+      padding-inline-end:2.4rem;
+    }
     label.lbl{ font-weight:600; font-size:.875rem; color:var(--ink); }
 
     /* ---- compact inline field (admin tables) ---------------------------- */
@@ -608,6 +618,22 @@
     });
     document.addEventListener('stockError', function(){
       showToast('موجودی این محصول کافی نیست', 'bg-[var(--toast-error)]', 'var(--pomegranate)');
+    });
+    // Admin feedback: a rejected order-status change (e.g. moving an order
+    // backwards, or out of "cancelled") fires an adminToast event with a
+    // Persian explanation from the server. The htmx:responseError listener is
+    // the guaranteed fallback, since HTMX never swaps non-2xx responses.
+    var lastAdminToastAt = 0;
+    document.body.addEventListener('adminToast', function(e){
+      lastAdminToastAt = Date.now();
+      var d = e.detail || {};
+      showToast(d.message || 'تغییر اعمال نشد', 'bg-[var(--toast-error)]', 'var(--pomegranate)');
+    });
+    document.addEventListener('htmx:responseError', function(e){
+      var path = (e.detail && e.detail.pathInfo && e.detail.pathInfo.requestPath) || '';
+      if (path.indexOf('/admin/') !== 0) return;
+      if (Date.now() - lastAdminToastAt < 400) return; // specific toast already shown
+      showToast('تغییر اعمال نشد؛ لطفاً دوباره تلاش کنید.', 'bg-[var(--toast-error)]', 'var(--pomegranate)');
     });
   </script>
 

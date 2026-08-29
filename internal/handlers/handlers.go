@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"farmstore/internal/database"
 	"farmstore/internal/logutil"
 	"farmstore/internal/payment"
 	"farmstore/internal/utils"
@@ -23,6 +24,7 @@ type Handler struct {
 	cartStore        *CartStore
 	zarinpal         *payment.Zarinpal
 	baseURL          string
+	uploadDir        string // directory for admin-uploaded product/category images
 	ctx              context.Context
 	cancel           context.CancelFunc
 	userSessions     map[string]session       // session ID → authenticated session
@@ -63,6 +65,14 @@ func statusVar(s string) string {
 	return "var(--clay)"
 }
 
+// envDefault returns the value of an environment variable or fallback.
+func envDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 // templateFuncs returns the shared template function map used by every page
 // (formatPrice, persianDate, statusColor, etc.).
 func templateFuncs() template.FuncMap {
@@ -95,8 +105,13 @@ func templateFuncs() template.FuncMap {
 			}
 			return s
 		},
-		"now":       time.Now,
-		"hasSuffix": strings.HasSuffix,
+		// statusOptions lists the statuses an order may still move to from its
+		// current state (forward-only; cancelled is terminal). Used by the
+		// admin panel's status <select> so backward moves are never offered.
+		"statusOptions": database.ValidOrderStatusOptions,
+		"statusVar":     statusVar,
+		"now":           time.Now,
+		"hasSuffix":     strings.HasSuffix,
 	}
 }
 
@@ -140,6 +155,7 @@ func NewHandler(ctx context.Context, db *sql.DB, cartStore *CartStore, zarinpal 
 		cartStore:        cartStore,
 		zarinpal:         zarinpal,
 		baseURL:          baseURL,
+		uploadDir:        envDefault("UPLOAD_DIR", "uploads"),
 		ctx:              ctx,
 		cancel:           cancel,
 		userSessions:     make(map[string]session),

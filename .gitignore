@@ -5,3 +5,4 @@
 *.db-wal
 /kilo.jsonc
 .kilo/
+uploads/

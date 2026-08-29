@@ -111,12 +111,28 @@ func main() {
 		r.Get("/orders/{id}", h.AdminOrderDetail)
 		r.Post("/orders/{id}/status", h.AdminUpdateOrderStatus)
 		r.Post("/orders/{id}/status-badge", h.AdminUpdateOrderStatusBadge)
+		r.Get("/products/new", h.AdminNewProduct)
+		r.Get("/products/{id}/edit", h.AdminEditProduct)
+		r.Post("/products/{id}/update", h.AdminUpdateProductFull)
 		r.Post("/products/{id}/toggle", h.AdminToggleProduct)
 		r.Post("/products/{id}", h.AdminUpdateProduct)
 		r.Post("/products", h.AdminCreateProduct)
-		r.Post("/categories", h.AdminCreateCategory)
+		r.Post("/images", h.AdminUploadImage)
+		r.Post("/images/{id}/remove", h.AdminRemoveImage)
+		r.Post("/images/{id}/move", h.AdminMoveImage)
+		r.Get("/categories/new", h.AdminNewCategory)
+		r.Get("/categories/{id}/edit", h.AdminEditCategory)
+		r.Post("/categories/{id}/update", h.AdminUpdateCategoryFull)
 		r.Post("/categories/{id}/toggle", h.AdminToggleCategory)
+		r.Post("/categories", h.AdminCreateCategory)
 	})
+
+	// Admin-uploaded product/category images.
+	uploadDir := os.Getenv("UPLOAD_DIR")
+	if uploadDir == "" {
+		uploadDir = "uploads"
+	}
+	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))
 
 	// ── Start ─────────────────────────────────────────
 	port := getEnv("PORT", "8080")

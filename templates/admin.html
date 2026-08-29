@@ -16,12 +16,15 @@
         class="tab-btn">مدیریت دسته‌بندی</button>
     </div>
     <div class="flex flex-wrap gap-2">
-      <button data-add-tab="products" onclick="document.getElementById('new-product-form').classList.toggle('hidden')"
+      <button data-add-tab="products" hx-get="/admin/products/new" hx-target="#admin-modal" hx-swap="innerHTML"
         class="btn btn-forest px-5 py-2.5 text-sm hidden">+ افزودن محصول جدید</button>
-      <button data-add-tab="categories" onclick="document.getElementById('new-category-form').classList.toggle('hidden')"
+      <button data-add-tab="categories" hx-get="/admin/categories/new" hx-target="#admin-modal" hx-swap="innerHTML"
         class="btn btn-forest px-5 py-2.5 text-sm hidden">+ افزودن دسته‌بندی جدید</button>
     </div>
   </div>
+
+  <!-- ADMIN MODAL HOST — create/edit dialogs (fetched over HTMX) mount here -->
+  <div id="admin-modal"></div>
 
   <!-- ORDERS TAB PANEL — orders table; rows link to detail page -->
   <div data-tab-panel="orders">
@@ -49,16 +52,12 @@
               <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
               <select name="status"
                 class="field-inline w-40 status-select"
-                data-color="{{if eq .Status "cancelled"}}var(--pomegranate){{else if eq .Status "dispatched"}}var(--forest){{else if eq .Status "preparing"}}var(--fig){{else}}var(--saffron){{end}}"
+                data-color="{{statusVar .Status}}"
                 hx-post="/admin/orders/{{.ID}}/status" hx-trigger="change" hx-target="#order-{{.ID}}-status" hx-swap="outerHTML" hx-include="closest td"
-                {{if eq .Status "awaiting_payment"}}disabled title="پرداخت هنوز انجام نشده"{{end}}>
-                {{if eq .Status "awaiting_payment"}}
-                <option value="awaiting_payment" selected>در انتظار پرداخت</option>
-                {{else}}
-                <option value="pending" {{if eq .Status "pending"}}selected{{end}}>در انتظار بررسی</option>
-                <option value="preparing" {{if eq .Status "preparing"}}selected{{end}}>آماده‌سازی برای ارسال</option>
-                <option value="dispatched" {{if eq .Status "dispatched"}}selected{{end}}>ارسال شد</option>
-                <option value="cancelled" {{if eq .Status "cancelled"}}selected{{end}}>لغو شده</option>
+                {{if or (eq .Status "awaiting_payment") (eq .Status "cancelled")}}disabled {{end}}
+                {{if eq .Status "cancelled"}}title="سفارش لغو شده است؛ این وضعیت نهایی است و تغییر نمی‌کند."{{else if eq .Status "awaiting_payment"}}title="پرداخت هنوز انجام نشده"{{end}}>
+                {{range statusOptions .Status}}
+                <option value="{{.}}" {{if eq . $.Status}}selected{{end}}>{{statusLabel .}}</option>
                 {{end}}
               </select>
             </td>
@@ -73,45 +72,6 @@
 
   <!-- PRODUCTS TAB PANEL — inline editable price/stock fields and toggle switches -->
   <div data-tab-panel="products" class="hidden">
-    <div id="new-product-form" class="mb-6 hidden paper-card-sand p-6">
-      <h3 class="mb-4 font-display text-lg font-semibold text-walnut">محصول جدید</h3>
-      <form hx-post="/admin/products" hx-target="#products-tbody" hx-swap="afterbegin" hx-on::after-request="this.reset()">
-        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div>
-            <label class="lbl block text-xs">نام *</label>
-            <input type="text" name="name" required class="field mt-1.5 text-sm">
-          </div>
-          <div>
-            <label class="lbl block text-xs">دسته‌بندی *</label>
-            <select name="category" required class="field mt-1.5 text-sm">
-              {{range .Categories}}{{if .IsEnabled}}<option value="{{.Label}}">{{.Label}}</option>{{end}}{{end}}
-            </select>
-          </div>
-          <div>
-            <label class="lbl block text-xs">قیمت (تومان) *</label>
-            <input type="text" inputmode="numeric" name="price" required class="field mt-1.5 text-sm thousand-sep">
-          </div>
-          <div>
-            <label class="lbl block text-xs">موجودی</label>
-            <input type="number" name="stock_quantity" min="0" value="0" class="field mt-1.5 text-sm">
-          </div>
-          <div>
-            <label class="lbl block text-xs">واحد</label>
-            <input type="text" name="unit" placeholder="مثلاً ۱ کیلوگرم" class="field mt-1.5 text-sm">
-          </div>
-          <div>
-            <label class="lbl block text-xs">توضیحات</label>
-            <textarea name="description" rows="1" class="field mt-1.5 text-sm resize-none"></textarea>
-          </div>
-        </div>
-        <div class="mt-5 flex gap-2">
-          <button type="submit" class="btn btn-forest px-5 py-2.5 text-sm">ذخیره‌ی محصول</button>
-          <button type="button" onclick="this.closest('#new-product-form').classList.add('hidden')" class="btn btn-ghost px-5 py-2.5 text-sm">انصراف</button>
-        </div>
-      </form>
-    </div>
-
     <div class="overflow-x-auto border border-line bg-parchment shadow-soft" style="border-radius:var(--radius-card)">
       <table class="w-full text-right text-sm">
         <thead class="bg-sand/70 text-xs">
@@ -122,6 +82,7 @@
             <th class="px-4 py-3.5 font-semibold text-fig">قیمت</th>
             <th class="px-4 py-3.5 font-semibold text-fig">موجودی</th>
             <th class="px-4 py-3.5 font-semibold text-fig">فعال</th>
+            <th class="px-4 py-3.5 font-semibold text-fig">ویرایش</th>
           </tr>
         </thead>
         <tbody id="products-tbody">
@@ -149,9 +110,14 @@
                 <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out {{if .IsActive}}translate-x-5{{else}}translate-x-0{{end}}"></span>
               </button>
             </td>
+            <td class="px-4 py-3">
+              <button type="button" hx-get="/admin/products/{{.ID}}/edit" hx-target="#admin-modal" hx-swap="innerHTML"
+                class="rounded-full border border-line px-3 py-1 text-xs text-clay transition hover:border-fig hover:text-fig"
+                title="ویرایش محصول">ویرایش</button>
+            </td>
           </tr>
           {{else}}
-          <tr><td colspan="6" class="px-4 py-14 text-center text-clay">هنوز محصولی ثبت نشده است.</td></tr>
+          <tr><td colspan="7" class="px-4 py-14 text-center text-clay">هنوز محصولی ثبت نشده است.</td></tr>
           {{end}}
         </tbody>
       </table>
@@ -160,27 +126,6 @@
 
   <!-- CATEGORIES TAB PANEL — add a category and toggle its enabled state -->
   <div data-tab-panel="categories" class="hidden">
-    <div id="new-category-form" class="mb-6 hidden paper-card-sand p-6">
-      <h3 class="mb-4 font-display text-lg font-semibold text-walnut">دسته‌بندی جدید</h3>
-      <form hx-post="/admin/categories" hx-target="#categories-tbody" hx-swap="afterbegin" hx-on::after-request="this.reset()">
-        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-        <div class="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label class="lbl block text-xs">نامک (انگلیسی) *</label>
-            <input type="text" name="slug" required placeholder="مثلاً fig" class="field mt-1.5 text-sm ltr">
-          </div>
-          <div>
-            <label class="lbl block text-xs">برچسب *</label>
-            <input type="text" name="label" required placeholder="مثلاً انجیر" class="field mt-1.5 text-sm">
-          </div>
-        </div>
-        <div class="mt-5 flex gap-2">
-          <button type="submit" class="btn btn-forest px-5 py-2.5 text-sm">ذخیره‌ی دسته‌بندی</button>
-          <button type="button" onclick="this.closest('#new-category-form').classList.add('hidden')" class="btn btn-ghost px-5 py-2.5 text-sm">انصراف</button>
-        </div>
-      </form>
-    </div>
-
     <div class="overflow-x-auto border border-line bg-parchment shadow-soft" style="border-radius:var(--radius-card)">
       <table class="w-full text-right text-sm">
         <thead class="bg-sand/70 text-xs">
@@ -189,6 +134,7 @@
             <th class="px-4 py-3.5 font-semibold text-fig">برچسب</th>
             <th class="px-4 py-3.5 font-semibold text-fig">نامک</th>
             <th class="px-4 py-3.5 font-semibold text-fig">فعال</th>
+            <th class="px-4 py-3.5 font-semibold text-fig">ویرایش</th>
           </tr>
         </thead>
         <tbody id="categories-tbody">
@@ -203,9 +149,14 @@
                 <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out {{if .IsEnabled}}translate-x-5{{else}}translate-x-0{{end}}"></span>
               </button>
             </td>
+            <td class="px-4 py-3">
+              <button type="button" hx-get="/admin/categories/{{.ID}}/edit" hx-target="#admin-modal" hx-swap="innerHTML"
+                class="rounded-full border border-line px-3 py-1 text-xs text-clay transition hover:border-fig hover:text-fig"
+                title="ویرایش دسته‌بندی">ویرایش</button>
+            </td>
           </tr>
           {{else}}
-          <tr><td colspan="4" class="px-4 py-14 text-center text-clay">هنوز دسته‌بندی ثبت نشده است.</td></tr>
+          <tr><td colspan="5" class="px-4 py-14 text-center text-clay">هنوز دسته‌بندی ثبت نشده است.</td></tr>
           {{end}}
         </tbody>
       </table>
@@ -244,6 +195,18 @@ document.addEventListener('htmx:beforeRequest', function(e) {
     if (typeof v === 'string') e.detail.requestConfig.parameters[k] = v.replace(/,/g, '');
   });
 });
+
+// adminDropImage accepts a dropped file in the gallery dropzone, hands it to
+// the hidden file input (found via the label's for= attribute — the input
+// lives inside the hidden upload form), and submits it via HTMX.
+function adminDropImage(e, el) {
+  e.preventDefault();
+  el.classList.remove('border-saffron', 'text-fig');
+  var input = document.getElementById(el.getAttribute('for'));
+  if (!input || !e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+  input.files = e.dataTransfer.files;
+  input.form.requestSubmit();
+}
 
 function colorStatusSelects() {
   document.querySelectorAll('.status-select').forEach(function(sel) {

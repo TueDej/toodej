@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -79,8 +80,20 @@ func toPersianDigits(s string) string {
 	return b.String()
 }
 
-// StockProblem describes a cart line that can no longer be ordered as-is.
-// It is surfaced to the user (and rejected at order placement) rather than
+// productImages returns the product's gallery paths in display order. On any
+// error it degrades to just the legacy single image_url (or empty), so cart
+// rendering never fails because the gallery could not be read.
+func productImages(ctx context.Context, db *sql.DB, productID int64) []string {
+	imgs, err := database.GetImages(ctx, db, database.ImageOwnerProduct, productID)
+	if err != nil {
+		logutil.Error("load product images", "err", err, "product_id", productID)
+		return nil
+	}
+	return imgs
+}
+
+// StockProblem describes a cart line that can no longer be ordered as-is. It
+// is surfaced to the user (and rejected at order placement) rather than
 // silently mutating the cart behind their back.
 //
 //   - Removed items: the product is missing, inactive, or fully out of stock.
@@ -125,6 +138,9 @@ func (h *Handler) refreshCartFromProducts(ctx context.Context, cart *Cart) (remo
 		item.Price = product.Price
 		item.Unit = product.Unit
 		item.ImageURL = product.ImageURL
+		// Refresh the gallery too: the admin may have added or reordered
+		// images since the item was added to the cart.
+		item.Images = productImages(ctx, h.db, product.ID)
 		refreshed = append(refreshed, item)
 		// Disabled cart lines (cap bypassed) show up here: the requested
 		// quantity is greater than what is actually left in stock.

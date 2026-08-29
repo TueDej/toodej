@@ -165,10 +165,10 @@ func (h *Handler) reconcilePayments() {
 	}
 }
 
-// purgeExpiredSessions removes every entry whose expiry has passed.
+// purgeExpiredSessions removes every entry whose expiry has passed, plus any
+// carts idle for longer than the session cookie's lifetime.
 func (h *Handler) purgeExpiredSessions(now time.Time) {
 	h.sessionMu.Lock()
-	defer h.sessionMu.Unlock()
 	for sid, s := range h.userSessions {
 		if now.After(s.expiresAt) {
 			delete(h.userSessions, sid)
@@ -183,6 +183,15 @@ func (h *Handler) purgeExpiredSessions(now time.Time) {
 		if now.After(pr.expiresAt) {
 			delete(h.pendingNext, sid)
 		}
+	}
+	h.sessionMu.Unlock()
+
+	// Evict carts that have gone untouched for longer than the session cookie's
+	// lifetime. Without this, the cart map grows without bound: every visitor
+	// without a cookie is minted a fresh session (and cart) on first request.
+	// cartStore is nil in some tests that construct a bare Handler.
+	if h.cartStore != nil {
+		h.cartStore.PurgeIdle(sessionTTL)
 	}
 }
 

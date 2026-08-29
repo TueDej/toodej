@@ -1,15 +1,19 @@
 package handlers
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // CartItem represents a single product line in a shopping cart (product, quantity, unit price).
 type CartItem struct {
-	ProductID int64  `json:"product_id"`
-	Name      string `json:"name"`
-	Price     int    `json:"price"`
-	Unit      string `json:"unit"`
-	Quantity  int    `json:"quantity"`
-	ImageURL  string `json:"image_url"`
+	ProductID int64    `json:"product_id"`
+	Name      string   `json:"name"`
+	Price     int      `json:"price"`
+	Unit      string   `json:"unit"`
+	Quantity  int      `json:"quantity"`
+	ImageURL  string   `json:"image_url"`
+	Images    []string `json:"images"` // gallery, ordered; the cart renders a slider when there are several
 }
 
 // Cart is a per-session, in-memory collection of CartItems.
@@ -18,6 +22,27 @@ type CartItem struct {
 type Cart struct {
 	mu    sync.Mutex
 	Items []CartItem
+	// lastAccess is refreshed on every CartStore.Get. It exists so the
+	// store can evict carts that were never converted into an order —
+	// without eviction the map grows without bound, since every visitor
+	// without a session cookie is minted a fresh session (and cart).
+	lastAccess time.Time
+}
+
+// touch records the current time as the cart's last access. Callers that
+// already hold c.mu must not call this.
+func (c *Cart) touch() {
+	c.mu.Lock()
+	c.lastAccess = time.Now()
+	c.mu.Unlock()
+}
+
+// idleFor reports how long the cart has gone untouched. Callers must hold c.mu.
+func (c *Cart) idleFor(now time.Time) time.Duration {
+	if c.lastAccess.IsZero() {
+		return 0
+	}
+	return now.Sub(c.lastAccess)
 }
 
 // AddItemLimited increments or appends a cart item only when it would not exceed
@@ -39,6 +64,7 @@ func (c *Cart) AddItemLimited(item CartItem, maxQuantity int) bool {
 			c.Items[i].Price = item.Price
 			c.Items[i].Unit = item.Unit
 			c.Items[i].ImageURL = item.ImageURL
+			c.Items[i].Images = item.Images
 			c.Items[i].Quantity++
 			return true
 		}
@@ -162,17 +188,42 @@ func (s *CartStore) Get(sessionID string) *Cart {
 	c, ok := s.carts[sessionID]
 	s.mu.RUnlock()
 	if ok {
+		c.touch()
 		return c
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Double-check after acquiring write lock.
 	if c, ok = s.carts[sessionID]; ok {
+		c.touch()
 		return c
 	}
-	c = &Cart{}
+	c = &Cart{lastAccess: time.Now()}
 	s.carts[sessionID] = c
 	return c
+}
+
+// PurgeIdle evicts every cart whose last access is older than maxIdle and
+// returns how many were removed. It runs on the session janitor's ticker so
+// carts abandoned by short-lived visitors (or minted in bulk by bots that
+// ignore cookies) cannot grow the map without bound. maxIdle matches the
+// session cookie's MaxAge so a returning customer's cart survives as long
+// as their cookie does.
+func (s *CartStore) PurgeIdle(maxIdle time.Duration) int {
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	removed := 0
+	for sid, c := range s.carts {
+		c.mu.Lock()
+		idle := c.idleFor(now)
+		c.mu.Unlock()
+		if idle > maxIdle {
+			delete(s.carts, sid)
+			removed++
+		}
+	}
+	return removed
 }
 
 // MigrateSession moves the cart from oldID to newID so session regeneration

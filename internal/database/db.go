@@ -50,6 +50,12 @@ func Init(dbPath string) (*sql.DB, error) {
 	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		return nil, fmt.Errorf("enable foreign keys: %w", err)
 	}
+	// Without a busy timeout a concurrent write (HTTP handlers plus the three
+	// background janitors) makes SQLite return SQLITE_BUSY immediately, which
+	// surfaces to customers as intermittent 500s. Wait up to 5s for the lock.
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		return nil, fmt.Errorf("enable busy timeout: %w", err)
+	}
 
 	if err := migrate(db); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
@@ -129,6 +135,17 @@ func migrate(db *sql.DB) error {
 		label      TEXT    NOT NULL,
 		is_enabled INTEGER NOT NULL DEFAULT 1
 	);
+
+	CREATE TABLE IF NOT EXISTS images (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		owner_type TEXT    NOT NULL CHECK (owner_type IN ('product','category')),
+		owner_id   INTEGER NOT NULL,
+		path       TEXT    NOT NULL,
+		position   INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_images_owner ON images(owner_type, owner_id, position);
 	`
 	_, err := db.Exec(schema)
 	if err != nil {
@@ -146,6 +163,12 @@ func migrate(db *sql.DB) error {
 	}
 	if err := ensureOrderColumn(db, "user_id", "ALTER TABLE orders ADD COLUMN user_id INTEGER REFERENCES users(id)"); err != nil {
 		return err
+	}
+
+	// Payment callbacks and the payment reconciler look orders up by their
+	// Zarinpal authority token; without an index every lookup is a full scan.
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_orders_payment_authority ON orders(payment_authority)"); err != nil {
+		return fmt.Errorf("create payment_authority index: %w", err)
 	}
 
 	// Migration: update status CHECK constraint to include new statuses.
@@ -453,6 +476,7 @@ func CreateCategory(ctx context.Context, db *sql.DB, slug, label string) (int64,
 }
 
 // UpdateCategoryEnabled flips the enabled flag for a category by id.
+// UpdateCategoryEnabled flips the enabled flag of a category.
 func UpdateCategoryEnabled(ctx context.Context, db *sql.DB, id int64, enabled bool) error {
 	on := 0
 	if enabled {
@@ -469,6 +493,33 @@ func UpdateCategoryEnabled(ctx context.Context, db *sql.DB, id int64, enabled bo
 }
 
 // scanCategoryRow scans a category row from either a *sql.Row or *sql.Rows.
+// UpdateCategory changes a category's slug, label, and enabled flag. A slug
+// that collides with a different category is rejected with
+// ErrDuplicateCategory so the UNIQUE constraint never surfaces as a 500.
+func UpdateCategory(ctx context.Context, db *sql.DB, id int64, slug, label string, enabled bool) error {
+	res, err := db.ExecContext(ctx,
+		"UPDATE categories SET slug = ?, label = ?, is_enabled = ? WHERE id = ?",
+		slug, label, boolToInt(enabled), id)
+	if err != nil {
+		if isUniqueConstraintError(err) {
+			return ErrDuplicateCategory
+		}
+		return fmt.Errorf("update category %d: %w", id, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("category %d not found", id)
+	}
+	return nil
+}
+
+// boolToInt converts a bool to its SQLite integer representation.
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func scanCategoryRow(s interface {
 	Scan(dest ...interface{}) error
 }) (models.Category, error) {
@@ -640,6 +691,28 @@ func validOrderTransition(currentStatus, nextStatus string) bool {
 	default:
 		return false
 	}
+}
+
+// orderLifecycle lists the non-cancelled statuses in the order they are
+// progressed through. "cancelled" sits outside this sequence: it is reachable
+// from any active status, but — like time — only ever moves forward.
+var orderLifecycle = []string{"awaiting_payment", "pending", "preparing", "dispatched"}
+
+// ValidOrderStatusOptions returns the statuses an order in `current` may be
+// moved to, in display order, derived directly from validOrderTransition — so
+// the admin UI can never drift from what the database enforces: the status
+// itself, adjacent forward steps, and "cancelled" while still active. A
+// cancelled order is terminal — it offers only itself.
+func ValidOrderStatusOptions(current string) []string {
+	ordered := append([]string{}, orderLifecycle...)
+	ordered = append(ordered, "cancelled")
+	var opts []string
+	for _, s := range ordered {
+		if validOrderTransition(current, s) {
+			opts = append(opts, s)
+		}
+	}
+	return opts
 }
 
 // SetPaymentAuthority stores the Zarinpal authority token on an order.
@@ -1278,9 +1351,15 @@ func GetOrCreateUser(ctx context.Context, db *sql.DB, phone string) (*models.Use
 
 // CreateOTP stores a one-time password with a 2-minute expiry window.
 // Old expired or used OTPs are purged on each call so the table stays bounded.
+//
+// The expiry is stored in UTC: VerifyOTP parses this column as UTC, and the
+// purge below compares it with datetime('now') (also UTC). Storing the local
+// wall clock here would shift the effective expiry by the server's UTC offset —
+// on a UTC+3:30 host an OTP would stay valid for hours instead of minutes.
 func CreateOTP(ctx context.Context, db *sql.DB, phone, code string, expiresAt time.Time) error {
 	_, _ = db.ExecContext(ctx, "DELETE FROM otp_codes WHERE expires_at < datetime('now') OR is_used = 1")
-	_, err := db.ExecContext(ctx, "INSERT INTO otp_codes (phone_number, code, expires_at) VALUES (?, ?, ?)", phone, code, expiresAt.Format("2006-01-02 15:04:05"))
+	_, err := db.ExecContext(ctx, "INSERT INTO otp_codes (phone_number, code, expires_at) VALUES (?, ?, ?)",
+		phone, code, expiresAt.UTC().Format("2006-01-02 15:04:05"))
 	return err
 }
 
@@ -1298,11 +1377,13 @@ func VerifyOTP(ctx context.Context, db *sql.DB, phone, code string) (bool, error
 		return false, err
 	}
 
-	expTime, err := time.Parse("2006-01-02 15:04:05", expiresAt)
+	expTime, err := time.ParseInLocation("2006-01-02 15:04:05", expiresAt, time.UTC)
 	if err != nil {
 		return false, err
 	}
 
+	// expTime is a UTC instant (CreateOTP stores UTC); time.Now() compares
+	// instants regardless of zone, so this is offset-safe.
 	if time.Now().After(expTime) {
 		return false, nil
 	}

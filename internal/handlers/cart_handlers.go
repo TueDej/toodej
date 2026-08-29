@@ -34,6 +34,7 @@ func (h *Handler) AddToCart(w http.ResponseWriter, r *http.Request) {
 		Unit:      product.Unit,
 		Quantity:  1,
 		ImageURL:  product.ImageURL,
+		Images:    productImages(r.Context(), h.db, product.ID),
 	}, product.StockQuantity)
 	if !added {
 		w.Header().Set("Content-Type", "text/plain")
@@ -44,7 +45,7 @@ func (h *Handler) AddToCart(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.Header().Set("HX-Trigger", `{"cartUpdated":"", "cartEvent":"added"}`)
-	fmt.Fprint(w, cart.Count())
+	fmt.Fprint(w, toPersianDigits(strconv.Itoa(cart.Count())))
 }
 
 // UpdateCart adjusts the quantity of a cart item by a positive or negative delta.
