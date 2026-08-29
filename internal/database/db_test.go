@@ -581,3 +581,68 @@ func TestUpdateCategoryEnabled(t *testing.T) {
 		t.Fatalf("enabled after disable = %d, want 3", len(enabled))
 	}
 }
+
+func TestUpdateProductPersistsAllFields(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+
+	p := &models.Product{
+		Name:          "Fig",
+		Slug:          "fig",
+		Category:      "fresh",
+		Description:   "sweet",
+		Price:         100,
+		StockQuantity: 5,
+		Unit:          "1 kg",
+		IsActive:      true,
+	}
+	id, err := CreateProduct(ctx, db, p)
+	if err != nil {
+		t.Fatalf("CreateProduct: %v", err)
+	}
+
+	loaded, err := GetProduct(ctx, db, id)
+	if err != nil {
+		t.Fatalf("GetProduct: %v", err)
+	}
+
+	// Edit fields other than the name: everything must persist and the slug
+	// must remain untouched so product URLs stay stable.
+	loaded.Price = 200
+	loaded.StockQuantity = 9
+	loaded.Description = "extra sweet"
+	loaded.Unit = "500 g"
+	loaded.Category = "dried"
+	if err := UpdateProduct(ctx, db, loaded); err != nil {
+		t.Fatalf("UpdateProduct: %v", err)
+	}
+	got, err := GetProduct(ctx, db, id)
+	if err != nil {
+		t.Fatalf("GetProduct after update: %v", err)
+	}
+	if got.Price != 200 || got.StockQuantity != 9 || got.Description != "extra sweet" || got.Unit != "500 g" || got.Category != "dried" {
+		t.Fatalf("fields not persisted: price=%d stock=%d desc=%q unit=%q category=%q",
+			got.Price, got.StockQuantity, got.Description, got.Unit, got.Category)
+	}
+	if got.Slug != "fig" || got.Name != "Fig" {
+		t.Fatalf("slug/name churned without rename: name=%q slug=%q", got.Name, got.Slug)
+	}
+
+	// Renaming the product must regenerate the slug.
+	got.Name = "Dried Fig"
+	if err := UpdateProduct(ctx, db, got); err != nil {
+		t.Fatalf("UpdateProduct rename: %v", err)
+	}
+	renamed, err := GetProduct(ctx, db, id)
+	if err != nil {
+		t.Fatalf("GetProduct after rename: %v", err)
+	}
+	if renamed.Name != "Dried Fig" || renamed.Slug != "dried-fig" {
+		t.Fatalf("rename not persisted: name=%q slug=%q", renamed.Name, renamed.Slug)
+	}
+
+	// Updating a missing product must fail.
+	if err := UpdateProduct(ctx, db, &models.Product{ID: 99999, Name: "Ghost"}); err == nil {
+		t.Fatal("UpdateProduct on missing product succeeded")
+	}
+}

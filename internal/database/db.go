@@ -968,12 +968,37 @@ func GetAllProducts(ctx context.Context, db *sql.DB) ([]models.Product, error) {
 }
 
 // UpdateProduct updates price, stock_quantity, and is_active for a given product.
+// UpdateProduct persists all editable product fields: name, slug, category,
+// description, unit, price, stock quantity, and active flag. Callers must pass
+// a fully-populated product (load it with GetProduct first). When the name
+// changes, the URL slug is regenerated to match while remaining unique;
+// unrelated edits leave the slug untouched so product URLs stay stable.
 func UpdateProduct(ctx context.Context, db *sql.DB, p *models.Product) error {
+	var currentName string
+	err := db.QueryRowContext(ctx, "SELECT name FROM products WHERE id = ?", p.ID).Scan(&currentName)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("product %d not found", p.ID)
+		}
+		return fmt.Errorf("load product %d for update: %w", p.ID, err)
+	}
+	if p.Name != currentName {
+		slug, err := UniqueSlug(ctx, db, p.Name, p.ID)
+		if err != nil {
+			return fmt.Errorf("regenerate slug for product %d: %w", p.ID, err)
+		}
+		p.Slug = slug
+	}
+
 	active := 0
 	if p.IsActive {
 		active = 1
 	}
-	res, err := db.ExecContext(ctx, "UPDATE products SET price = ?, stock_quantity = ?, is_active = ? WHERE id = ?",
+	res, err := db.ExecContext(ctx, `UPDATE products SET
+		name = ?, slug = ?, category = ?, description = ?, unit = ?,
+		price = ?, stock_quantity = ?, is_active = ?
+		WHERE id = ?`,
+		p.Name, p.Slug, p.Category, p.Description, p.Unit,
 		p.Price, p.StockQuantity, active, p.ID)
 	if err != nil {
 		return fmt.Errorf("update product %d: %w", p.ID, err)
