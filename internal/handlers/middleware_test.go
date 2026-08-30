@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 // noopHandler returns 200 with a marker body so wrapping middleware can be
@@ -80,32 +81,45 @@ func TestSameOrigin(t *testing.T) {
 	}
 }
 
-func TestBasicAuth(t *testing.T) {
-	// Missing credentials → 401 with WWW-Authenticate.
+func TestRequireAdmin(t *testing.T) {
+	h := &Handler{adminSessions: make(map[string]time.Time)}
+
+	// Unauthenticated browser navigation → 303 to the login page.
 	req := httptest.NewRequest(http.MethodGet, "/admin/", nil)
 	rec := httptest.NewRecorder()
-	BasicAuth("admin", "secret")(noopHandler()).ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("no creds = %d, want 401", rec.Code)
-	}
-	if rec.Header().Get("WWW-Authenticate") == "" {
-		t.Fatal("missing WWW-Authenticate header")
+	h.RequireAdmin(noopHandler()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/login" {
+		t.Fatalf("no session = %d %q, want 303 /admin/login", rec.Code, rec.Header().Get("Location"))
 	}
 
-	// Wrong credentials → 401.
-	req.SetBasicAuth("admin", "wrong")
+	// Unauthenticated HTMX request → bare 401 (never the login page).
+	req = httptest.NewRequest(http.MethodGet, "/admin/orders/1/status-badge", nil)
+	req.Header.Set("HX-Request", "true")
 	rec = httptest.NewRecorder()
-	BasicAuth("admin", "secret")(noopHandler()).ServeHTTP(rec, req)
+	h.RequireAdmin(noopHandler()).ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("wrong creds = %d, want 401", rec.Code)
+		t.Fatalf("htmx no session = %d, want 401", rec.Code)
 	}
 
-	// Correct credentials → pass through.
-	req.SetBasicAuth("admin", "secret")
+	// Valid admin session cookie → pass through.
+	sid := generateSessionID()
+	h.adminSessions[sid] = time.Now().Add(time.Hour)
+	req = httptest.NewRequest(http.MethodGet, "/admin/", nil)
+	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: sid})
 	rec = httptest.NewRecorder()
-	BasicAuth("admin", "secret")(noopHandler()).ServeHTTP(rec, req)
+	h.RequireAdmin(noopHandler()).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("correct creds = %d, want 200", rec.Code)
+		t.Fatalf("valid session = %d, want 200", rec.Code)
+	}
+
+	// Expired admin session → redirect again.
+	h.adminSessions[sid] = time.Now().Add(-time.Minute)
+	req = httptest.NewRequest(http.MethodGet, "/admin/", nil)
+	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: sid})
+	rec = httptest.NewRecorder()
+	h.RequireAdmin(noopHandler()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expired session = %d, want 303", rec.Code)
 	}
 }
 

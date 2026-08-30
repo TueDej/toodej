@@ -43,8 +43,8 @@ The server starts at `http://localhost:8080`. Admin panel at `http://localhost:8
 | -------- | ------- | ----------- |
 | `PORT` | `8080` | HTTP listen port |
 | `DB_PATH` | `farmstore.db` | SQLite database file path |
-| `ADMIN_USER` | `admin` | Admin panel Basic Auth username |
-| `ADMIN_PASS` | `admin123` | Admin panel Basic Auth password |
+| `ADMIN_USER` | `admin` | Admin panel login username |
+| `ADMIN_PASS` | `admin123` | Admin panel login password |
 | `KAVENEGAR_API_KEY` | _(empty)_ | Kavenegar SMS API key (leave empty for DEV_MODE) |
 | `KAVENEGAR_TEMPLATE` | `verify-otp` | Kavenegar verification template name |
 | `DEV_MODE` | _(not set)_ | Set to `true` to log OTPs to stdout instead of SMS |

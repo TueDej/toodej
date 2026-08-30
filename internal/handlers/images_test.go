@@ -59,9 +59,6 @@ func (c *testClient) postMultipart(path string, fields url.Values, fileField, fi
 	if c.csrfToken != "" {
 		req.Header.Set(csrfHeaderName, c.csrfToken)
 	}
-	if c.authHeader != "" {
-		req.Header.Set("Authorization", c.authHeader)
-	}
 	for _, ck := range c.cookies {
 		req.AddCookie(ck)
 	}

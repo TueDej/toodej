@@ -30,7 +30,7 @@ Confirm the server is configured and started correctly before testing:
 | `PORT`              | HTTP port                                            | `8080`                             |
 | `DB_PATH`           | SQLite file path                                     | `farmstore.db`                     |
 | `APP_BASE_URL`      | Base URL used for payment callback                   | `https://toodej.shop`              |
-| `ADMIN_USER` / `ADMIN_PASS` | Admin Basic-Auth credentials                   | `admin`/`admin123` in dev only     |
+| `ADMIN_USER` / `ADMIN_PASS` | Admin panel login credentials                  | `admin`/`admin123` in dev only     |
 | `ZARINPAL_MERCHANT_ID` | Zarinpal gateway merchant ID                     | required for real payments         |
 | `ZARINPAL_SANDBOX`  | `true` → sandbox endpoints (default); `false` → live | set `true` for testing             |
 | `KAVENEGAR_API_KEY` | Kavenegar SMS key (empty ⇒ OTP only logged)          | leave empty in dev                 |
@@ -133,9 +133,10 @@ Confirm the server is configured and started correctly before testing:
 ## 2. Admin flow
 
 ### 2.1 Access & dashboard
-- [ ] Visiting `/admin` prompts for **HTTP Basic Auth**; wrong credentials rejected.
+- [ ] Visiting `/admin` redirects to the **login page `/admin/login`**; wrong credentials
+      rejected with an error, no session issued.
 - [ ] Correct `ADMIN_USER`/`ADMIN_PASS` → **dashboard `/admin/`** loads, showing orders and
-      products and counts.
+      products and counts; **خروج از پنل** link logs out and re-protects the panel.
 - [ ] Admin rate limiter allows normal use but blocks abuse.
 - [ ] HTMX interactions on the admin panel (status change, product edits) work without full
       page reloads.
@@ -198,6 +199,6 @@ Confirm the server is configured and started correctly before testing:
 3. Add an item → view `/cart` → update qty.
 4. `/checkout` (redirects to login) → OTP login (use dev code) → redirected back to `/checkout`.
 5. Place order → pay in Zarinpal sandbox → confirmation shows correct names → `/orders` lists it.
-6. Admin: `/admin` (Basic Auth) → open the order → advance status through the allowed
+6. Admin: `/admin` (login page) → open the order → advance status through the allowed
    transitions → create/toggle a product → confirm it appears/ disappears on the storefront.
 7. Re-run the security spot-checks (CSRF-without-token → 403; IDOR → 404).

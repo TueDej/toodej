@@ -72,6 +72,9 @@ func main() {
 		logutil.Warn("using default admin credentials (DEV_MODE only)", "admin_user", adminUser)
 	}
 
+	// Admin credentials, checked by the cookie-based admin login form.
+	h.SetAdminCredentials(adminUser, adminPass)
+
 	// Rate limiter: per-IP budget for the admin panel.
 	adminLimiter := handlers.NewRateLimiter(30, time.Minute)
 
@@ -103,29 +106,35 @@ func main() {
 	r.Get("/sitemap.xml", h.ServeSitemap)
 	r.Get("/robots.txt", handlers.ServeRobotsTXT)
 
-	// Admin routes (protected by HTTP Basic Auth)
+	// Admin routes: login/logout are public; everything else is protected by
+	// the cookie-based admin session (RequireAdmin).
 	r.Route("/admin", func(r chi.Router) {
-		r.Use(handlers.BasicAuth(adminUser, adminPass))
-		r.Use(adminLimiter.Middleware)
-		r.Get("/", h.AdminDashboard)
-		r.Get("/orders/{id}", h.AdminOrderDetail)
-		r.Post("/orders/{id}/status", h.AdminUpdateOrderStatus)
-		r.Post("/orders/{id}/status-badge", h.AdminUpdateOrderStatusBadge)
-		r.Get("/products/new", h.AdminNewProduct)
-		r.Get("/products/{id}/edit", h.AdminEditProduct)
-		r.Post("/products/{id}/update", h.AdminUpdateProductFull)
-		r.Post("/products/{id}/toggle", h.AdminToggleProduct)
-		r.Post("/products/{id}", h.AdminUpdateProduct)
-		r.Post("/products", h.AdminCreateProduct)
-		r.Post("/products/reorder", h.AdminReorderProducts)
-		r.Post("/images", h.AdminUploadImage)
-		r.Post("/images/{id}/remove", h.AdminRemoveImage)
-		r.Post("/images/{id}/move", h.AdminMoveImage)
-		r.Get("/categories/new", h.AdminNewCategory)
-		r.Get("/categories/{id}/edit", h.AdminEditCategory)
-		r.Post("/categories/{id}/update", h.AdminUpdateCategoryFull)
-		r.Post("/categories/{id}/toggle", h.AdminToggleCategory)
-		r.Post("/categories", h.AdminCreateCategory)
+		r.Get("/login", h.AdminLoginPage)
+		r.Post("/login", h.AdminLoginPOST)
+		r.Get("/logout", h.AdminLogout)
+		r.Group(func(r chi.Router) {
+			r.Use(h.RequireAdmin)
+			r.Use(adminLimiter.Middleware)
+			r.Get("/", h.AdminDashboard)
+			r.Get("/orders/{id}", h.AdminOrderDetail)
+			r.Post("/orders/{id}/status", h.AdminUpdateOrderStatus)
+			r.Post("/orders/{id}/status-badge", h.AdminUpdateOrderStatusBadge)
+			r.Get("/products/new", h.AdminNewProduct)
+			r.Get("/products/{id}/edit", h.AdminEditProduct)
+			r.Post("/products/{id}/update", h.AdminUpdateProductFull)
+			r.Post("/products/{id}/toggle", h.AdminToggleProduct)
+			r.Post("/products/{id}", h.AdminUpdateProduct)
+			r.Post("/products", h.AdminCreateProduct)
+			r.Post("/products/reorder", h.AdminReorderProducts)
+			r.Post("/images", h.AdminUploadImage)
+			r.Post("/images/{id}/remove", h.AdminRemoveImage)
+			r.Post("/images/{id}/move", h.AdminMoveImage)
+			r.Get("/categories/new", h.AdminNewCategory)
+			r.Get("/categories/{id}/edit", h.AdminEditCategory)
+			r.Post("/categories/{id}/update", h.AdminUpdateCategoryFull)
+			r.Post("/categories/{id}/toggle", h.AdminToggleCategory)
+			r.Post("/categories", h.AdminCreateCategory)
+		})
 	})
 
 	// Admin-uploaded product/category images.

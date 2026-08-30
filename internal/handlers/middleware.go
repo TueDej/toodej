@@ -8,23 +8,6 @@ import (
 	"time"
 )
 
-// BasicAuth returns an HTTP middleware that protects routes with HTTP Basic
-// Authentication. Credentials are compared against the provided username and
-// password (typically loaded from environment variables ADMIN_USER / ADMIN_PASS).
-func BasicAuth(username, password string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			u, p, ok := r.BasicAuth()
-			if !ok || !secureEqual(u, username) || !secureEqual(p, password) {
-				w.Header().Set("WWW-Authenticate", `Basic realm="Toodej Admin"`)
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 // requireAuth is the central authentication guard for session-authenticated
 // routes. It returns the authenticated user ID for the current request and true.
 // If the user is not logged in it preserves the requested URL (path, query, and
@@ -99,7 +82,7 @@ func sanitizeReturnURL(target string) string {
 
 // secureEqual compares two strings in constant time, preventing timing
 // side-channel attacks that plain == comparisons would expose on the admin
-// Basic Auth credentials.
+// login credentials.
 func secureEqual(a, b string) bool {
 	if len(a) != len(b) {
 		return false

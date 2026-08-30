@@ -12,25 +12,39 @@ import (
 	"farmstore/internal/models"
 )
 
-// TestAdminAuthProtection ensures every admin endpoint rejects unauthenticated
-// requests and the BasicAuth realm is advertised, while known credentials pass.
+// TestAdminAuthProtection ensures the admin panel is gated behind the cookie
+// login: anonymous navigations redirect to /admin/login, wrong credentials are
+// rejected without a session, correct credentials grant access, and logout
+// revokes it again.
 func TestAdminAuthProtection(t *testing.T) {
 	r, _, _ := newTestRouter(t)
 
 	anon := newTestClient(t, r)
 	resp := anon.get("/admin/")
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("admin without creds = %d, want 401", resp.StatusCode)
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/admin/login" {
+		t.Fatalf("admin without login = %d %q, want 303 /admin/login", resp.StatusCode, resp.Header.Get("Location"))
 	}
-	if resp.Header.Get("WWW-Authenticate") == "" {
-		t.Fatal("missing WWW-Authenticate on 401")
+
+	resp = anon.get("/admin/login")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(anon.body(), "ADMIN-LOGIN-PAGE") {
+		t.Fatalf("login page = %d %q", resp.StatusCode, anon.body())
 	}
 
 	wrong := newTestClient(t, r)
-	wrong.authorize("admin", "nope")
-	resp = wrong.get("/admin/")
+	if resp := wrong.get("/admin/login"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("login page = %d", resp.StatusCode)
+	}
+	resp = wrong.post("/admin/login", url.Values{
+		"username": {"admin"}, "password": {"nope"}, "csrf_token": {wrong.csrf()},
+	})
 	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("admin wrong creds = %d, want 401", resp.StatusCode)
+		t.Fatalf("wrong creds = %d, want 401", resp.StatusCode)
+	}
+	if strings.Contains(wrong.body(), "ADMIN-LOGIN-ERROR") == false {
+		t.Fatalf("wrong creds did not render an error: %q", wrong.body())
+	}
+	if resp := wrong.get("/admin/"); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("after failed login, /admin/ = %d, want 303", resp.StatusCode)
 	}
 
 	ok := newTestClient(t, r)
@@ -38,6 +52,11 @@ func TestAdminAuthProtection(t *testing.T) {
 	resp = ok.get("/admin/")
 	if resp.StatusCode != http.StatusOK || !strings.Contains(ok.body(), "ADMIN-PANEL") {
 		t.Fatalf("admin with creds = %d %q", resp.StatusCode, ok.body())
+	}
+
+	ok.get("/admin/logout")
+	if resp := ok.get("/admin/"); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("after logout, /admin/ = %d, want 303", resp.StatusCode)
 	}
 }
 
@@ -274,8 +293,8 @@ func TestAdminOrderDetail(t *testing.T) {
 
 	bad := newTestClient(t, r)
 	resp = bad.get("/admin/orders/" + orderID)
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("order detail unauth = %d, want 401", resp.StatusCode)
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/admin/login" {
+		t.Fatalf("order detail unauth = %d %q, want 303 /admin/login", resp.StatusCode, resp.Header.Get("Location"))
 	}
 }
 
@@ -299,9 +318,9 @@ func TestAdminCreateCategoryUnauthenticated(t *testing.T) {
 	r, _, _ := newTestRouter(t)
 	anon := newTestClient(t, r)
 	resp := anon.post("/admin/categories", url.Values{"slug": {"x"}, "label": {"x"}})
-	// Unauthenticated requests must be rejected (BasicAuth → 401, or the
-	// CSRF middleware that sits ahead of it → 403). Either proves the
-	// endpoint is not openly writable.
+	// Unauthenticated requests must be rejected (the CSRF middleware that
+	// sits ahead of RequireAdmin → 403, or the session guard → 303/401).
+	// Either proves the endpoint is not openly writable.
 	if resp.StatusCode == http.StatusOK {
 		t.Fatalf("unauth create category = %d, want rejected", resp.StatusCode)
 	}

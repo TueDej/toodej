@@ -136,6 +136,7 @@ func newTestHandler(t *testing.T) (*Handler, *fakeGateway) {
 		"checkout":     {filepath.Join(testdataDir, "checkout.html")},
 		"confirmation": {filepath.Join(testdataDir, "confirmation.html")},
 		"admin":        {filepath.Join(testdataDir, "admin.html")},
+		"admin-login":  {filepath.Join(testdataDir, "admin-login.html")},
 		"order-detail": {filepath.Join(testdataDir, "order-detail.html")},
 		"login":        {filepath.Join(testdataDir, "login.html")},
 		"orders":       {filepath.Join(testdataDir, "orders.html")},
@@ -147,25 +148,29 @@ func newTestHandler(t *testing.T) (*Handler, *fakeGateway) {
 
 	gw := newFakeGateway(t)
 	h := &Handler{
-		db:               db,
-		templates:        store,
-		cartStore:        NewCartStore(),
-		zarinpal:         gw.client(),
-		baseURL:          "http://127.0.0.1",
-		uploadDir:        t.TempDir(),
-		userSessions:     make(map[string]session),
-		pendingLogins:    make(map[string]pendingLogin),
-		pendingNext:      make(map[string]pendingReturn),
-		otpLimiter:       NewRateLimiter(100, time.Minute),
-		otpVerifyLimiter: NewRateLimiter(100, time.Minute),
-		otpAttempts:      newAttemptTracker(),
+		db:                db,
+		templates:         store,
+		cartStore:         NewCartStore(),
+		zarinpal:          gw.client(),
+		baseURL:           "http://127.0.0.1",
+		uploadDir:         t.TempDir(),
+		userSessions:      make(map[string]session),
+		pendingLogins:     make(map[string]pendingLogin),
+		pendingNext:       make(map[string]pendingReturn),
+		adminSessions:     make(map[string]time.Time),
+		adminUser:         "admin",
+		adminPass:         "admin123",
+		adminLoginLimiter: NewRateLimiter(1000, time.Minute),
+		otpLimiter:        NewRateLimiter(100, time.Minute),
+		otpVerifyLimiter:  NewRateLimiter(100, time.Minute),
+		otpAttempts:       newAttemptTracker(),
 	}
 	return h, gw
 }
 
 // newTestRouter builds the same routing/middleware stack the server uses in
-// production (SecurityHeaders, SameOrigin, CSRF, rate limiters, admin BasicAuth)
-// around a test handler.
+// production (SecurityHeaders, SameOrigin, CSRF, rate limiters, admin session
+// auth) around a test handler.
 func newTestRouter(t *testing.T) (*chi.Mux, *Handler, *fakeGateway) {
 	t.Helper()
 	h, gw := newTestHandler(t)
@@ -203,27 +208,32 @@ func routerFor(h *Handler) *chi.Mux {
 
 	adminLimiter := NewRateLimiter(1000, time.Minute)
 	r.Route("/admin", func(r chi.Router) {
-		r.Use(BasicAuth("admin", "admin123"))
-		r.Use(adminLimiter.Middleware)
-		r.Get("/", h.AdminDashboard)
-		r.Get("/orders/{id}", h.AdminOrderDetail)
-		r.Post("/orders/{id}/status", h.AdminUpdateOrderStatus)
-		r.Post("/orders/{id}/status-badge", h.AdminUpdateOrderStatusBadge)
-		r.Get("/products/new", h.AdminNewProduct)
-		r.Get("/products/{id}/edit", h.AdminEditProduct)
-		r.Post("/products/{id}/update", h.AdminUpdateProductFull)
-		r.Post("/products/{id}/toggle", h.AdminToggleProduct)
-		r.Post("/products/{id}", h.AdminUpdateProduct)
-		r.Post("/products", h.AdminCreateProduct)
-		r.Post("/products/reorder", h.AdminReorderProducts)
-		r.Post("/images", h.AdminUploadImage)
-		r.Post("/images/{id}/remove", h.AdminRemoveImage)
-		r.Post("/images/{id}/move", h.AdminMoveImage)
-		r.Get("/categories/new", h.AdminNewCategory)
-		r.Get("/categories/{id}/edit", h.AdminEditCategory)
-		r.Post("/categories/{id}/update", h.AdminUpdateCategoryFull)
-		r.Post("/categories/{id}/toggle", h.AdminToggleCategory)
-		r.Post("/categories", h.AdminCreateCategory)
+		r.Get("/login", h.AdminLoginPage)
+		r.Post("/login", h.AdminLoginPOST)
+		r.Get("/logout", h.AdminLogout)
+		r.Group(func(r chi.Router) {
+			r.Use(h.RequireAdmin)
+			r.Use(adminLimiter.Middleware)
+			r.Get("/", h.AdminDashboard)
+			r.Get("/orders/{id}", h.AdminOrderDetail)
+			r.Post("/orders/{id}/status", h.AdminUpdateOrderStatus)
+			r.Post("/orders/{id}/status-badge", h.AdminUpdateOrderStatusBadge)
+			r.Get("/products/new", h.AdminNewProduct)
+			r.Get("/products/{id}/edit", h.AdminEditProduct)
+			r.Post("/products/{id}/update", h.AdminUpdateProductFull)
+			r.Post("/products/{id}/toggle", h.AdminToggleProduct)
+			r.Post("/products/{id}", h.AdminUpdateProduct)
+			r.Post("/products", h.AdminCreateProduct)
+			r.Post("/products/reorder", h.AdminReorderProducts)
+			r.Post("/images", h.AdminUploadImage)
+			r.Post("/images/{id}/remove", h.AdminRemoveImage)
+			r.Post("/images/{id}/move", h.AdminMoveImage)
+			r.Get("/categories/new", h.AdminNewCategory)
+			r.Get("/categories/{id}/edit", h.AdminEditCategory)
+			r.Post("/categories/{id}/update", h.AdminUpdateCategoryFull)
+			r.Post("/categories/{id}/toggle", h.AdminToggleCategory)
+			r.Post("/categories", h.AdminCreateCategory)
+		})
 	})
 
 	return r
@@ -235,13 +245,12 @@ var csrfMetaRe = regexp.MustCompile(`name="csrf-token" content="([^"]+)"`)
 // across calls like a browser, tracking the CSRF token emitted in the pages,
 // and disabling automatic redirect following so Location headers can be asserted.
 type testClient struct {
-	t          *testing.T
-	srv        *httptest.Server
-	http       *http.Client
-	cookies    map[string]*http.Cookie
-	csrfToken  string
-	lastBody   []byte
-	authHeader string
+	t         *testing.T
+	srv       *httptest.Server
+	http      *http.Client
+	cookies   map[string]*http.Cookie
+	csrfToken string
+	lastBody  []byte
 }
 
 func newTestClient(t *testing.T, handler http.Handler) *testClient {
@@ -278,9 +287,6 @@ func (c *testClient) do(method, path string, form url.Values) *http.Response {
 	// removed.
 	if isMutating(method) && c.csrfToken != "" {
 		req.Header.Set(csrfHeaderName, c.csrfToken)
-	}
-	if c.authHeader != "" {
-		req.Header.Set("Authorization", c.authHeader)
 	}
 	for _, ck := range c.cookies {
 		req.AddCookie(ck)
@@ -319,12 +325,22 @@ func (c *testClient) csrf() string {
 	return c.csrfToken
 }
 
-// authorize stores HTTP Basic credentials to be sent with every request, for
-// exercising the admin (BasicAuth-protected) routes.
+// authorize logs in through the admin login form (GET the page to establish
+// the CSRF cookie/token, then POST the credentials) so the returned client
+// carries the /admin-scoped session cookie like a real browser would.
 func (c *testClient) authorize(user, pass string) {
-	req, _ := http.NewRequest("GET", "http://placeholder", nil)
-	req.SetBasicAuth(user, pass)
-	c.authHeader = req.Header.Get("Authorization")
+	c.t.Helper()
+	if resp := c.get("/admin/login"); resp.StatusCode != http.StatusOK {
+		c.t.Fatalf("admin login page = %d", resp.StatusCode)
+	}
+	resp := c.post("/admin/login", url.Values{
+		"username":   {user},
+		"password":   {pass},
+		"csrf_token": {c.csrfToken},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		c.t.Fatalf("admin login = %d, want 303 (body: %.120s)", resp.StatusCode, c.body())
+	}
 }
 
 // bootstrapAdmin fetches the (authenticated) admin dashboard once so the CSRF

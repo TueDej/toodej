@@ -95,15 +95,15 @@ func (h *Handler) PreviewCheckout(w http.ResponseWriter, r *http.Request) {
 	items := cart.Snapshot()
 
 	data := h.mergeData(r, map[string]any{
-		"Step":          2,
-		"Total":         cart.Total(),
-		"Items":         items,
-		"RemovedItems":  removed,
+		"Step":           2,
+		"Total":          cart.Total(),
+		"Items":          items,
+		"RemovedItems":   removed,
 		"OverStockItems": overStock,
-		"Name":          name,
-		"Phone":         phone,
-		"Address":       address,
-		"PostalCode":    postalCode,
+		"Name":           name,
+		"Phone":          phone,
+		"Address":        address,
+		"PostalCode":     postalCode,
 	}, w)
 	h.render(w, "checkout", data)
 }

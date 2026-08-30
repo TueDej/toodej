@@ -184,6 +184,11 @@ func (h *Handler) purgeExpiredSessions(now time.Time) {
 			delete(h.pendingNext, sid)
 		}
 	}
+	for sid, expiresAt := range h.adminSessions {
+		if now.After(expiresAt) {
+			delete(h.adminSessions, sid)
+		}
+	}
 	h.sessionMu.Unlock()
 
 	// Evict carts that have gone untouched for longer than the session cookie's

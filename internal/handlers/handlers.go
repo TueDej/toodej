@@ -19,21 +19,25 @@ import (
 // Handler is the central HTTP handler. It wires together the database connection,
 // HTML template store, in-memory cart store, and session management state.
 type Handler struct {
-	db               *sql.DB
-	templates        *TemplateStore
-	cartStore        *CartStore
-	zarinpal         *payment.Zarinpal
-	baseURL          string
-	uploadDir        string // directory for admin-uploaded product/category images
-	ctx              context.Context
-	cancel           context.CancelFunc
-	userSessions     map[string]session       // session ID → authenticated session
-	pendingLogins    map[string]pendingLogin  // session ID → phone during OTP flow
-	pendingNext      map[string]pendingReturn // session ID → post-login destination
-	otpLimiter       *RateLimiter             // per-phone cap on OTP sends
-	otpVerifyLimiter *RateLimiter             // per-phone cap on OTP verification attempts
-	otpAttempts      *attemptTracker          // wrong-code budget + login cooldown per phone/IP
-	sessionMu        sync.RWMutex
+	db                *sql.DB
+	templates         *TemplateStore
+	cartStore         *CartStore
+	zarinpal          *payment.Zarinpal
+	baseURL           string
+	uploadDir         string // directory for admin-uploaded product/category images
+	ctx               context.Context
+	cancel            context.CancelFunc
+	userSessions      map[string]session       // session ID → authenticated session
+	pendingLogins     map[string]pendingLogin  // session ID → phone during OTP flow
+	pendingNext       map[string]pendingReturn // session ID → post-login destination
+	adminSessions     map[string]time.Time     // admin session ID → expiry (cookie-based admin login)
+	adminUser         string                   // ADMIN_USER, checked by the admin login form
+	adminPass         string                   // ADMIN_PASS, checked by the admin login form
+	adminLoginLimiter *RateLimiter             // per-IP cap on admin login attempts
+	otpLimiter        *RateLimiter             // per-phone cap on OTP sends
+	otpVerifyLimiter  *RateLimiter             // per-phone cap on OTP verification attempts
+	otpAttempts       *attemptTracker          // wrong-code budget + login cooldown per phone/IP
+	sessionMu         sync.RWMutex
 }
 
 // statusLabels is the single source of truth for order-status display text.
@@ -129,6 +133,7 @@ func NewHandler(ctx context.Context, db *sql.DB, cartStore *CartStore, zarinpal 
 		"checkout":     {"templates/checkout.html"},
 		"confirmation": {"templates/confirmation.html"},
 		"admin":        {"templates/admin.html"},
+		"admin-login":  {"templates/admin-login.html"},
 		"order-detail": {"templates/order-detail.html"},
 		"login":        {"templates/login.html"},
 		"orders":       {"templates/orders.html"},
@@ -150,20 +155,22 @@ func NewHandler(ctx context.Context, db *sql.DB, cartStore *CartStore, zarinpal 
 	ctx, cancel := context.WithCancel(ctx)
 
 	h := &Handler{
-		db:               db,
-		templates:        templates,
-		cartStore:        cartStore,
-		zarinpal:         zarinpal,
-		baseURL:          baseURL,
-		uploadDir:        envDefault("UPLOAD_DIR", "uploads"),
-		ctx:              ctx,
-		cancel:           cancel,
-		userSessions:     make(map[string]session),
-		pendingLogins:    make(map[string]pendingLogin),
-		pendingNext:      make(map[string]pendingReturn),
-		otpLimiter:       NewRateLimiter(5, time.Minute),
-		otpVerifyLimiter: NewRateLimiter(10, time.Minute),
-		otpAttempts:      newAttemptTracker(),
+		db:                db,
+		templates:         templates,
+		cartStore:         cartStore,
+		zarinpal:          zarinpal,
+		baseURL:           baseURL,
+		uploadDir:         envDefault("UPLOAD_DIR", "uploads"),
+		ctx:               ctx,
+		cancel:            cancel,
+		userSessions:      make(map[string]session),
+		pendingLogins:     make(map[string]pendingLogin),
+		pendingNext:       make(map[string]pendingReturn),
+		adminSessions:     make(map[string]time.Time),
+		adminLoginLimiter: NewRateLimiter(5, time.Minute),
+		otpLimiter:        NewRateLimiter(5, time.Minute),
+		otpVerifyLimiter:  NewRateLimiter(10, time.Minute),
+		otpAttempts:       newAttemptTracker(),
 	}
 	h.startSessionJanitor(ctx)
 	h.startUnpaidOrderJanitor(ctx)
