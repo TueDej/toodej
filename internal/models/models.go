@@ -68,10 +68,11 @@ type OrderSummary struct {
 // products by the category's Label (a free-text key held on products.category),
 // while the URL slug is the stable, English identifier used in routes.
 type Category struct {
-	ID        int64
-	Slug      string
-	Label     string
-	IsEnabled bool
+	ID          int64
+	Slug        string
+	Label       string
+	Description string
+	IsEnabled   bool
 }
 
 // User represents an authenticated customer identified by their phone number.

@@ -143,6 +143,10 @@ func renderCategoryFormInner(r *http.Request, c models.Category, action, target,
       <input type="text" name="label" required placeholder="مثلاً انجیر" value="%s" class="field mt-1.5 text-sm">
     </div>
   </div>
+  <div>
+    <label class="lbl block text-xs">توضیح کوتاه (نمایش در فروشگاه)</label>
+    <textarea name="description" rows="2" placeholder="مثلاً انار تازه، آبدار و طبیعی." class="field mt-1.5 text-sm">%s</textarea>
+  </div>
   <div class="flex gap-2">
     <button type="submit" class="btn btn-forest px-5 py-2.5 text-sm">ذخیره</button>
     <button type="button" onclick="%s" class="btn btn-ghost px-5 py-2.5 text-sm">انصراف</button>
@@ -150,7 +154,7 @@ func renderCategoryFormInner(r *http.Request, c models.Category, action, target,
 </form>`,
 		action, target, swap, afterSwap,
 		ensureCSRFToken(nil, r),
-		htmlEscape(c.Slug), htmlEscape(c.Label),
+		htmlEscape(c.Slug), htmlEscape(c.Label), htmlEscape(c.Description),
 		adminCloseModalScript)
 }
 
@@ -355,6 +359,7 @@ func (h *Handler) AdminUpdateCategoryFull(w http.ResponseWriter, r *http.Request
 	}
 	slug := strings.TrimSpace(r.FormValue("slug"))
 	label := strings.TrimSpace(r.FormValue("label"))
+	description := strings.TrimSpace(r.FormValue("description"))
 	if slug == "" || label == "" {
 		http.Error(w, "slug and label are required", http.StatusBadRequest)
 		return
@@ -365,7 +370,7 @@ func (h *Handler) AdminUpdateCategoryFull(w http.ResponseWriter, r *http.Request
 		http.Error(w, "category not found", http.StatusNotFound)
 		return
 	}
-	if err := database.UpdateCategory(r.Context(), h.db, id, slug, label, current.IsEnabled); err != nil {
+	if err := database.UpdateCategory(r.Context(), h.db, id, slug, label, description, current.IsEnabled); err != nil {
 		if errors.Is(err, database.ErrDuplicateCategory) {
 			http.Error(w, "duplicate category slug", http.StatusBadRequest)
 			return
@@ -376,6 +381,6 @@ func (h *Handler) AdminUpdateCategoryFull(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	h.renderCategoryRow(w, models.Category{ID: id, Slug: slug, Label: label, IsEnabled: current.IsEnabled})
+	h.renderCategoryRow(w, models.Category{ID: id, Slug: slug, Label: label, Description: description, IsEnabled: current.IsEnabled})
 	fmt.Fprint(w, renderModalClearOOB())
 }

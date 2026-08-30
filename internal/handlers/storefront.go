@@ -116,11 +116,12 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("category")
 
-	var category, currentFilter, label, categoryImage string
+	var category, currentFilter, label, categoryImage, categoryDescription string
 	if slug == "all" {
 		category = "all"
 		currentFilter = "all"
 		label = "همه محصولات"
+		categoryDescription = "تمام محصولات طبیعی و سنتی ما در یک نگاه."
 	} else {
 		cat, err := database.GetCategoryBySlug(r.Context(), h.db, slug)
 		if err != nil || !cat.IsEnabled {
@@ -130,6 +131,7 @@ func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 		category = cat.Label
 		currentFilter = cat.Slug
 		label = cat.Label
+		categoryDescription = cat.Description
 		// A category carries at most one image; surface it as the page-header
 		// backdrop when present, otherwise leave the header as-is.
 		if imgs, err := database.GetImages(r.Context(), h.db, database.ImageOwnerCategory, cat.ID); err == nil && len(imgs) > 0 {
@@ -158,11 +160,12 @@ func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := h.mergeData(r, map[string]any{
-		"Products":      products,
-		"Categories":    cats,
-		"CurrentFilter": currentFilter,
-		"CategoryLabel": label,
-		"CategoryImage": categoryImage,
+		"Products":            products,
+		"Categories":          cats,
+		"CurrentFilter":       currentFilter,
+		"CategoryLabel":       label,
+		"CategoryDescription": categoryDescription,
+		"CategoryImage":       categoryImage,
 	}, w)
 
 	h.render(w, "products", data)

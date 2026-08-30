@@ -22,7 +22,7 @@
       <div>
         <h1 class="font-display text-3xl font-bold text-walnut md:text-4xl">{{.CategoryLabel}}</h1>
         <p class="mt-2 max-w-xl text-sm leading-7 text-clay">
-          {{if eq .CurrentFilter "all"}}تمام محصولات طبیعی و سنتی ما در یک نگاه.{{else if eq .CurrentFilter "fig"}}انجیر تازه و خشک، مستقیم از باغ.{{else if eq .CurrentFilter "pomegranate"}}انار تازه، آبدار و طبیعی.{{else if eq .CurrentFilter "traditional"}}محصولات سنتی و خانگی، با طعم اصیل.{{else if eq .CurrentFilter "test"}}test{{else}}{{.CategoryLabel}}{{end}}
+          {{if .CategoryDescription}}{{.CategoryDescription}}{{else}}{{.CategoryLabel}}{{end}}
         </p>
       </div>
     </div>

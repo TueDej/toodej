@@ -142,7 +142,7 @@ func TestAddImageLimitAndOwners(t *testing.T) {
 	}
 
 	// Categories are supported owners too, without touching products.
-	cid, err := CreateCategory(ctx, db, "test-fig-category", "انجیر تست")
+	cid, err := CreateCategory(ctx, db, "test-fig-category", "انجیر تست", "")
 	if err != nil {
 		t.Fatalf("CreateCategory: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestAddImageLimitAndOwners(t *testing.T) {
 func TestCategorySingleImage(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
-	cid, err := CreateCategory(ctx, db, "fig-single", "انجیر")
+	cid, err := CreateCategory(ctx, db, "fig-single", "انجیر", "")
 	if err != nil {
 		t.Fatalf("CreateCategory: %v", err)
 	}

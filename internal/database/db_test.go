@@ -155,6 +155,48 @@ func TestPaymentStateIsIdempotentAndDoesNotReviveCancelledOrders(t *testing.T) {
 	}
 }
 
+// TestCategoryDescriptionMigrationBackfill verifies that migrating a legacy
+// categories table (no description column) adds the column and backfills the
+// default taglines for the seeded taxonomy, while leaving custom categories
+// blank.
+func TestCategoryDescriptionMigrationBackfill(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "legacy.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if _, err := db.Exec(`
+		CREATE TABLE categories (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			slug TEXT NOT NULL UNIQUE,
+			label TEXT NOT NULL,
+			is_enabled INTEGER NOT NULL DEFAULT 1
+		);
+		INSERT INTO categories (slug, label) VALUES
+			('pomegranate','انار'), ('fig','انجیر'), ('custom','کاستم');
+	`); err != nil {
+		t.Fatalf("create legacy categories: %v", err)
+	}
+
+	if err := migrate(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	var pom, custom string
+	if err := db.QueryRow("SELECT description FROM categories WHERE slug='pomegranate'").Scan(&pom); err != nil {
+		t.Fatalf("read pomegranate: %v", err)
+	}
+	if pom != "انار تازه، آبدار و طبیعی." {
+		t.Fatalf("pomegranate backfill = %q", pom)
+	}
+	if err := db.QueryRow("SELECT description FROM categories WHERE slug='custom'").Scan(&custom); err != nil {
+		t.Fatalf("read custom: %v", err)
+	}
+	if custom != "" {
+		t.Fatalf("custom category should stay blank, got %q", custom)
+	}
+}
+
 func TestStatusMigrationPreservesPaymentFieldsAndOrderItems(t *testing.T) {
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "legacy.db"))
 	if err != nil {
@@ -545,16 +587,54 @@ func TestGetCategoryBySlug(t *testing.T) {
 
 func TestCreateCategoryDuplicateRejected(t *testing.T) {
 	db := testDB(t)
-	if _, err := CreateCategory(context.Background(), db, "fresh", "تازه"); err != nil {
+	if _, err := CreateCategory(context.Background(), db, "fresh", "تازه", ""); err != nil {
 		t.Fatalf("CreateCategory: %v", err)
 	}
 	// Duplicate slug must be rejected with ErrDuplicateCategory.
-	if _, err := CreateCategory(context.Background(), db, "fresh", "تازه دیگر"); !errors.Is(err, ErrDuplicateCategory) {
+	if _, err := CreateCategory(context.Background(), db, "fresh", "تازه دیگر", ""); !errors.Is(err, ErrDuplicateCategory) {
 		t.Fatalf("duplicate CreateCategory err = %v, want ErrDuplicateCategory", err)
 	}
 	// Empty slug/label must be rejected.
-	if _, err := CreateCategory(context.Background(), db, "  ", "x"); err == nil {
+	if _, err := CreateCategory(context.Background(), db, "  ", "x", ""); err == nil {
 		t.Fatal("CreateCategory accepted blank slug")
+	}
+}
+
+// TestCategoryDescriptionRoundTrip verifies the storefront tagline is stored on
+// the category, survives UpdateCategory, and is seeded for the default taxonomy.
+func TestCategoryDescriptionRoundTrip(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+
+	// Seeded categories carry the default taglines.
+	seeded, err := GetCategoryBySlug(ctx, db, "pomegranate")
+	if err != nil {
+		t.Fatalf("GetCategoryBySlug: %v", err)
+	}
+	if seeded.Description != "انار تازه، آبدار و طبیعی." {
+		t.Fatalf("seeded description = %q", seeded.Description)
+	}
+
+	// Create with a description, then read it back.
+	id, err := CreateCategory(ctx, db, "citrus", "مرکبات", "مرکبات تازه و آبدار.")
+	if err != nil {
+		t.Fatalf("CreateCategory: %v", err)
+	}
+	got, err := GetCategoryBySlug(ctx, db, "citrus")
+	if err != nil {
+		t.Fatalf("read citrus: %v", err)
+	}
+	if got.ID != id || got.Description != "مرکبات تازه و آبدار." {
+		t.Fatalf("created category = %+v", got)
+	}
+
+	// Update overwrites the description.
+	if err := UpdateCategory(ctx, db, id, "citrus", "مرکبات", "بهاری تازه.", true); err != nil {
+		t.Fatalf("UpdateCategory: %v", err)
+	}
+	got, _ = GetCategoryBySlug(ctx, db, "citrus")
+	if got.Description != "بهاری تازه." {
+		t.Fatalf("after update description = %q", got.Description)
 	}
 }
 

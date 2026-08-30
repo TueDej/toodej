@@ -135,10 +135,11 @@ func migrate(db *sql.DB) error {
 	);
 
 	CREATE TABLE IF NOT EXISTS categories (
-		id         INTEGER PRIMARY KEY AUTOINCREMENT,
-		slug       TEXT    NOT NULL UNIQUE,
-		label      TEXT    NOT NULL,
-		is_enabled INTEGER NOT NULL DEFAULT 1
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		slug        TEXT    NOT NULL UNIQUE,
+		label       TEXT    NOT NULL,
+		is_enabled  INTEGER NOT NULL DEFAULT 1,
+		description TEXT    NOT NULL DEFAULT ''
 	);
 
 	CREATE TABLE IF NOT EXISTS images (
@@ -175,6 +176,26 @@ func migrate(db *sql.DB) error {
 	// sensible order (by name) in initProductPositions once the table has rows.
 	if err := ensureProductColumn(db, "position", "ALTER TABLE products ADD COLUMN position INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
+	}
+
+	// Migration: categories.description holds the editable storefront tagline
+	// (e.g. "انار تازه، آبدار و طبیعی.") shown under the category page header.
+	// It replaces the taglines that used to be hardcoded in products.html.
+	// The backfill runs only when the column was just added, so an admin who
+	// later clears a description on purpose is never overwritten on restart.
+	descAdded, err := ensureCategoryColumn(db, "description", "ALTER TABLE categories ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+	if err != nil {
+		return err
+	}
+	if descAdded {
+		if _, err := db.Exec(`UPDATE categories SET description = CASE slug
+			WHEN 'fig' THEN 'انجیر تازه و خشک، مستقیم از باغ.'
+			WHEN 'pomegranate' THEN 'انار تازه، آبدار و طبیعی.'
+			WHEN 'traditional' THEN 'محصولات سنتی و خانگی، با طعم اصیل.'
+			ELSE description END
+			WHERE slug IN ('fig','pomegranate','traditional')`); err != nil {
+			return fmt.Errorf("backfill category descriptions: %w", err)
+		}
 	}
 
 	// Payment callbacks and the payment reconciler look orders up by their
@@ -251,6 +272,46 @@ func ensureProductColumn(db *sql.DB, name, ddl string) error {
 
 func productColumnExists(db *sql.DB, name string) (bool, error) {
 	rows, err := db.Query("PRAGMA table_info(products)")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var colName, colType string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &colName, &colType, &notNull, &defaultValue, &pk); err != nil {
+			return false, err
+		}
+		if colName == name {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+// ensureCategoryColumn adds a column to categories if it does not already
+// exist, reporting whether it was added so callers can backfill fresh values
+// exactly once.
+func ensureCategoryColumn(db *sql.DB, name, ddl string) (bool, error) {
+	exists, err := categoryColumnExists(db, name)
+	if err != nil {
+		return false, fmt.Errorf("check categories.%s: %w", name, err)
+	}
+	if exists {
+		return false, nil
+	}
+	if _, err := db.Exec(ddl); err != nil {
+		return false, fmt.Errorf("add categories.%s: %w", name, err)
+	}
+	return true, nil
+}
+
+func categoryColumnExists(db *sql.DB, name string) (bool, error) {
+	rows, err := db.Query("PRAGMA table_info(categories)")
 	if err != nil {
 		return false, err
 	}
@@ -467,17 +528,18 @@ func seedCategories(db *sql.DB) error {
 	}
 
 	rows := []struct {
-		Slug   string
-		Label  string
-		Enable bool
+		Slug        string
+		Label       string
+		Description string
+		Enable      bool
 	}{
-		{"fig", "انجیر", true},
-		{"traditional", "محصولات سنتی/خانگی", true},
-		{"pomegranate", "انار", true},
-		{"test", "test", true},
+		{"fig", "انجیر", "انجیر تازه و خشک، مستقیم از باغ.", true},
+		{"traditional", "محصولات سنتی/خانگی", "محصولات سنتی و خانگی، با طعم اصیل.", true},
+		{"pomegranate", "انار", "انار تازه، آبدار و طبیعی.", true},
+		{"test", "test", "test", true},
 	}
 
-	stmt, err := db.Prepare(`INSERT INTO categories (slug, label, is_enabled) VALUES (?, ?, ?)`)
+	stmt, err := db.Prepare(`INSERT INTO categories (slug, label, description, is_enabled) VALUES (?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare category insert: %w", err)
 	}
@@ -488,7 +550,7 @@ func seedCategories(db *sql.DB) error {
 		if c.Enable {
 			enabled = 1
 		}
-		if _, err := stmt.Exec(c.Slug, c.Label, enabled); err != nil {
+		if _, err := stmt.Exec(c.Slug, c.Label, c.Description, enabled); err != nil {
 			return fmt.Errorf("insert category %q: %w", c.Slug, err)
 		}
 		logutil.Info("seeded category", "slug", c.Slug, "label", c.Label)
@@ -499,7 +561,7 @@ func seedCategories(db *sql.DB) error {
 
 // GetCategories returns every category ordered by id.
 func GetCategories(ctx context.Context, db *sql.DB) ([]models.Category, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id, slug, label, is_enabled FROM categories ORDER BY id")
+	rows, err := db.QueryContext(ctx, "SELECT id, slug, label, is_enabled, description FROM categories ORDER BY id")
 	if err != nil {
 		return nil, fmt.Errorf("query categories: %w", err)
 	}
@@ -520,7 +582,7 @@ func GetCategories(ctx context.Context, db *sql.DB) ([]models.Category, error) {
 // A nil slice is returned (never error) when there are none, so callers can
 // range over it safely without nil-panic guards.
 func GetEnabledCategories(ctx context.Context, db *sql.DB) ([]models.Category, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id, slug, label, is_enabled FROM categories WHERE is_enabled = 1 ORDER BY id")
+	rows, err := db.QueryContext(ctx, "SELECT id, slug, label, is_enabled, description FROM categories WHERE is_enabled = 1 ORDER BY id")
 	if err != nil {
 		return nil, fmt.Errorf("query enabled categories: %w", err)
 	}
@@ -540,7 +602,7 @@ func GetEnabledCategories(ctx context.Context, db *sql.DB) ([]models.Category, e
 // GetCategoryBySlug returns the category with the given slug, or sql.ErrNoRows
 // if no such category exists.
 func GetCategoryBySlug(ctx context.Context, db *sql.DB, slug string) (*models.Category, error) {
-	row := db.QueryRowContext(ctx, "SELECT id, slug, label, is_enabled FROM categories WHERE slug = ?", slug)
+	row := db.QueryRowContext(ctx, "SELECT id, slug, label, is_enabled, description FROM categories WHERE slug = ?", slug)
 	c, err := scanCategoryRow(row)
 	if err != nil {
 		return nil, err
@@ -549,10 +611,12 @@ func GetCategoryBySlug(ctx context.Context, db *sql.DB, slug string) (*models.Ca
 }
 
 // CreateCategory inserts a new category after trimming and validating its slug
-// and label. A duplicate slug returns ErrDuplicateCategory.
-func CreateCategory(ctx context.Context, db *sql.DB, slug, label string) (int64, error) {
+// and label. The description is the optional storefront tagline. A duplicate
+// slug returns ErrDuplicateCategory.
+func CreateCategory(ctx context.Context, db *sql.DB, slug, label, description string) (int64, error) {
 	slug = strings.TrimSpace(slug)
 	label = strings.TrimSpace(label)
+	description = strings.TrimSpace(description)
 	if slug == "" || label == "" {
 		return 0, fmt.Errorf("category slug and label are required")
 	}
@@ -565,7 +629,7 @@ func CreateCategory(ctx context.Context, db *sql.DB, slug, label string) (int64,
 		return 0, ErrDuplicateCategory
 	}
 
-	res, err := db.ExecContext(ctx, "INSERT INTO categories (slug, label, is_enabled) VALUES (?, ?, 1)", slug, label)
+	res, err := db.ExecContext(ctx, "INSERT INTO categories (slug, label, description, is_enabled) VALUES (?, ?, ?, 1)", slug, label, description)
 	if err != nil {
 		return 0, fmt.Errorf("create category: %w", err)
 	}
@@ -590,13 +654,13 @@ func UpdateCategoryEnabled(ctx context.Context, db *sql.DB, id int64, enabled bo
 }
 
 // scanCategoryRow scans a category row from either a *sql.Row or *sql.Rows.
-// UpdateCategory changes a category's slug, label, and enabled flag. A slug
-// that collides with a different category is rejected with
+// UpdateCategory changes a category's slug, label, description, and enabled
+// flag. A slug that collides with a different category is rejected with
 // ErrDuplicateCategory so the UNIQUE constraint never surfaces as a 500.
-func UpdateCategory(ctx context.Context, db *sql.DB, id int64, slug, label string, enabled bool) error {
+func UpdateCategory(ctx context.Context, db *sql.DB, id int64, slug, label, description string, enabled bool) error {
 	res, err := db.ExecContext(ctx,
-		"UPDATE categories SET slug = ?, label = ?, is_enabled = ? WHERE id = ?",
-		slug, label, boolToInt(enabled), id)
+		"UPDATE categories SET slug = ?, label = ?, description = ?, is_enabled = ? WHERE id = ?",
+		slug, label, strings.TrimSpace(description), boolToInt(enabled), id)
 	if err != nil {
 		if isUniqueConstraintError(err) {
 			return ErrDuplicateCategory
@@ -622,7 +686,7 @@ func scanCategoryRow(s interface {
 }) (models.Category, error) {
 	var c models.Category
 	var isEnabled int
-	if err := s.Scan(&c.ID, &c.Slug, &c.Label, &isEnabled); err != nil {
+	if err := s.Scan(&c.ID, &c.Slug, &c.Label, &isEnabled, &c.Description); err != nil {
 		return c, err
 	}
 	c.IsEnabled = isEnabled == 1

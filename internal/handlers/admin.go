@@ -380,12 +380,13 @@ func (h *Handler) AdminCreateCategory(w http.ResponseWriter, r *http.Request) {
 
 	slug := strings.TrimSpace(r.FormValue("slug"))
 	label := strings.TrimSpace(r.FormValue("label"))
+	description := strings.TrimSpace(r.FormValue("description"))
 	if slug == "" || label == "" {
 		http.Error(w, "slug and label are required", http.StatusBadRequest)
 		return
 	}
 
-	id, err := database.CreateCategory(r.Context(), h.db, slug, label)
+	id, err := database.CreateCategory(r.Context(), h.db, slug, label, description)
 	if err != nil {
 		if errors.Is(err, database.ErrDuplicateCategory) {
 			http.Error(w, "duplicate category slug", http.StatusBadRequest)
@@ -396,7 +397,7 @@ func (h *Handler) AdminCreateCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newCat := models.Category{ID: id, Slug: slug, Label: label, IsEnabled: true}
+	newCat := models.Category{ID: id, Slug: slug, Label: label, Description: description, IsEnabled: true}
 	w.Header().Set("Content-Type", "text/html")
 	h.renderCategoryRow(w, newCat)
 	// Out-of-band swap: re-open the modal in edit mode for the just-created
@@ -432,10 +433,10 @@ func (h *Handler) AdminToggleCategory(w http.ResponseWriter, r *http.Request) {
 
 // loadCategory fetches a single category by id for the toggle handler.
 func (h *Handler) loadCategory(r *http.Request, id int64) (*models.Category, error) {
-	row := h.db.QueryRowContext(r.Context(), "SELECT id, slug, label, is_enabled FROM categories WHERE id = ?", id)
+	row := h.db.QueryRowContext(r.Context(), "SELECT id, slug, label, is_enabled, description FROM categories WHERE id = ?", id)
 	var c models.Category
 	var isEnabled int
-	if err := row.Scan(&c.ID, &c.Slug, &c.Label, &isEnabled); err != nil {
+	if err := row.Scan(&c.ID, &c.Slug, &c.Label, &isEnabled, &c.Description); err != nil {
 		return nil, err
 	}
 	c.IsEnabled = isEnabled == 1
