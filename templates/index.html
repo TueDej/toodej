@@ -5,7 +5,7 @@
 <!-- ============ HERO — full-bleed orchard photo, walnut-to-transparent overlay ============ -->
 <section class="relative isolate overflow-hidden bg-walnut" style="color:var(--text-on-dark)">
   <div class="absolute inset-0 bg-cover bg-center" style="background-image:url('/assets/new-bg.webp')"></div>
-  <div class="relative mx-auto flex min-h-[100dvh] max-w-5xl flex-col justify-center px-5 pb-28 lg:px-8" data-reveal>
+  <div class="relative mx-auto flex vh-full max-w-5xl flex-col justify-center px-5 pb-28 lg:px-8" data-reveal>
       <p class="max-w-3xl font-display text-[2.5rem] font-extrabold leading-[1.18] md:text-6xl"
          style="color:var(--text-on-dark); text-shadow:0 2px 14px rgba(0,0,0,.75), 0 1px 3px rgba(0,0,0,.65)">
         انجیر خشک،<br>انار و<br>محصولات فصل —<br>تازه و درجه یک
@@ -35,7 +35,7 @@
 </section>
 
 <!-- ============ STORY STRIP — scrapbook, not an "about us" card ============ -->
-<section id="story" class="relative flex min-h-[100dvh] items-center bg-sand/40 py-24 lg:py-32">
+<section id="story" class="relative flex vh-full items-center bg-sand/40 py-24 lg:py-32">
   <div class="absolute inset-x-0 top-0 h-px bg-gradient-to-l from-transparent via-fig/25 to-transparent" aria-hidden="true"></div>
   <div class="mx-auto w-full max-w-5xl px-5 lg:px-8">
     <div class="grid items-center gap-12 lg:grid-cols-12">
@@ -134,10 +134,11 @@
   <style>
     .season-slides {
       position: relative; background: var(--bg-seasonal);
+      min-height: 100vh;
       min-height: 100dvh;
     }
     .season-slide {
-      position: absolute; inset: 0;
+      position: absolute; top: 0; right: 0; bottom: 0; left: 0;
       display: flex; align-items: center;
       opacity: 0; visibility: hidden;
       transition: opacity .7s ease, visibility .7s ease;

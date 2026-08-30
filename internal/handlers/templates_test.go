@@ -170,7 +170,7 @@ func TestProductsTemplateCategoryBackdrop(t *testing.T) {
 	if !strings.Contains(withImg, "background-image:url('/uploads/cat.png')") {
 		t.Fatalf("backdrop image div missing: %s", withImg)
 	}
-	if !strings.Contains(withImg, "from-sand/95 via-sand/85 to-sand/55") {
+	if !strings.Contains(withImg, "bg-gradient-to-l from-sand/95") {
 		t.Fatal("legibility scrim missing behind category backdrop")
 	}
 

@@ -5,11 +5,12 @@
 <!-- category intro — low, not a fat hero -->
 <section class="relative overflow-hidden border-b border-line/70 bg-sand/50">
   {{if .CategoryImage}}
-  <!-- category image backdrop (only when the category has one); the gradient
-       scrim keeps the RTL text (right side) legible while the photo shows
-       through toward the left -->
-  <div class="absolute inset-0 bg-cover bg-center" style="background-image:url('{{.CategoryImage}}')" aria-hidden="true"></div>
-  <div class="absolute inset-0 bg-gradient-to-l from-sand/95 via-sand/85 to-sand/55" aria-hidden="true"></div>
+  <!-- category image backdrop (only when the category has one). The text sits
+       on the right (RTL), so the scrim stays heavy there for legibility and
+       opens up toward the left, where the image is boosted for extra colour
+       and contrast -->
+  <div class="absolute inset-0 bg-cover bg-center" style="background-image:url('{{.CategoryImage}}'); filter:saturate(1.12) contrast(1.06)" aria-hidden="true"></div>
+  <div class="absolute inset-0 bg-gradient-to-l from-sand/95 via-sand/70 to-sand/15" aria-hidden="true"></div>
   {{end}}
   <div class="relative mx-auto max-w-5xl px-5 pb-10 pt-12 lg:px-8" data-reveal>
     <nav class="mb-4 flex items-center gap-2 text-xs text-clay" aria-label="مسیر">

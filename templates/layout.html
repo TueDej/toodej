@@ -94,6 +94,10 @@
     /* ---- generous, unhurried section rhythm -------------------------- */
     .sec-y{ padding-block: clamp(4.5rem, 9vw, 8rem); }
     .sec-y-lg{ padding-block: clamp(5.5rem, 12vw, 9rem); }
+    /* Full-viewport min-height. The vh line is the fallback for browsers that
+       don't understand dvh (older Android WebView/Chrome); supporting browsers
+       simply override it with the dvh line. */
+    .vh-full{ min-height:100vh; min-height:100dvh; }
 
     /* ---- hand-cut card surface ---------------------------------------- */
     .paper-card{
