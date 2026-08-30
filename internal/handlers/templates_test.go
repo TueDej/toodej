@@ -136,3 +136,46 @@ func TestTemplateStoreNoReloadOutsideDev(t *testing.T) {
 		t.Fatalf("non-dev render = %q, want %q", b.String(), "V1")
 	}
 }
+
+// TestProductsTemplateCategoryBackdrop renders the REAL storefront products
+// template and asserts the category image is emitted as a header backdrop
+// (with a legibility scrim) only when CategoryImage is set.
+func TestProductsTemplateCategoryBackdrop(t *testing.T) {
+	layout := filepath.Join("..", "..", "templates", "layout.html")
+	page := filepath.Join("..", "..", "templates", "products.html")
+	if _, err := os.Stat(layout); err != nil {
+		t.Skipf("real templates not available: %v", err)
+	}
+	tpl, err := template.New("").Funcs(templateFuncs()).ParseFiles(layout, page)
+	if err != nil {
+		t.Fatalf("parse real templates: %v", err)
+	}
+
+	render := func(image string) string {
+		var b strings.Builder
+		data := map[string]any{
+			"CategoryLabel": "انجیر",
+			"CurrentFilter": "fig",
+			"CategoryImage": image,
+			"Products":      nil,
+			"Categories":    nil,
+		}
+		if err := tpl.ExecuteTemplate(&b, "content", data); err != nil {
+			t.Fatalf("execute content: %v", err)
+		}
+		return b.String()
+	}
+
+	withImg := render("/uploads/cat.png")
+	if !strings.Contains(withImg, "background-image:url('/uploads/cat.png')") {
+		t.Fatalf("backdrop image div missing: %s", withImg)
+	}
+	if !strings.Contains(withImg, "from-sand/95 via-sand/85 to-sand/55") {
+		t.Fatal("legibility scrim missing behind category backdrop")
+	}
+
+	if withoutImg := render(""); strings.Contains(withoutImg, "background-image:url('/uploads/") ||
+		strings.Contains(withoutImg, "from-sand/95") {
+		t.Fatal("imageless category must not render a backdrop")
+	}
+}

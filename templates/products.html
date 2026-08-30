@@ -4,7 +4,14 @@
 
 <!-- category intro — low, not a fat hero -->
 <section class="relative overflow-hidden border-b border-line/70 bg-sand/50">
-  <div class="mx-auto max-w-5xl px-5 pb-10 pt-12 lg:px-8" data-reveal>
+  {{if .CategoryImage}}
+  <!-- category image backdrop (only when the category has one); the gradient
+       scrim keeps the RTL text (right side) legible while the photo shows
+       through toward the left -->
+  <div class="absolute inset-0 bg-cover bg-center" style="background-image:url('{{.CategoryImage}}')" aria-hidden="true"></div>
+  <div class="absolute inset-0 bg-gradient-to-l from-sand/95 via-sand/85 to-sand/55" aria-hidden="true"></div>
+  {{end}}
+  <div class="relative mx-auto max-w-5xl px-5 pb-10 pt-12 lg:px-8" data-reveal>
     <nav class="mb-4 flex items-center gap-2 text-xs text-clay" aria-label="مسیر">
       <a href="/" class="transition hover:text-fig">خانه</a>
       <span>›</span>

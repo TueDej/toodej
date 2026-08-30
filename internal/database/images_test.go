@@ -154,3 +154,46 @@ func TestAddImageLimitAndOwners(t *testing.T) {
 		t.Fatalf("category GetImages = %v", got)
 	}
 }
+
+// TestCategorySingleImage: categories hold exactly one image. Appending a
+// second is refused, and ReplaceImage swaps the single image (reporting the old
+// path for file cleanup) rather than growing the gallery.
+func TestCategorySingleImage(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	cid, err := CreateCategory(ctx, db, "fig-single", "انجیر")
+	if err != nil {
+		t.Fatalf("CreateCategory: %v", err)
+	}
+
+	if _, err := AddImage(ctx, db, ImageOwnerCategory, cid, "/uploads/one.png"); err != nil {
+		t.Fatalf("first category AddImage: %v", err)
+	}
+	if _, err := AddImage(ctx, db, ImageOwnerCategory, cid, "/uploads/two.png"); !errors.Is(err, ErrImageLimitReached) {
+		t.Fatalf("second category AddImage = %v, want ErrImageLimitReached", err)
+	}
+
+	if _, removed, err := ReplaceImage(ctx, db, ImageOwnerCategory, cid, "/uploads/two.png"); err != nil {
+		t.Fatalf("ReplaceImage: %v", err)
+	} else if len(removed) != 1 || removed[0] != "/uploads/one.png" {
+		t.Fatalf("removed = %v, want [/uploads/one.png]", removed)
+	}
+	if got, _ := GetImages(ctx, db, ImageOwnerCategory, cid); len(got) != 1 || got[0] != "/uploads/two.png" {
+		t.Fatalf("category images after replace = %v, want exactly [two]", got)
+	}
+
+	// Replacing again drops the previous single image and keeps exactly one.
+	if _, removed, err := ReplaceImage(ctx, db, ImageOwnerCategory, cid, "/uploads/three.png"); err != nil {
+		t.Fatalf("second ReplaceImage: %v", err)
+	} else if len(removed) != 1 || removed[0] != "/uploads/two.png" {
+		t.Fatalf("removed = %v, want [/uploads/two.png]", removed)
+	}
+	if got, _ := GetImages(ctx, db, ImageOwnerCategory, cid); len(got) != 1 || got[0] != "/uploads/three.png" {
+		t.Fatalf("category images = %v, want [three]", got)
+	}
+
+	// ReplaceImage refuses a dangling owner id.
+	if _, _, err := ReplaceImage(ctx, db, ImageOwnerCategory, 99999, "/uploads/x.png"); !errors.Is(err, ErrImageOwnerNotFound) {
+		t.Fatalf("dangling ReplaceImage = %v, want ErrImageOwnerNotFound", err)
+	}
+}

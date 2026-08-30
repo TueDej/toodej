@@ -116,7 +116,7 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("category")
 
-	var category, currentFilter, label string
+	var category, currentFilter, label, categoryImage string
 	if slug == "all" {
 		category = "all"
 		currentFilter = "all"
@@ -130,6 +130,11 @@ func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 		category = cat.Label
 		currentFilter = cat.Slug
 		label = cat.Label
+		// A category carries at most one image; surface it as the page-header
+		// backdrop when present, otherwise leave the header as-is.
+		if imgs, err := database.GetImages(r.Context(), h.db, database.ImageOwnerCategory, cat.ID); err == nil && len(imgs) > 0 {
+			categoryImage = imgs[0]
+		}
 	}
 
 	cats, err := database.GetEnabledCategories(r.Context(), h.db)
@@ -157,6 +162,7 @@ func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 		"Categories":    cats,
 		"CurrentFilter": currentFilter,
 		"CategoryLabel": label,
+		"CategoryImage": categoryImage,
 	}, w)
 
 	h.render(w, "products", data)

@@ -10,18 +10,29 @@ import (
 // ── Images ───────────────────────────────────────────
 //
 // Images are managed gallery attachments for products (shown on the storefront
-// and in the cart, slidable when there are several) and categories (stored for
-// future use). A single table serves both owners; position keeps the display
-// order contiguous (0..n-1) and products.image_url always mirrors the first
-// product image so legacy storefront rendering keeps working.
+// and in the cart, slidable when there are several) and categories (a single
+// image each, stored for future use). A single table serves both owners;
+// position keeps the display order contiguous (0..n-1) and products.image_url
+// always mirrors the first product image so legacy storefront rendering keeps
+// working.
 
 const (
 	ImageOwnerProduct  = "product"
 	ImageOwnerCategory = "category"
 )
 
-// MaxImagesPerOwner caps the gallery size per product/category.
+// MaxImagesPerOwner caps the gallery size for a product. Categories are limited
+// to a single image (see MaxImagesForOwner).
 const MaxImagesPerOwner = 10
+
+// MaxImagesForOwner returns how many images an owner type may hold: a full
+// gallery for products, exactly one for categories.
+func MaxImagesForOwner(ownerType string) int {
+	if ownerType == ImageOwnerCategory {
+		return 1
+	}
+	return MaxImagesPerOwner
+}
 
 var (
 	// ErrImageOwnerNotFound is returned when the owner (product/category) of
@@ -106,7 +117,7 @@ func AddImage(ctx context.Context, db *sql.DB, ownerType string, ownerID int64, 
 		"SELECT COUNT(*) FROM images WHERE owner_type = ? AND owner_id = ?", ownerType, ownerID).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count images: %w", err)
 	}
-	if count >= MaxImagesPerOwner {
+	if count >= MaxImagesForOwner(ownerType) {
 		return 0, fmt.Errorf("%w: %s %d already has %d images", ErrImageLimitReached, ownerType, ownerID, count)
 	}
 
@@ -133,6 +144,64 @@ func AddImage(ctx context.Context, db *sql.DB, ownerType string, ownerID int64, 
 		}
 	}
 	return id, tx.Commit()
+}
+
+// ReplaceImage sets a single-image owner's gallery to exactly one image,
+// deleting any existing rows and returning their paths so the caller can remove
+// the orphaned files from disk. Intended for categories, which hold one image;
+// uploading a new one swaps it in rather than erroring at the cap.
+func ReplaceImage(ctx context.Context, db *sql.DB, ownerType string, ownerID int64, path string) (int64, []string, error) {
+	if !validImageOwner(ownerType) {
+		return 0, nil, fmt.Errorf("unknown image owner type %q", ownerType)
+	}
+	if ok, err := ownerImageExists(ctx, db, ownerType, ownerID); err != nil {
+		return 0, nil, err
+	} else if !ok {
+		return 0, nil, fmt.Errorf("%w: %s %d", ErrImageOwnerNotFound, ownerType, ownerID)
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, nil, fmt.Errorf("begin replace image tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var removed []string
+	rows, err := tx.QueryContext(ctx,
+		"SELECT path FROM images WHERE owner_type = ? AND owner_id = ?", ownerType, ownerID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("list images to replace: %w", err)
+	}
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			rows.Close()
+			return 0, nil, fmt.Errorf("scan image path: %w", err)
+		}
+		removed = append(removed, p)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, nil, fmt.Errorf("iterate images to replace: %w", err)
+	}
+	rows.Close()
+
+	if _, err := tx.ExecContext(ctx,
+		"DELETE FROM images WHERE owner_type = ? AND owner_id = ?", ownerType, ownerID); err != nil {
+		return 0, nil, fmt.Errorf("clear images for %s %d: %w", ownerType, ownerID, err)
+	}
+
+	res, err := tx.ExecContext(ctx,
+		"INSERT INTO images (owner_type, owner_id, path, position) VALUES (?, ?, ?, 0)",
+		ownerType, ownerID, path)
+	if err != nil {
+		return 0, nil, fmt.Errorf("insert image: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, nil, fmt.Errorf("image id: %w", err)
+	}
+	return id, removed, tx.Commit()
 }
 
 // RemoveImage deletes one image from an owner's gallery, renumbers the

@@ -124,14 +124,10 @@
       box-shadow:var(--shadow-card-hover);
       border-color:var(--border-fig);
     }
-    /* product-card gallery slider: native touch scrolling (momentum + snap),
-       with overscroll contained so swiping past the first/last image never
-       chains into page scrolling. Scrollbar hidden; swipe/scroll still works. */
-    .pc-track{
-      scrollbar-width:none; -ms-overflow-style:none;
-      overscroll-behavior-x:contain;
-    }
-    .pc-track::-webkit-scrollbar{ display:none; }
+    /* product-card gallery slider: images switch only via the prev/next chevrons,
+       which scrollBy() this track programmatically. overflow-x is hidden so a
+       finger swipe can't drag the images (and can't chain into page scrolling). */
+    .pc-track{ scroll-behavior:smooth; }
 
     /* ---- wax-seal stamp (hand-stamped ink mark) ------------------------ */
     .wax-seal{
@@ -562,7 +558,7 @@
         {{if gt (len .Images) 1}}
         <!-- gallery: scroll-snap track with prev/next buttons -->
         <div class="h-full" dir="ltr">
-          <div class="pc-track flex h-full w-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden">
+          <div class="pc-track flex h-full w-full snap-x snap-mandatory overflow-x-hidden overflow-y-hidden">
             {{range .Images}}
             <img src="{{.}}" alt="{{$.Name}}" class="h-full w-full flex-shrink-0 snap-center object-cover transition-transform duration-700 ease-out group-hover:scale-105" loading="lazy">
             {{end}}
@@ -579,11 +575,11 @@
       </div>
       {{if gt (len .Images) 1}}
       <button type="button" onclick="var s=this.parentElement.querySelector('.pc-track'); s.scrollBy({left:-s.clientWidth,behavior:'smooth'})"
-        class="absolute left-2.5 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center text-parchment drop-shadow-[0_1px_2px_rgba(42,30,24,0.85),0_0_10px_rgba(42,30,24,0.5)] transition duration-300 hover:scale-110 active:scale-90 focus-visible:opacity-100 sm:pointer-events-none sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100" title="تصویر قبلی" aria-label="تصویر قبلی">
+        class="absolute left-2.5 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center text-parchment drop-shadow-[0_1px_2px_rgba(42,30,24,0.85),0_0_10px_rgba(42,30,24,0.5)] transition duration-300 hover:scale-110 active:scale-90" title="تصویر قبلی" aria-label="تصویر قبلی">
         <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 18l-6-6 6-6"/></svg>
       </button>
       <button type="button" onclick="var s=this.parentElement.querySelector('.pc-track'); s.scrollBy({left:s.clientWidth,behavior:'smooth'})"
-        class="absolute right-2.5 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center text-parchment drop-shadow-[0_1px_2px_rgba(42,30,24,0.85),0_0_10px_rgba(42,30,24,0.5)] transition duration-300 hover:scale-110 active:scale-90 focus-visible:opacity-100 sm:pointer-events-none sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100" title="تصویر بعدی" aria-label="تصویر بعدی">
+        class="absolute right-2.5 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center text-parchment drop-shadow-[0_1px_2px_rgba(42,30,24,0.85),0_0_10px_rgba(42,30,24,0.5)] transition duration-300 hover:scale-110 active:scale-90" title="تصویر بعدی" aria-label="تصویر بعدی">
         <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 6l6 6-6 6"/></svg>
       </button>
       {{end}}

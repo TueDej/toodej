@@ -349,3 +349,127 @@ func TestAdminImageMoveRTLOrdering(t *testing.T) {
 		t.Fatalf("edge moves changed the order: %v, want [b a c]", images)
 	}
 }
+
+// TestAdminCategorySingleImage: a category keeps exactly one image. A second
+// upload replaces the first (its file is deleted from disk), the gallery shows
+// the single-image caption and a change-image dropzone, and never renders the
+// product-only reorder arrows.
+func TestAdminCategorySingleImage(t *testing.T) {
+	r, h, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.authorize("admin", "admin123")
+	c.bootstrapAdmin(t)
+
+	if resp := c.post("/admin/categories", url.Values{"slug": {"fig-single"}, "label": {"انجیر"}}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("create category = %d", resp.StatusCode)
+	}
+	cats, err := database.GetCategories(context.Background(), h.db)
+	if err != nil {
+		t.Fatalf("list categories: %v", err)
+	}
+	var cid int64
+	for _, cat := range cats {
+		if cat.Slug == "fig-single" {
+			cid = cat.ID
+		}
+	}
+	if cid == 0 {
+		t.Fatal("created category not found")
+	}
+	cidStr := strconv.FormatInt(cid, 10)
+	fields := url.Values{"owner_type": {"category"}, "owner_id": {cidStr}}
+
+	if resp := c.postMultipart("/admin/images", fields, "file", "a.png", pngBytes); resp.StatusCode != http.StatusOK {
+		t.Fatalf("upload a = %d", resp.StatusCode)
+	}
+	images, _ := database.GetImages(context.Background(), h.db, database.ImageOwnerCategory, cid)
+	if len(images) != 1 {
+		t.Fatalf("category images after first upload = %v, want exactly 1", images)
+	}
+	firstPath := images[0]
+
+	if resp := c.get("/admin/categories/" + cidStr + "/edit"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("edit modal = %d", resp.StatusCode)
+	}
+	body := c.body()
+	if !strings.Contains(body, "فقط یک تصویر") {
+		t.Fatalf("category gallery missing single-image caption: %s", body)
+	}
+	if strings.Contains(body, "انتقال به چپ") || strings.Contains(body, "انتقال به راست") {
+		t.Fatal("category gallery must not render reorder arrows")
+	}
+	if !strings.Contains(body, "تغییر تصویر") {
+		t.Fatal("category gallery should offer a change-image dropzone")
+	}
+
+	if resp := c.postMultipart("/admin/images", fields, "file", "b.png", pngBytes); resp.StatusCode != http.StatusOK {
+		t.Fatalf("upload b = %d", resp.StatusCode)
+	}
+	images, _ = database.GetImages(context.Background(), h.db, database.ImageOwnerCategory, cid)
+	if len(images) != 1 || images[0] == firstPath {
+		t.Fatalf("category images after replace = %v, want one new image", images)
+	}
+	if _, err := os.Stat(filepath.Join(h.uploadDir, filepath.Base(firstPath))); !os.IsNotExist(err) {
+		t.Fatalf("replaced category file still on disk: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(h.uploadDir, filepath.Base(images[0]))); err != nil {
+		t.Fatalf("new category file missing: %v", err)
+	}
+}
+
+// TestCategoryImageBackdropOnStorefront: the products handler resolves the
+// category's single image and passes it to the template as CategoryImage only
+// when the category exists and has one; imageless categories and the "all"
+// listing pass an empty value so the header renders plain. (The backdrop markup
+// itself is covered by TestProductsTemplateCategoryBackdrop.)
+func TestCategoryImageBackdropOnStorefront(t *testing.T) {
+	r, h, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.authorize("admin", "admin123")
+	c.bootstrapAdmin(t)
+
+	ctx := context.Background()
+	catID := func(slug string) int64 {
+		cats, err := database.GetCategories(ctx, h.db)
+		if err != nil {
+			t.Fatalf("list categories: %v", err)
+		}
+		for _, cat := range cats {
+			if cat.Slug == slug {
+				return cat.ID
+			}
+		}
+		t.Fatalf("category %q not found", slug)
+		return 0
+	}
+
+	for _, slug := range []string{"fig-bg", "fig-nobg"} {
+		if resp := c.post("/admin/categories", url.Values{"slug": {slug}, "label": {"انجیر"}}); resp.StatusCode != http.StatusOK {
+			t.Fatalf("create %s = %d", slug, resp.StatusCode)
+		}
+	}
+	if _, err := database.AddImage(ctx, h.db, database.ImageOwnerCategory, catID("fig-bg"), "/uploads/catbg.png"); err != nil {
+		t.Fatalf("attach category image: %v", err)
+	}
+
+	if resp := c.get("/products/fig-bg"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /products/fig-bg = %d", resp.StatusCode)
+	}
+	if !strings.Contains(c.body(), "IMG=/uploads/catbg.png") {
+		t.Fatalf("category page did not receive its image: %s", c.body())
+	}
+
+	if resp := c.get("/products/fig-nobg"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /products/fig-nobg = %d", resp.StatusCode)
+	}
+	if strings.Contains(c.body(), "IMG=/") {
+		t.Fatalf("imageless category should pass an empty CategoryImage: %q", c.body())
+	}
+
+	if resp := c.get("/products/all"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /products/all = %d", resp.StatusCode)
+	}
+	if strings.Contains(c.body(), "IMG=/") {
+		t.Fatalf("/products/all must not carry a category image: %s", c.body())
+	}
+}
