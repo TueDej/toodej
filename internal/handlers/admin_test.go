@@ -369,3 +369,63 @@ func TestAdminToggleCategory(t *testing.T) {
 		t.Fatalf("category enabled state unchanged: %d", afterEnabled)
 	}
 }
+
+// TestAdminReorderProducts posts a new product order (as the drag-and-drop UI
+// does) and confirms it is persisted and reflected by GetAllProducts.
+func TestAdminReorderProducts(t *testing.T) {
+	r, h, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.authorize("admin", "admin123")
+	c.bootstrapAdmin(t)
+
+	ctx := context.Background()
+	before, err := database.GetAllProducts(ctx, h.db)
+	if err != nil || len(before) < 2 {
+		t.Fatalf("seeded products: %v (%d)", err, len(before))
+	}
+	rev := make([]string, len(before))
+	for i, p := range before {
+		rev[len(before)-1-i] = strconv.FormatInt(p.ID, 10)
+	}
+
+	resp := c.post("/admin/products/reorder", url.Values{"order": {strings.Join(rev, ",")}})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reorder = %d (body: %.80s)", resp.StatusCode, c.body())
+	}
+
+	after, err := database.GetAllProducts(ctx, h.db)
+	if err != nil {
+		t.Fatalf("GetAllProducts: %v", err)
+	}
+	for i := range after {
+		want, _ := strconv.ParseInt(rev[i], 10, 64)
+		if after[i].ID != want {
+			t.Fatalf("order[%d] = %d, want %d", i, after[i].ID, want)
+		}
+	}
+}
+
+// TestAdminReorderProductsRejectsBadInput: empty or non-numeric ids are 400s.
+func TestAdminReorderProductsRejectsBadInput(t *testing.T) {
+	r, _, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.authorize("admin", "admin123")
+	c.bootstrapAdmin(t)
+
+	if resp := c.post("/admin/products/reorder", url.Values{"order": {""}}); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty order = %d, want 400", resp.StatusCode)
+	}
+	if resp := c.post("/admin/products/reorder", url.Values{"order": {"1,abc"}}); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("non-numeric order = %d, want 400", resp.StatusCode)
+	}
+}
+
+// TestAdminReorderProductsUnauthenticated: the endpoint is not openly writable.
+func TestAdminReorderProductsUnauthenticated(t *testing.T) {
+	r, _, _ := newTestRouter(t)
+	anon := newTestClient(t, r)
+	resp := anon.post("/admin/products/reorder", url.Values{"order": {"1,2"}})
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("unauth reorder = %d, want rejected", resp.StatusCode)
+	}
+}

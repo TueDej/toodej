@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -644,5 +645,64 @@ func TestUpdateProductPersistsAllFields(t *testing.T) {
 	// Updating a missing product must fail.
 	if err := UpdateProduct(ctx, db, &models.Product{ID: 99999, Name: "Ghost"}); err == nil {
 		t.Fatal("UpdateProduct on missing product succeeded")
+	}
+}
+
+// TestProductPositionOrderingAndReorder covers the drag-to-reorder backing:
+// seeded products start in name order, a new product appends to the end (not by
+// name), and SetProductOrder rewrites the display order for both the admin list
+// and the storefront.
+func TestProductPositionOrderingAndReorder(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+
+	names := func() []string {
+		ps, err := GetAllProducts(ctx, db)
+		if err != nil {
+			t.Fatalf("GetAllProducts: %v", err)
+		}
+		out := make([]string, 0, len(ps))
+		for _, p := range ps {
+			out = append(out, p.Name)
+		}
+		return out
+	}
+	idOf := func(name string) int64 {
+		var id int64
+		if err := db.QueryRowContext(ctx, "SELECT id FROM products WHERE name = ?", name).Scan(&id); err != nil {
+			t.Fatalf("id of %q: %v", name, err)
+		}
+		return id
+	}
+
+	if got := names(); !reflect.DeepEqual(got, []string{"test1", "test2", "test3"}) {
+		t.Fatalf("initial order = %v, want [test1 test2 test3]", got)
+	}
+
+	// A new product appends to the end even though its name sorts first.
+	if _, err := CreateProduct(ctx, db, &models.Product{Name: "aaa", Slug: "aaa", Category: "test", Price: 100, IsActive: true}); err != nil {
+		t.Fatalf("CreateProduct: %v", err)
+	}
+	if got := names(); !reflect.DeepEqual(got, []string{"test1", "test2", "test3", "aaa"}) {
+		t.Fatalf("order after create = %v, want new product last", got)
+	}
+
+	if err := SetProductOrder(ctx, db, []int64{idOf("aaa"), idOf("test3"), idOf("test1"), idOf("test2")}); err != nil {
+		t.Fatalf("SetProductOrder: %v", err)
+	}
+	if got := names(); !reflect.DeepEqual(got, []string{"aaa", "test3", "test1", "test2"}) {
+		t.Fatalf("order after reorder = %v", got)
+	}
+
+	ps, err := GetProducts(ctx, db, "test")
+	if err != nil {
+		t.Fatalf("GetProducts: %v", err)
+	}
+	sf := make([]string, 0, len(ps))
+	for _, p := range ps {
+		sf = append(sf, p.Name)
+	}
+	if !reflect.DeepEqual(sf, []string{"aaa", "test3", "test1", "test2"}) {
+		t.Fatalf("storefront order = %v, want position order", sf)
 	}
 }

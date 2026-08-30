@@ -76,6 +76,7 @@
       <table class="w-full text-right text-sm">
         <thead class="bg-sand/70 text-xs">
           <tr>
+            <th class="w-8 px-2 py-3.5" aria-label="دستگیره جابه‌جایی"></th>
             <th class="px-4 py-3.5 font-semibold text-fig">شناسه</th>
             <th class="px-4 py-3.5 font-semibold text-fig">نام</th>
             <th class="px-4 py-3.5 font-semibold text-fig">دسته‌بندی</th>
@@ -87,7 +88,12 @@
         </thead>
         <tbody id="products-tbody">
           {{range .Products}}
-          <tr id="product-{{.ID}}" class="border-b border-line/70 transition hover:bg-sand/40 {{if not .IsActive}}opacity-50{{end}}">
+          <tr id="product-{{.ID}}" draggable="true" class="border-b border-line/70 transition hover:bg-sand/40 {{if not .IsActive}}opacity-50{{end}}">
+            <td class="px-2 py-3 text-center text-clay/50">
+              <span class="drag-handle inline-flex cursor-grab touch-none select-none items-center justify-center" title="برای تغییر ترتیب، بکشید و رها کنید" aria-hidden="true">
+                <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor"><circle cx="3" cy="3" r="1.4"/><circle cx="7" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="7" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="7" cy="13" r="1.4"/></svg>
+              </span>
+            </td>
             <td class="px-4 py-3 text-clay">{{.ID}}</td>
             <td class="px-4 py-3 font-medium text-walnut">{{.Name}}</td>
             <td class="px-4 py-3 text-clay">{{.Category}}</td>
@@ -117,7 +123,7 @@
             </td>
           </tr>
           {{else}}
-          <tr><td colspan="7" class="px-4 py-14 text-center text-clay">هنوز محصولی ثبت نشده است.</td></tr>
+          <tr><td colspan="8" class="px-4 py-14 text-center text-clay">هنوز محصولی ثبت نشده است.</td></tr>
           {{end}}
         </tbody>
       </table>
@@ -227,5 +233,71 @@ document.addEventListener('change', function(e) {
     if (c) sel.style.color = c;
   }
 });
+
+// ---- product drag-to-reorder ------------------------------------------------
+// Rows in the products table are draggable; dropping reorders them live and the
+// new order is persisted to /admin/products/reorder (which the storefront then
+// lists by). Listeners are delegated on the tbody so HTMX row swaps (price /
+// stock / toggle) keep working without re-binding.
+(function () {
+  var tbody = document.getElementById('products-tbody');
+  if (!tbody) return;
+  var dragEl = null;
+
+  function productRows() {
+    return Array.prototype.slice.call(tbody.querySelectorAll('tr[id^="product-"]'));
+  }
+  function afterElement(y) {
+    var closest = null, closestOffset = -Infinity;
+    productRows().forEach(function (tr) {
+      if (tr === dragEl) return;
+      var box = tr.getBoundingClientRect();
+      var offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closestOffset) { closestOffset = offset; closest = tr; }
+    });
+    return closest;
+  }
+  function saveOrder() {
+    var ids = productRows().map(function (tr) { return tr.id.replace('product-', ''); });
+    if (!ids.length) return;
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    fetch('/admin/products/reorder', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-CSRF-Token': meta ? meta.getAttribute('content') : ''
+      },
+      body: 'order=' + encodeURIComponent(ids.join(','))
+    }).then(function (resp) {
+      if (!resp.ok) window.location.reload();
+    }).catch(function () { window.location.reload(); });
+  }
+
+  tbody.addEventListener('dragstart', function (e) {
+    var tr = e.target.closest ? e.target.closest('tr') : null;
+    if (!tr || tr.id.indexOf('product-') !== 0) return;
+    dragEl = tr;
+    tr.style.opacity = '0.4';
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', tr.id); } catch (err) {}
+    }
+  });
+  tbody.addEventListener('dragover', function (e) {
+    if (!dragEl) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    var after = afterElement(e.clientY);
+    if (after == null) tbody.appendChild(dragEl);
+    else tbody.insertBefore(dragEl, after);
+  });
+  tbody.addEventListener('drop', function (e) { if (dragEl) e.preventDefault(); });
+  tbody.addEventListener('dragend', function () {
+    if (!dragEl) return;
+    dragEl.style.opacity = '';
+    dragEl = null;
+    saveOrder();
+  });
+})();
 </script>
 {{end}}

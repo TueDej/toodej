@@ -479,7 +479,12 @@ func (h *Handler) renderProductRow(w http.ResponseWriter, p models.Product) {
 		inactiveClass = "opacity-50"
 	}
 
-	row := fmt.Sprintf(`<tr id="product-%d" class="border-b border-line/70 %s transition hover:bg-sand/40">
+	row := fmt.Sprintf(`<tr id="product-%d" draggable="true" class="border-b border-line/70 %s transition hover:bg-sand/40">
+    <td class="px-2 py-3 text-center text-clay/50">
+      <span class="drag-handle inline-flex cursor-grab touch-none select-none items-center justify-center" title="برای تغییر ترتیب، بکشید و رها کنید" aria-hidden="true">
+        <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor"><circle cx="3" cy="3" r="1.4"/><circle cx="7" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="7" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="7" cy="13" r="1.4"/></svg>
+      </span>
+    </td>
     <td class="px-4 py-3 text-sm text-clay font-mono tracking-wider">%d</td>
     <td class="px-4 py-3 text-sm font-medium text-walnut">%s</td>
     <td class="px-4 py-3 text-sm text-clay">%s</td>
@@ -514,6 +519,38 @@ func (h *Handler) renderProductRow(w http.ResponseWriter, p models.Product) {
 		p.ID)
 
 	fmt.Fprint(w, row)
+}
+
+// AdminReorderProducts persists the admin's drag-and-drop ordering of products.
+// The new order arrives as a comma-separated list of product ids in the `order`
+// field (first id = shown first); positions are rewritten 0..n-1 so the
+// storefront lists products in exactly that order.
+func (h *Handler) AdminReorderProducts(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	raw := strings.TrimSpace(r.FormValue("order"))
+	if raw == "" {
+		http.Error(w, "order is required", http.StatusBadRequest)
+		return
+	}
+	parts := strings.Split(raw, ",")
+	ids := make([]int64, 0, len(parts))
+	for _, p := range parts {
+		id, err := strconv.ParseInt(strings.TrimSpace(p), 10, 64)
+		if err != nil || id <= 0 {
+			http.Error(w, "invalid product id in order", http.StatusBadRequest)
+			return
+		}
+		ids = append(ids, id)
+	}
+	if err := database.SetProductOrder(r.Context(), h.db, ids); err != nil {
+		logutil.Error("reorder products", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 // toggleBg returns the background colour class for the toggle switch based on active state.

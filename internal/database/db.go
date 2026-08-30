@@ -69,6 +69,10 @@ func Init(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("seed categories: %w", err)
 	}
 
+	if err := initProductPositions(db); err != nil {
+		return nil, fmt.Errorf("init product positions: %w", err)
+	}
+
 	return db, nil
 }
 
@@ -88,6 +92,7 @@ func migrate(db *sql.DB) error {
 		unit          TEXT    NOT NULL DEFAULT '',
 		image_url     TEXT    NOT NULL DEFAULT '',
 		is_active     INTEGER NOT NULL DEFAULT 1,
+		position      INTEGER NOT NULL DEFAULT 0,
 		created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 	);
 
@@ -165,6 +170,13 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 
+	// Migration: products.position backs the admin's drag-to-reorder. Databases
+	// created before it existed get the column here; positions are seeded to a
+	// sensible order (by name) in initProductPositions once the table has rows.
+	if err := ensureProductColumn(db, "position", "ALTER TABLE products ADD COLUMN position INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+
 	// Payment callbacks and the payment reconciler look orders up by their
 	// Zarinpal authority token; without an index every lookup is a full scan.
 	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_orders_payment_authority ON orders(payment_authority)"); err != nil {
@@ -220,6 +232,91 @@ func orderColumnExists(db *sql.DB, name string) (bool, error) {
 		}
 	}
 	return false, rows.Err()
+}
+
+// ensureProductColumn adds a column to products if it does not already exist.
+func ensureProductColumn(db *sql.DB, name, ddl string) error {
+	exists, err := productColumnExists(db, name)
+	if err != nil {
+		return fmt.Errorf("check products.%s: %w", name, err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := db.Exec(ddl); err != nil {
+		return fmt.Errorf("add products.%s: %w", name, err)
+	}
+	return nil
+}
+
+func productColumnExists(db *sql.DB, name string) (bool, error) {
+	rows, err := db.Query("PRAGMA table_info(products)")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var colName, colType string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &colName, &colType, &notNull, &defaultValue, &pk); err != nil {
+			return false, err
+		}
+		if colName == name {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+// initProductPositions gives products a stable display order the first time the
+// position column is used. It assigns positions 0..n-1 in name order (matching
+// the storefront's previous alphabetical listing) so existing databases keep
+// their visual order across the upgrade. It is a no-op once any product has a
+// non-zero position — i.e. once the admin has reordered — so it never clobbers a
+// custom order on later startups.
+func initProductPositions(db *sql.DB) error {
+	var total, customized int
+	if err := db.QueryRow("SELECT COUNT(*), COALESCE(SUM(position <> 0), 0) FROM products").Scan(&total, &customized); err != nil {
+		return fmt.Errorf("count products for position init: %w", err)
+	}
+	if total <= 1 || customized > 0 {
+		return nil
+	}
+
+	rows, err := db.Query("SELECT id FROM products ORDER BY name, id")
+	if err != nil {
+		return fmt.Errorf("list products for position init: %w", err)
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan product id for position init: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate products for position init: %w", err)
+	}
+	rows.Close()
+
+	stmt, err := db.Prepare("UPDATE products SET position = ? WHERE id = ?")
+	if err != nil {
+		return fmt.Errorf("prepare position init: %w", err)
+	}
+	defer stmt.Close()
+	for i, id := range ids {
+		if _, err := stmt.Exec(i, id); err != nil {
+			return fmt.Errorf("init position for product %d: %w", id, err)
+		}
+	}
+	return nil
 }
 
 func migrateOrderStatusConstraint(db *sql.DB) error {
@@ -541,7 +638,7 @@ func GetProducts(ctx context.Context, db *sql.DB, category string) ([]models.Pro
 		query += " AND category = ?"
 		args = append(args, category)
 	}
-	query += " ORDER BY name"
+	query += " ORDER BY position, id"
 
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -950,7 +1047,7 @@ func CancelExpiredUnpaidOrders(ctx context.Context, db *sql.DB, ttl time.Duratio
 // GetAllProducts returns every product (including inactive ones), ordered by name.
 // Used by the admin panel.
 func GetAllProducts(ctx context.Context, db *sql.DB) ([]models.Product, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id, name, slug, category, description, price, stock_quantity, unit, image_url, is_active, created_at FROM products ORDER BY name")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, slug, category, description, price, stock_quantity, unit, image_url, is_active, created_at FROM products ORDER BY position, id")
 	if err != nil {
 		return nil, fmt.Errorf("query all products: %w", err)
 	}
@@ -1016,12 +1113,40 @@ func CreateProduct(ctx context.Context, db *sql.DB, p *models.Product) (int64, e
 	if p.IsActive {
 		active = 1
 	}
-	res, err := db.ExecContext(ctx, `INSERT INTO products (name, slug, category, description, price, stock_quantity, unit, image_url, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	res, err := db.ExecContext(ctx, `INSERT INTO products (name, slug, category, description, price, stock_quantity, unit, image_url, is_active, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM products))`,
 		p.Name, p.Slug, p.Category, p.Description, p.Price, p.StockQuantity, p.Unit, p.ImageURL, active)
 	if err != nil {
 		return 0, fmt.Errorf("create product: %w", err)
 	}
 	return res.LastInsertId()
+}
+
+// SetProductOrder rewrites products.position to match the supplied id order:
+// the first id gets position 0, the next 1, and so on. The storefront and the
+// admin list both order by position, so this is what drag-to-reorder persists.
+// Ids that do not exist simply update zero rows.
+func SetProductOrder(ctx context.Context, db *sql.DB, ids []int64) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin reorder tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, "UPDATE products SET position = ? WHERE id = ?")
+	if err != nil {
+		return fmt.Errorf("prepare reorder stmt: %w", err)
+	}
+	defer stmt.Close()
+
+	for i, id := range ids {
+		if _, err := stmt.ExecContext(ctx, i, id); err != nil {
+			return fmt.Errorf("set position %d for product %d: %w", i, id, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit reorder: %w", err)
+	}
+	return nil
 }
 
 // SlugifyName converts a product name into a URL-safe slug: lowercased with
