@@ -16,6 +16,7 @@ DB_PATH="${DATA_DIR}/${APP_NAME}.db"
 DEPLOYER_GROUP="$(id -gn)"
 START_TIME=$SECONDS
 DO_TIDY=0
+ASSUME_YES=0
 
 # Helpers: if the script is already running as root, skip sudo so it works both
 # unprivileged (recommended) and via "sudo ./deploy.sh".
@@ -51,13 +52,20 @@ kv() { printf "  %-22s %s\n" "$1" "$2"; }
 
 usage() {
   cat <<'EOF'
-Usage: ./deploy.sh [--tidy]
+Usage: ./deploy.sh [--tidy] [--yes]
 
 Builds Toodej, installs it as a systemd service, and configures the runtime
 environment. Run from the repository root.
 
+Values already present in the env file (/etc/farmstore/env) are reused
+silently — the script only asks for what is genuinely missing.
+
 Options:
   --tidy      Run 'go mod tidy' before building (default: off).
+  -y, --yes   Never prompt: take every saved value, otherwise the default.
+              Note: on a fresh host the default admin password (admin123) is
+              refused in production, so ADMIN_PASS must already be configured
+              for --yes to succeed there.
   -h, --help  Show this help and exit.
 EOF
 }
@@ -65,6 +73,7 @@ EOF
 for arg in "$@"; do
   case "$arg" in
     --tidy) DO_TIDY=1 ;;
+    -y|--yes) ASSUME_YES=1 ;;
     -h|--help) usage; exit 0 ;;
     *) warn "Unknown argument '$arg' ignored (see --help)" ;;
   esac
@@ -173,39 +182,47 @@ EXISTING_APP_BASE_URL=$(read_existing "APP_BASE_URL")
 EXISTING_DB_PATH=$(read_existing "DB_PATH")
 [ -n "$EXISTING_DB_PATH" ] && DB_PATH="$EXISTING_DB_PATH"
 
-if [ -n "$EXISTING_PORT" ] && [ -n "$EXISTING_ADMIN_USER" ]; then
+# Each value already stored in the env file is reused without prompting; only
+# genuinely missing values ask the user — and under --yes even those silently
+# fall back to their defaults.
+if [ -n "$EXISTING_PORT" ]; then
   APP_PORT="$EXISTING_PORT"
-  ADMIN_USER="$EXISTING_ADMIN_USER"
-  ADMIN_PASS="$EXISTING_ADMIN_PASS"
-  info "Using previous config — port=$APP_PORT, user=${ADMIN_USER} (password masked)"
+  info "Using saved port ${APP_PORT}"
+elif [ "$ASSUME_YES" -eq 1 ]; then
+  APP_PORT="8080"
 else
-  if [ -n "$EXISTING_PORT" ]; then
-    APP_PORT="$EXISTING_PORT"
-    info "Using saved port ${APP_PORT}"
-  else
-    APP_PORT="8080"
-    read -rp "HTTP port for the app [${APP_PORT}]: " APP_PORT
-    APP_PORT="$(clean_input "${APP_PORT:-8080}")"
-  fi
-  while ! valid_port "$APP_PORT"; do
-    warn "Invalid port '${APP_PORT}' — must be 1-65535."
-    read -rp "HTTP port for the app [8080]: " APP_PORT
-    APP_PORT="$(clean_input "${APP_PORT:-8080}")"
-  done
+  APP_PORT="8080"
+  read -rp "HTTP port for the app [${APP_PORT}]: " APP_PORT
+  APP_PORT="$(clean_input "${APP_PORT:-8080}")"
+fi
+while ! valid_port "$APP_PORT"; do
+  [ "$ASSUME_YES" -eq 1 ] && fail "Invalid port '${APP_PORT}' (must be 1-65535)."
+  warn "Invalid port '${APP_PORT}' — must be 1-65535."
+  read -rp "HTTP port for the app [8080]: " APP_PORT
+  APP_PORT="$(clean_input "${APP_PORT:-8080}")"
+done
 
+if [ -n "$EXISTING_ADMIN_USER" ]; then
+  ADMIN_USER="$EXISTING_ADMIN_USER"
+elif [ "$ASSUME_YES" -eq 1 ]; then
+  ADMIN_USER="admin"
+else
   read -rp "Admin username [${EXISTING_ADMIN_USER:-admin}]: " ADMIN_USER
   ADMIN_USER="$(clean_input "${ADMIN_USER:-${EXISTING_ADMIN_USER:-admin}}")"
-  [ -n "$ADMIN_USER" ] || fail "Admin username cannot be empty."
+fi
+[ -n "$ADMIN_USER" ] || fail "Admin username cannot be empty."
 
-  # Never echo the saved/Default password back into the prompt itself; -s only
-  # hides typed input. Pressing Enter reuses the previous password if any.
-  if [ -n "$EXISTING_ADMIN_PASS" ]; then
-    read -rsp "Admin password [unchanged — press Enter]: " ADMIN_PASS
-  else
-    read -rsp "Admin password [admin123 default]: " ADMIN_PASS
-  fi
+# Never echo the saved password back into the terminal; -s only hides typed
+# input. A saved password is reused silently, so it is never asked again.
+if [ -n "$EXISTING_ADMIN_PASS" ]; then
+  ADMIN_PASS="$EXISTING_ADMIN_PASS"
+  info "Using saved admin credentials — user=${ADMIN_USER} (password from ${ENV_FILE})"
+elif [ "$ASSUME_YES" -eq 1 ]; then
+  ADMIN_PASS="admin123"
+else
+  read -rsp "Admin password [admin123 default]: " ADMIN_PASS
   echo ""
-  ADMIN_PASS="$(clean_input "${ADMIN_PASS:-${EXISTING_ADMIN_PASS:-admin123}}")"
+  ADMIN_PASS="$(clean_input "${ADMIN_PASS:-admin123}")"
 fi
 
 validate_admin_creds "$ADMIN_USER" "$ADMIN_PASS"
@@ -215,13 +232,16 @@ step "SMS, payment & URL configuration"
 KAVENEGAR_API_KEY="$(clean_input "${EXISTING_KAVENEGAR_KEY:-}")"
 KAVENEGAR_TEMPLATE="$(clean_input "${EXISTING_KAVENEGAR_TEMPLATE:-verify-otp}")"
 
-if [ -z "$KAVENEGAR_API_KEY" ]; then
+if [ -z "$KAVENEGAR_API_KEY" ] && [ "$ASSUME_YES" -eq 0 ]; then
   read -rp "Kavenegar API key (leave blank to log OTPs instead of SMS): " KAVENEGAR_API_KEY
   KAVENEGAR_API_KEY="$(clean_input "$KAVENEGAR_API_KEY")"
 fi
 if [ -n "$KAVENEGAR_API_KEY" ]; then
-  read -rp "Kavenegar template name [${KAVENEGAR_TEMPLATE}]: " INPUT_TEMPLATE
-  KAVENEGAR_TEMPLATE="$(clean_input "${INPUT_TEMPLATE:-$KAVENEGAR_TEMPLATE}")"
+  # Only ask for the template when it is not already configured.
+  if [ -z "$EXISTING_KAVENEGAR_TEMPLATE" ] && [ "$ASSUME_YES" -eq 0 ]; then
+    read -rp "Kavenegar template name [${KAVENEGAR_TEMPLATE}]: " INPUT_TEMPLATE
+    KAVENEGAR_TEMPLATE="$(clean_input "${INPUT_TEMPLATE:-$KAVENEGAR_TEMPLATE}")"
+  fi
 else
   warn "No Kavenegar key — OTP codes will be printed to the service logs only."
 fi
@@ -230,15 +250,15 @@ ZARINPAL_MERCHANT_ID="$(clean_input "${EXISTING_ZARINPAL_MERCHANT_ID:-}")"
 ZARINPAL_SANDBOX="${EXISTING_ZARINPAL_SANDBOX:-false}"
 APP_BASE_URL="$(clean_input "${EXISTING_APP_BASE_URL:-https://toodej.shop}")"
 
-if [ -z "$ZARINPAL_MERCHANT_ID" ]; then
+if [ -z "$ZARINPAL_MERCHANT_ID" ] && [ "$ASSUME_YES" -eq 0 ]; then
   read -rp "Zarinpal Merchant ID: " ZARINPAL_MERCHANT_ID
   ZARINPAL_MERCHANT_ID="$(clean_input "$ZARINPAL_MERCHANT_ID")"
-  if [ -z "$ZARINPAL_MERCHANT_ID" ]; then
-    warn "No Merchant ID — payments will not work"
-  fi
+fi
+if [ -z "$ZARINPAL_MERCHANT_ID" ]; then
+  warn "No Merchant ID — payments will not work"
 fi
 
-if [ -z "$EXISTING_ZARINPAL_SANDBOX" ]; then
+if [ -z "$EXISTING_ZARINPAL_SANDBOX" ] && [ "$ASSUME_YES" -eq 0 ]; then
   read -rp "Use Zarinpal sandbox? [y/N]: " USE_SANDBOX
   if [[ "$USE_SANDBOX" =~ ^[Yy] ]]; then
     ZARINPAL_SANDBOX="true"
@@ -247,8 +267,10 @@ if [ -z "$EXISTING_ZARINPAL_SANDBOX" ]; then
   fi
 fi
 
-read -rp "App base URL [${APP_BASE_URL}]: " INPUT_BASE_URL
-APP_BASE_URL="$(clean_input "${INPUT_BASE_URL:-$APP_BASE_URL}")"
+if [ -z "$EXISTING_APP_BASE_URL" ] && [ "$ASSUME_YES" -eq 0 ]; then
+  read -rp "App base URL [${APP_BASE_URL}]: " INPUT_BASE_URL
+  APP_BASE_URL="$(clean_input "${INPUT_BASE_URL:-$APP_BASE_URL}")"
+fi
 
 # Auto-prefix https:// if missing.
 if [[ ! "$APP_BASE_URL" =~ ^https?:// ]]; then
@@ -301,7 +323,12 @@ ok "Binary built at ./bin/${APP_NAME}"
 step "Database"
 if sudo_if_needed test -f "$DB_PATH"; then
   warn "Existing database found at ${DB_PATH}"
-  read -rp "Erase it and start fresh? [y/N]: " ERASE_DB
+  ERASE_DB="n"
+  if [ "$ASSUME_YES" -eq 0 ]; then
+    read -rp "Erase it and start fresh? [y/N]: " ERASE_DB
+  else
+    info "--yes: keeping existing database"
+  fi
   if [[ "$ERASE_DB" =~ ^[Yy] ]]; then
     sudo_if_needed rm -f "$DB_PATH"
     ok "Database erased"
@@ -443,7 +470,12 @@ fi
 
 # --------------- 9. caddy prompt ---------------
 step "Caddy reverse proxy (optional)"
-read -rp "Do you want to configure a Caddy reverse proxy? [y/N]: " SETUP_CADDY
+SETUP_CADDY="n"
+if [ "$ASSUME_YES" -eq 0 ]; then
+  read -rp "Do you want to configure a Caddy reverse proxy? [y/N]: " SETUP_CADDY
+else
+  info "--yes: skipping Caddy configuration"
+fi
 if [[ "$SETUP_CADDY" =~ ^[Yy] ]]; then
   read -rp "Enter your domain (e.g., store.example.com): " CADDY_DOMAIN
   CADDY_DOMAIN="$(clean_input "$CADDY_DOMAIN")"
