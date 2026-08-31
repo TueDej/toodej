@@ -37,10 +37,15 @@ func (h *Handler) commonData(r *http.Request, w http.ResponseWriter) map[string]
 		categories = nil
 	}
 	return map[string]any{
-		"LoggedIn":   loggedIn,
-		"CartCount":  cartCount,
-		"CSRFToken":  csrfToken,
-		"Categories": categories,
+		"LoggedIn":    loggedIn,
+		"CartCount":   cartCount,
+		"CSRFToken":   csrfToken,
+		"Categories":  categories,
+		"SiteName":    siteName,
+		"Canonical":   h.canonicalURL(r),
+		"OGImage":     h.absoluteURL(ogImagePath),
+		"Description": defaultDescription,
+		"JSONLD":      h.seoJSONLD(r, nil, "", ""),
 	}
 }
 

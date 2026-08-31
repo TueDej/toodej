@@ -100,10 +100,13 @@ func (h *Handler) featuredProducts(ctx context.Context) []models.Product {
 // Home renders the main storefront page — hero, story strip, featured products,
 // and the seasonal banner.
 func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
+	featured := h.featuredProducts(r.Context())
 	data := h.mergeData(r, map[string]any{
-		"Featured":      h.featuredProducts(r.Context()),
+		"Featured":      featured,
 		"Season":        currentSeason(),
 		"CurrentSeason": currentSeason().Key,
+		"Description":   "تودج؛ انجیر خشک، انار تازه و محصولات سنتی و خانگیِ باغ — تازه، طبیعی و درجه یک، مستقیم از باغ به سفره شما.",
+		"JSONLD":        h.seoJSONLD(r, featured, "", ""),
 	}, w)
 
 	h.render(w, "index", data)
@@ -159,6 +162,11 @@ func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 		products[i].Images = productImages(r.Context(), h.db, products[i].ID)
 	}
 
+	pageDesc := categoryDescription
+	if pageDesc == "" {
+		pageDesc = label + "؛ محصولات طبیعی و تازه از باغ تودج."
+	}
+
 	data := h.mergeData(r, map[string]any{
 		"Products":            products,
 		"Categories":          cats,
@@ -166,6 +174,8 @@ func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 		"CategoryLabel":       label,
 		"CategoryDescription": categoryDescription,
 		"CategoryImage":       categoryImage,
+		"Description":         pageDesc,
+		"JSONLD":              h.seoJSONLD(r, products, label, currentFilter),
 	}, w)
 
 	h.render(w, "products", data)
@@ -173,6 +183,8 @@ func (h *Handler) ProductsPage(w http.ResponseWriter, r *http.Request) {
 
 // About renders the about-us page with a short introduction to the farm.
 func (h *Handler) About(w http.ResponseWriter, r *http.Request) {
-	data := h.mergeData(r, nil, w)
+	data := h.mergeData(r, map[string]any{
+		"Description": "داستان تودج؛ باغی خانوادگی که انجیر، انار و محصولات سنتی را به شیوه‌ای طبیعی و بدون افزودنی تولید می‌کند.",
+	}, w)
 	h.render(w, "about", data)
 }

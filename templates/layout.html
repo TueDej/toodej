@@ -6,6 +6,25 @@
   <title>تودج - فروشگاه — {{block "title" .}}محصولات طبیعی{{end}}</title>
   <meta name="csrf-token" content="{{.CSRFToken}}">
 
+  <!-- ============ SEO / SOCIAL PREVIEW (auto-generated, no manual assets) ============ -->
+  <link rel="icon" type="image/svg+xml" href="/assets/flower-fig-tree.svg">
+  <link rel="apple-touch-icon" href="/assets/flower-fig-tree.svg">
+  <meta name="description" content="{{.Description}}">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="{{.Canonical}}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{.SiteName}}">
+  <meta property="og:locale" content="fa_IR">
+  <meta property="og:title" content="{{.SiteName}} - فروشگاه — {{template "title" .}}">
+  <meta property="og:description" content="{{.Description}}">
+  <meta property="og:url" content="{{.Canonical}}">
+  <meta property="og:image" content="{{.OGImage}}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{.SiteName}} - فروشگاه — {{template "title" .}}">
+  <meta name="twitter:description" content="{{.Description}}">
+  <meta name="twitter:image" content="{{.OGImage}}">
+  {{.JSONLD}}
+
   <!-- ============ DESIGN SYSTEM (see DESIGN.md) ============ -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
