@@ -28,21 +28,26 @@ type sitemapRoot struct {
 func (h *Handler) ServeSitemap(w http.ResponseWriter, r *http.Request) {
 	today := time.Now().UTC().Format("2006-01-02")
 
+	// Only list URLs that actually serve a 200. The storefront has no
+	// per-product detail route (products are shown in category grids), so the
+	// sitemap points at the home page, the all-products listing, the about
+	// page, and one entry per enabled category — matching the real routes in
+	// cmd/server/main.go. Emitting /product/{slug} here caused 404s that
+	// blocked Google indexing.
 	urls := []sitemapURL{
 		{Loc: baseURL + "/", LastMod: today, ChangeFreq: "daily", Priority: "1.0"},
-		{Loc: baseURL + "/products", LastMod: today, ChangeFreq: "weekly", Priority: "0.8"},
-		{Loc: baseURL + "/our-story", LastMod: today, ChangeFreq: "monthly", Priority: "0.5"},
+		{Loc: baseURL + "/products/all", LastMod: today, ChangeFreq: "weekly", Priority: "0.8"},
+		{Loc: baseURL + "/about", LastMod: today, ChangeFreq: "monthly", Priority: "0.5"},
 	}
 
-	products, err := database.GetProducts(r.Context(), h.db, "")
+	cats, err := database.GetEnabledCategories(r.Context(), h.db)
 	if err != nil {
-		logutil.Error("sitemap: get products", "err", err)
+		logutil.Error("sitemap: get categories", "err", err)
 	} else {
-		for _, p := range products {
-			lastMod := p.CreatedAt.UTC().Format("2006-01-02")
+		for _, c := range cats {
 			urls = append(urls, sitemapURL{
-				Loc:        baseURL + "/product/" + p.Slug,
-				LastMod:    lastMod,
+				Loc:        baseURL + "/products/" + c.Slug,
+				LastMod:    today,
 				ChangeFreq: "weekly",
 				Priority:   "0.7",
 			})

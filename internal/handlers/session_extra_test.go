@@ -76,7 +76,7 @@ func TestServeSitemap(t *testing.T) {
 		t.Fatalf("sitemap content-type = %q", ct)
 	}
 	body := rec.Body.String()
-	for _, frag := range []string{"<urlset", "<loc>https://toodej.shop/</loc>", "<loc>https://toodej.shop/product/"} {
+	for _, frag := range []string{"<urlset", "<loc>https://toodej.shop/</loc>", "<loc>https://toodej.shop/products/all</loc>", "<loc>https://toodej.shop/about</loc>"} {
 		if !strings.Contains(body, frag) {
 			t.Errorf("sitemap missing %q", frag)
 		}
