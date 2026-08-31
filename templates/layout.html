@@ -114,17 +114,13 @@
       box-shadow:var(--shadow-card);
     }
 
-    /* ---- product card: laid-back on the shelf, loosens on hover -------- */
+    /* ---- product card: straight on the shelf, image zooms on hover ----- */
     .product-card{
-      transform: rotate(var(--tilt, 0deg));
       transition: transform .5s cubic-bezier(.2,.7,.25,1), box-shadow .5s ease, border-color .3s ease;
       will-change: transform;
     }
-    /* a couple of the cards sit at slightly different angles — handmade, not grid-perfect */
-    .product-grid > div:nth-child(3n+2) .product-card{ --tilt:.55deg; }
-    .product-grid > div:nth-child(3n+3) .product-card{ --tilt:-.45deg; }
     .product-card:hover{
-      transform: translateY(-4px) rotate(-.7deg);
+      transform: translateY(-4px);
       box-shadow:var(--shadow-card-hover);
       border-color:var(--border-fig);
     }
@@ -564,12 +560,12 @@
         <div class="h-full" dir="ltr">
           <div class="pc-track flex h-full w-full snap-x snap-mandatory overflow-x-hidden overflow-y-hidden">
             {{range .Images}}
-            <img src="{{.}}" alt="{{$.Name}}" class="h-full w-full flex-shrink-0 snap-center object-cover transition-transform duration-700 ease-out group-hover:scale-105" loading="lazy">
+            <img src="{{.}}" alt="{{$.Name}}" class="h-full w-full flex-shrink-0 snap-center object-cover transition-transform duration-1000 ease-out group-hover:scale-125" loading="lazy">
             {{end}}
           </div>
         </div>
         {{else if .ImageURL}}
-        <img src="{{.ImageURL}}" alt="{{.Name}}" class="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-105" loading="lazy">
+        <img src="{{.ImageURL}}" alt="{{.Name}}" class="h-full w-full object-cover transition-transform duration-1000 ease-out group-hover:scale-125" loading="lazy">
         {{else}}
         <div class="flex h-full items-center justify-center bg-sand" aria-hidden="true">
           <img src="/assets/fig.svg?v=3" alt="" class="h-20 w-20 opacity-45">
