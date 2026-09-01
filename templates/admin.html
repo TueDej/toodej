@@ -61,6 +61,19 @@
                 <option value="{{.}}" {{if eq . $.Status}}selected{{end}}>{{statusLabel .}}</option>
                 {{end}}
               </select>
+              {{if eq .Status "dispatched"}}
+              <!-- Postal tracking code (کد رهگیری پستی): clicking re-opens the dispatch
+                   prompt (layout.html) to view or edit the stored code. -->
+              {{if .TrackingCode}}
+              <button type="button" class="js-edit-tracking mt-1.5 block rounded-full border border-line px-3 py-1 text-xs text-clay transition hover:border-fig hover:text-fig"
+                data-post="/admin/orders/{{.ID}}/status" data-target="#order-{{.ID}}-status" data-code="{{.TrackingCode}}"
+                title="مشاهده / ویرایش کد رهگیری پستی"><span dir="ltr" class="font-mono tracking-wider">{{.TrackingCode}}</span></button>
+              {{else}}
+              <button type="button" class="js-edit-tracking mt-1.5 block rounded-full border border-line px-3 py-1 text-xs text-clay transition hover:border-fig hover:text-fig"
+                data-post="/admin/orders/{{.ID}}/status" data-target="#order-{{.ID}}-status" data-code=""
+                title="مشاهده / ویرایش کد رهگیری پستی">ثبت کد رهگیری پستی</button>
+              {{end}}
+              {{end}}
             </td>
           </tr>
           {{else}}
@@ -223,17 +236,6 @@ function colorStatusSelects() {
 }
 colorStatusSelects();
 document.body.addEventListener('htmx:afterSwap', colorStatusSelects);
-document.addEventListener('mousedown', function(e) {
-  var sel = e.target.closest('.status-select');
-  if (sel) sel.style.color = '';
-});
-document.addEventListener('change', function(e) {
-  var sel = e.target.closest('.status-select');
-  if (sel) {
-    var c = sel.getAttribute('data-color');
-    if (c) sel.style.color = c;
-  }
-});
 
 // ---- product drag-to-reorder ------------------------------------------------
 // Rows in the products table are draggable; dropping reorders them live and the

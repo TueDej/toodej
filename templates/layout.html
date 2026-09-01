@@ -295,6 +295,26 @@
       transition: border-color .2s ease, box-shadow .2s ease;
     }
     .field-inline:focus{ border-color:var(--saffron); box-shadow:0 0 0 3px rgba(201,138,44,.2); outline:none; }
+    /* Inline selects (admin tables): same custom chevron as select.field —
+       the native arrow hugs the inline-end edge (left in RTL) and padding
+       cannot move it. The chevron's .5rem inset mirrors the text's
+       inline-start padding so both edges breathe equally. */
+    select.field-inline{
+      -webkit-appearance:none; appearance:none;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%238c6f5e' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat:no-repeat;
+      background-position:left .5rem center;
+      padding-inline-end:1.7rem;
+    }
+    /* Status dropdown items: each option keeps its own status color while the
+       list is open, so no JS needs to strip the select's color (which turned
+       the closed box black while browsing). The closed select shows the
+       current status's color via its data-color attribute. */
+    .status-select option[value="pending"]{ color:var(--saffron); }
+    .status-select option[value="preparing"]{ color:var(--fig); }
+    .status-select option[value="dispatched"]{ color:var(--forest); }
+    .status-select option[value="cancelled"]{ color:var(--pomegranate); }
+    .status-select option[value="awaiting_payment"]{ color:var(--saffron); }
 
     /* ---- sticky-note / washi tape (scrapbook motif) --------------------- */
     .tape{
@@ -697,6 +717,132 @@
       }
       observeReveals();
       document.body.addEventListener('htmx:afterSwap', observeReveals);
+    })();
+  </script>
+
+  <!-- Dispatch confirm: intercepts the admin status selects when ارسال شد
+       (dispatched) is picked and demands the postal tracking code (کد رهگیری
+       پستی) first — empty is allowed, cancelling restores the select. Also
+       re-opened by .js-edit-tracking buttons to view/edit a stored code. -->
+  <div id="dispatch-confirm-overlay" style="display:none" class="fixed inset-0 z-50 flex items-center justify-center bg-walnut/40 p-4 backdrop-blur-[2px]">
+    <div class="paper-card w-full max-w-md px-7 py-6" role="dialog" aria-modal="true" aria-labelledby="dispatch-confirm-title">
+      <h2 id="dispatch-confirm-title" class="font-display text-lg font-semibold text-walnut">ثبت ارسال سفارش</h2>
+      <p class="mt-2 text-sm leading-7 text-clay">کد رهگیری پستی این سفارش را وارد کنید (می‌تواند خالی بماند):</p>
+      <input id="dispatch-confirm-code" type="text" dir="ltr" maxlength="64" autocomplete="off"
+        class="field mt-4 w-full text-sm" placeholder="کد رهگیری پستی">
+      <div class="mt-5 flex items-center gap-3">
+        <button id="dispatch-confirm-ok" type="button" class="btn btn-primary text-sm">ثبت</button>
+        <button id="dispatch-confirm-cancel" type="button" class="rounded-full border border-line px-4 py-2 text-sm text-clay transition hover:border-fig hover:text-fig">انصراف</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var overlay = document.getElementById('dispatch-confirm-overlay');
+      var input = document.getElementById('dispatch-confirm-code');
+      var okBtn = document.getElementById('dispatch-confirm-ok');
+      var cancelBtn = document.getElementById('dispatch-confirm-cancel');
+      var pending = null; // { select, previous, post, target }
+
+      function currentCode() {
+        return input.value.trim().slice(0, 64);
+      }
+
+      // Visibility is driven by the inline style on purpose: the `hidden`
+      // attribute loses to the overlay's `flex` utility class, which would
+      // leave the dialog permanently on screen.
+      function isOpen() {
+        return overlay.style.display !== 'none';
+      }
+
+      function openPrompt(select, post, target, code) {
+        var previous = '';
+        if (select) {
+          var sel = select.querySelector('option[selected]');
+          previous = (sel && sel.value) || select.value;
+        }
+        pending = { select: select, previous: previous, post: post, target: target };
+        input.value = code || '';
+        overlay.style.display = 'flex';
+        input.focus();
+        input.select();
+      }
+
+      function closePrompt() {
+        overlay.style.display = 'none';
+        if (pending && pending.select) {
+          pending.select.value = pending.previous;
+        }
+        pending = null;
+      }
+
+      function confirmPrompt() {
+        var ctx = pending;
+        pending = null;
+        overlay.style.display = 'none';
+        if (!ctx) return;
+        if (ctx.select) {
+          // The configRequest guard below reads the flag (and the typed code)
+          // synchronously while htmx.trigger dispatches the request, then the
+          // flag is cleared again — so the very next unconfirmed request is
+          // intercepted as usual.
+          overlay.dataset.confirmed = '1';
+          try {
+            window.htmx.trigger(ctx.select, 'change');
+          } finally {
+            delete overlay.dataset.confirmed;
+          }
+        } else if (ctx.post) {
+          // Edit path: re-post the same-status update (dispatched → dispatched,
+          // accepted by the DB state machine) with the new code.
+          window.htmx.ajax('POST', ctx.post, {
+            target: ctx.target,
+            swap: 'outerHTML',
+            values: { status: 'dispatched', tracking_code: currentCode() },
+            source: okBtn
+          });
+        }
+      }
+
+      // Intercept select-driven requests: only when the picked status is
+      // dispatched and the request is not the confirmed re-fire.
+      document.body.addEventListener('htmx:configRequest', function (e) {
+        var elt = e.detail.elt;
+        if (overlay.dataset.confirmed === '1') {
+          if (elt && elt.matches && elt.matches('select[name="status"]')) {
+            e.detail.parameters.tracking_code = currentCode();
+          }
+          return;
+        }
+        if (!elt || !elt.matches || !elt.matches('select[name="status"]')) return;
+        if (e.detail.parameters.status !== 'dispatched') return;
+        e.preventDefault();
+        openPrompt(elt, elt.getAttribute('hx-post'), elt.getAttribute('hx-target'), '');
+      });
+
+      okBtn.addEventListener('click', confirmPrompt);
+      cancelBtn.addEventListener('click', closePrompt);
+      overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) closePrompt();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (!isOpen()) return;
+        if (e.key === 'Escape') closePrompt();
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          confirmPrompt();
+        }
+      });
+      // .js-edit-tracking buttons re-open the prompt with the stored code.
+      // Capture phase on purpose: the admin table's status <td> calls
+      // event.stopPropagation() (to keep row-click navigation quiet), which
+      // would otherwise swallow the click before it bubbles up to document.
+      document.addEventListener('click', function (e) {
+        var btn = e.target.closest && e.target.closest('.js-edit-tracking');
+        if (!btn || isOpen()) return;
+        e.stopPropagation();
+        openPrompt(null, btn.getAttribute('data-post'), btn.getAttribute('data-target'), btn.getAttribute('data-code') || '');
+      }, true);
     })();
   </script>
 

@@ -27,6 +27,12 @@
       </div>
 
       <div class="px-6 py-4">
+        {{if and (eq .Order.Status "dispatched") .Order.TrackingCode}}
+        <div class="mb-3 flex items-center justify-between rounded-xl border border-line/70 bg-sand/40 px-4 py-2.5 text-sm">
+          <span class="font-medium text-walnut">کد رهگیری پستی:</span>
+          <bdi dir="ltr" class="font-mono font-bold tracking-wider text-fig">{{.Order.TrackingCode}}</bdi>
+        </div>
+        {{end}}
         <div class="divide-y divide-line/70">
           {{range .Items}}
           <div class="grid grid-cols-3 items-center py-2 text-sm">

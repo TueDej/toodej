@@ -244,7 +244,7 @@ func TestAdminOrderStatusMachineEnforced(t *testing.T) {
 	orderID := createOrderForTest(t, h) // pending
 
 	// Direct DB rejects an impossible jump: pending → dispatched.
-	if err := database.UpdateOrderStatus(context.Background(), h.db, orderID, "dispatched"); err == nil {
+	if _, err := database.UpdateOrderStatus(context.Background(), h.db, orderID, "dispatched", ""); err == nil {
 		t.Fatal("pending → dispatched accepted")
 	}
 	// Valid step via the endpoint.

@@ -45,3 +45,40 @@ func SendOTP(receptor, token string) error {
 	logutil.Info("OTP sent successfully", "phone", receptor)
 	return nil
 }
+
+// SendOrderStatusSMS notifies a customer about an order status change via
+// Kavenegar's Verify.Lookup, using one of the order-notification templates
+// defined in the Kavenegar panel (order-confirmed / order-dispatched /
+// order-cancelled, resolved by the caller from the KAVENEGAR_TEMPLATE_ORDER_*
+// env vars). An empty template disables that notification.
+//
+// token is interpolated into the template's %token placeholder (the order ID
+// without its hyphen — Lookup rejects separator characters), token2 into
+// %token2 (the postal tracking code or paid amount); an empty token2 is
+// simply omitted from the request.
+//
+// Like SendOTP, nothing is sent when DEV_MODE is on or no API key is set —
+// the payload is logged instead.
+func SendOrderStatusSMS(receptor, template, token, token2 string) error {
+	apiKey := os.Getenv("KAVENEGAR_API_KEY")
+	if template == "" {
+		return nil
+	}
+	if os.Getenv("DEV_MODE") == "true" || apiKey == "" {
+		logutil.Info("dev mode: order status SMS not sent", "phone", receptor, "template", template, "token", token, "token2", token2)
+		return nil
+	}
+
+	logutil.Info("sending order status SMS via Kavenegar", "phone", receptor, "template", template)
+	api := kavenegar.New(apiKey)
+	param := &kavenegar.VerifyLookupParam{}
+	if token2 != "" {
+		param.Token2 = token2
+	}
+	if _, err := api.Verify.Lookup(receptor, template, token, param); err != nil {
+		logutil.Error("Kavenegar order status SMS failed", "phone", receptor, "template", template, "err", err)
+		return err
+	}
+	logutil.Info("order status SMS sent", "phone", receptor, "template", template)
+	return nil
+}

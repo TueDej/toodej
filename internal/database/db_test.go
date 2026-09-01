@@ -116,7 +116,7 @@ func TestPaymentStateIsIdempotentAndDoesNotReviveCancelledOrders(t *testing.T) {
 	if err := SetPaymentAuthority(context.Background(), db, orderID, "A0001"); err != nil {
 		t.Fatalf("SetPaymentAuthority: %v", err)
 	}
-	if err := ConfirmPayment(context.Background(), db, orderID, 123); err != nil {
+	if _, err := ConfirmPayment(context.Background(), db, orderID, 123); err != nil {
 		t.Fatalf("ConfirmPayment: %v", err)
 	}
 	if err := MarkPaymentFailed(context.Background(), db, orderID); err != nil {
@@ -138,13 +138,13 @@ func TestPaymentStateIsIdempotentAndDoesNotReviveCancelledOrders(t *testing.T) {
 		t.Fatalf("stock after failed paid callback = %d, want 3", stock)
 	}
 
-	if err := UpdateOrderStatus(context.Background(), db, orderID, "cancelled"); err != nil {
+	if _, err := UpdateOrderStatus(context.Background(), db, orderID, "cancelled", ""); err != nil {
 		t.Fatalf("cancel paid order: %v", err)
 	}
-	if err := ConfirmPayment(context.Background(), db, orderID, 456); !errors.Is(err, ErrInvalidOrderTransition) {
+	if _, err := ConfirmPayment(context.Background(), db, orderID, 456); !errors.Is(err, ErrInvalidOrderTransition) {
 		t.Fatalf("ConfirmPayment cancelled error = %v, want ErrInvalidOrderTransition", err)
 	}
-	if err := UpdateOrderStatus(context.Background(), db, orderID, "pending"); !errors.Is(err, ErrInvalidOrderTransition) {
+	if _, err := UpdateOrderStatus(context.Background(), db, orderID, "pending", ""); !errors.Is(err, ErrInvalidOrderTransition) {
 		t.Fatalf("uncancel error = %v, want ErrInvalidOrderTransition", err)
 	}
 	if err := db.QueryRow("SELECT stock_quantity FROM products WHERE id = 1").Scan(&stock); err != nil {
@@ -389,6 +389,97 @@ func TestGetOrder(t *testing.T) {
 	}
 }
 
+// TestUpdateOrderStatusTrackingCode verifies the postal tracking code (کد
+// رهگیری پستی) semantics of UpdateOrderStatus: it is stored when an order
+// moves to dispatched (empty allowed), editable via a same-status
+// dispatched→dispatched POST, and left untouched by every other transition —
+// including cancelling a dispatched order, which keeps the code for the record.
+func TestUpdateOrderStatusTrackingCode(t *testing.T) {
+	db := testDB(t)
+	if _, err := db.Exec("UPDATE products SET price = 100, stock_quantity = 5, is_active = 1 WHERE id = 1"); err != nil {
+		t.Fatalf("update product: %v", err)
+	}
+	userID := createTestUser(t, db)
+
+	newOrder := func() string {
+		orderID, err := CreateOrder(context.Background(), db, &models.Order{
+			CustomerName:    "Customer",
+			CustomerPhone:   "09123456789",
+			CustomerAddress: "Address",
+			PostalCode:      "1234567890",
+			Status:          "pending",
+			UserID:          userID,
+		}, []models.OrderItem{{ProductID: 1, Quantity: 1}})
+		if err != nil {
+			t.Fatalf("CreateOrder: %v", err)
+		}
+		return orderID
+	}
+	code := func(orderID string) string {
+		o, err := GetOrder(context.Background(), db, orderID)
+		if err != nil {
+			t.Fatalf("GetOrder %s: %v", orderID, err)
+		}
+		return o.TrackingCode
+	}
+
+	// pending → preparing: a tracking code submitted alongside is ignored.
+	orderID := newOrder()
+	changed, err := UpdateOrderStatus(context.Background(), db, orderID, "preparing", "TYPED-EARLY")
+	if err != nil {
+		t.Fatalf("pending → preparing: %v", err)
+	}
+	if !changed {
+		t.Fatal("pending → preparing reported unchanged")
+	}
+	if got := code(orderID); got != "" {
+		t.Fatalf("tracking code stored on non-dispatched transition = %q, want empty", got)
+	}
+
+	// preparing → dispatched stores the code; empty is allowed too.
+	if _, err := UpdateOrderStatus(context.Background(), db, orderID, "dispatched", "2468013579"); err != nil {
+		t.Fatalf("preparing → dispatched: %v", err)
+	}
+	if got := code(orderID); got != "2468013579" {
+		t.Fatalf("tracking code after dispatch = %q, want 2468013579", got)
+	}
+	orderID2 := newOrder()
+	if _, err := UpdateOrderStatus(context.Background(), db, orderID2, "preparing", ""); err != nil {
+		t.Fatalf("pending → preparing: %v", err)
+	}
+	if _, err := UpdateOrderStatus(context.Background(), db, orderID2, "dispatched", ""); err != nil {
+		t.Fatalf("preparing → dispatched (empty code): %v", err)
+	}
+	if got := code(orderID2); got != "" {
+		t.Fatalf("empty tracking code = %q, want empty", got)
+	}
+
+	// Same-status dispatched→dispatched re-POST updates the code but reports
+	// unchanged, so customer notifications fire once per real transition.
+	changed, err = UpdateOrderStatus(context.Background(), db, orderID, "dispatched", "999888777")
+	if err != nil {
+		t.Fatalf("dispatched → dispatched: %v", err)
+	}
+	if changed {
+		t.Fatal("same-status dispatched re-post reported changed")
+	}
+	if got := code(orderID); got != "999888777" {
+		t.Fatalf("tracking code after edit = %q, want 999888777", got)
+	}
+
+	// dispatched → cancelled keeps the stored code for the record.
+	changed, err = UpdateOrderStatus(context.Background(), db, orderID, "cancelled", "")
+	if err != nil {
+		t.Fatalf("dispatched → cancelled: %v", err)
+	}
+	if !changed {
+		t.Fatal("dispatched → cancelled reported unchanged")
+	}
+	if got := code(orderID); got != "999888777" {
+		t.Fatalf("tracking code after cancel = %q, want 999888777", got)
+	}
+}
+
 func TestGetAwaitingPaymentOrders(t *testing.T) {
 	db := testDB(t)
 	if _, err := db.Exec("UPDATE products SET price = 100, stock_quantity = 5, is_active = 1 WHERE id = 1"); err != nil {
@@ -430,7 +521,7 @@ func TestGetAwaitingPaymentOrders(t *testing.T) {
 	}
 
 	// Paid orders are excluded.
-	if err := ConfirmPayment(context.Background(), db, orderID, 123); err != nil {
+	if _, err := ConfirmPayment(context.Background(), db, orderID, 123); err != nil {
 		t.Fatalf("ConfirmPayment: %v", err)
 	}
 	unpaid, err = GetAwaitingPaymentOrders(context.Background(), db)

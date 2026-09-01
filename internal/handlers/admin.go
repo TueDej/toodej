@@ -103,6 +103,34 @@ func isKnownOrderStatus(s string) bool {
 	return ok
 }
 
+// maxTrackingCodeLen caps the optional postal tracking code entered by the
+// admin; Iranian postal tracking numbers are well under this length.
+const maxTrackingCodeLen = 64
+
+// trackingCodeFromForm extracts the optional postal tracking code (کد رهگیری
+// پستی) that accompanies an admin status change. Empty is allowed.
+func trackingCodeFromForm(r *http.Request) (string, error) {
+	code := strings.TrimSpace(r.FormValue("tracking_code"))
+	if len(code) > maxTrackingCodeLen {
+		return "", fmt.Errorf("tracking code longer than %d characters", maxTrackingCodeLen)
+	}
+	return code, nil
+}
+
+// dispatchEditButtonHTML renders the small button shown for an already
+// dispatched order. Clicking it re-opens the dispatch prompt (layout.html's
+// #dispatch-confirm-tpl) so the postal tracking code can be viewed or changed;
+// confirming posts the same endpoint with status=dispatched, which the
+// database state machine accepts as a same-status update.
+func dispatchEditButtonHTML(postURL, targetID, code string) string {
+	label := "ثبت کد رهگیری پستی"
+	if code != "" {
+		label = fmt.Sprintf(`<span dir="ltr" class="font-mono tracking-wider">%s</span>`, htmlEscape(code))
+	}
+	return fmt.Sprintf(`<button type="button" class="js-edit-tracking mt-1.5 block rounded-full border border-line px-3 py-1 text-xs text-clay transition hover:border-fig hover:text-fig" data-post="%s" data-target="%s" data-code="%s" title="مشاهده / ویرایش کد رهگیری پستی">%s</button>`,
+		postURL, targetID, htmlEscape(code), label)
+}
+
 // orderTransitionToast sets an HX-Trigger header carrying an adminToast event
 // so the admin panel shows a Persian explanation of why the status change was
 // rejected. HTMX skips the swap for non-2xx responses, so the header (plus the
@@ -116,7 +144,11 @@ func orderTransitionToast(w http.ResponseWriter, message string) {
 // the current status and the forward (and cancel) options that
 // database.ValidOrderStatusOptions permits. A cancelled order is terminal: the
 // select is disabled with an explanatory tooltip so it can never be moved back.
-func (h *Handler) orderStatusSelectHTML(w http.ResponseWriter, r *http.Request, orderID, current string) string {
+// Selecting dispatched (ارسال شد) is intercepted client-side: the layout's
+// dispatch-confirm prompt asks for the postal tracking code before the
+// POST goes out. For already-dispatched orders an edit button re-opens the
+// prompt instead.
+func (h *Handler) orderStatusSelectHTML(w http.ResponseWriter, r *http.Request, orderID, current, trackingCode string) string {
 	disabled := ""
 	title := ""
 	if current == "cancelled" {
@@ -133,46 +165,42 @@ func (h *Handler) orderStatusSelectHTML(w http.ResponseWriter, r *http.Request, 
 		fmt.Fprintf(&opts, `<option value="%s" %s>%s</option>`, s, sel, statusLabels[s])
 	}
 
+	trackingButton := ""
+	if current == "dispatched" {
+		postURL := "/admin/orders/" + orderID + "/status"
+		trackingButton = dispatchEditButtonHTML(postURL, "#order-"+orderID+"-status", trackingCode)
+	}
+
 	return fmt.Sprintf(`<input type="hidden" name="csrf_token" value="%s">
     <select name="status" class="field-inline w-40 status-select" data-color="%s" %s %s
       hx-post="/admin/orders/%s/status" hx-trigger="change" hx-target="#order-%s-status" hx-swap="outerHTML" hx-include="closest td">
       %s
-    </select>`,
-		ensureCSRFToken(w, r), statusVar(current), disabled, title, orderID, orderID, opts.String())
+    </select>%s`,
+		ensureCSRFToken(w, r), statusVar(current), disabled, title, orderID, orderID, opts.String(), trackingButton)
 }
 
 // orderStatusControlsHTML renders the order-detail page's status controls: the
-// colored badge plus a forward-only select. For a cancelled (terminal) order
-// only the badge is shown.
-func (h *Handler) orderStatusControlsHTML(r *http.Request, orderID, current string) string {
+// colored badge plus — for a dispatched order — the button that re-opens the
+// dispatch prompt to view/edit the postal tracking code. The order-detail page
+// deliberately offers no status <select>; status switching lives in the admin
+// panel's orders table only. The status-badge endpoint re-renders these
+// controls after a tracking-code edit.
+func (h *Handler) orderStatusControlsHTML(r *http.Request, orderID, current, trackingCode string) string {
 	badge := fmt.Sprintf(`<span class="rounded-full border border-dashed px-3 py-1 text-xs font-semibold" style="background:var(--surface-warm);color:%s">%s</span>`,
 		statusVar(current), statusLabels[current])
 
-	if current == "cancelled" || current == "awaiting_payment" {
-		// No manual control: cancelled is final, awaiting_payment is managed
-		// by the payment flow itself.
-		return `<div id="order-status-controls" class="flex items-center gap-3">` + badge + `</div>`
+	controls := badge
+	if current == "dispatched" {
+		controls += dispatchEditButtonHTML("/admin/orders/"+orderID+"/status-badge", "#order-status-controls", trackingCode)
 	}
 
-	var opts strings.Builder
-	for _, s := range database.ValidOrderStatusOptions(current) {
-		sel := ""
-		if s == current {
-			sel = `selected `
-		}
-		fmt.Fprintf(&opts, `<option value="%s" %s>%s</option>`, s, sel, statusLabels[s])
-	}
-
-	return fmt.Sprintf(`<div id="order-status-controls" class="flex items-center gap-3">%s
-  <select name="status" class="field-inline status-select" data-color="%s" style="color:%s"
-    hx-post="/admin/orders/%s/status-badge" hx-trigger="change" hx-target="#order-status-controls" hx-swap="outerHTML">
-    %s
-  </select>
-</div>`, badge, statusVar(current), statusVar(current), orderID, opts.String())
+	return `<div id="order-status-controls" class="flex flex-wrap items-center gap-3">` + controls + `</div>`
 }
 
 // AdminUpdateOrderStatusBadge returns the order-detail page's status controls
 // (badge + forward-only select) as the HTMX target after a status change.
+// When the order moves to dispatched (ارسال شد) the optional postal tracking
+// code submitted alongside is stored on the order.
 func (h *Handler) AdminUpdateOrderStatusBadge(w http.ResponseWriter, r *http.Request) {
 	orderID := r.PathValue("id")
 	if !validOrderID(orderID) {
@@ -186,7 +214,14 @@ func (h *Handler) AdminUpdateOrderStatusBadge(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := database.UpdateOrderStatus(r.Context(), h.db, orderID, status); err != nil {
+	trackingCode, err := trackingCodeFromForm(r)
+	if err != nil {
+		http.Error(w, "invalid tracking code", http.StatusBadRequest)
+		return
+	}
+
+	changed, err := database.UpdateOrderStatus(r.Context(), h.db, orderID, status, trackingCode)
+	if err != nil {
 		if errors.Is(err, database.ErrInvalidOrderTransition) {
 			orderTransitionToast(w, "تغییر وضعیت سفارش به عقب مجاز نیست؛ وضعیت فقط رو به جلو تغییر می‌کند.")
 			http.Error(w, "invalid status transition", http.StatusBadRequest)
@@ -196,9 +231,20 @@ func (h *Handler) AdminUpdateOrderStatusBadge(w http.ResponseWriter, r *http.Req
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// One-time customer SMS on real transitions only (same-status tracking-code
+	// edits are silent). Dispatched with an empty code notifies without one.
+	if changed {
+		h.notifyOrderStatusAsync(orderID, status, trackingCode)
+	}
 
+	// The tracking code only ever changes when the order is dispatched; render
+	// the stored value back into the input for any other status.
+	renderedCode := ""
+	if status == "dispatched" {
+		renderedCode = trackingCode
+	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, h.orderStatusControlsHTML(r, orderID, status))
+	fmt.Fprint(w, h.orderStatusControlsHTML(r, orderID, status, renderedCode))
 }
 
 // AdminUpdateOrderStatus updates the status of an order via an HTMX POST from
@@ -206,6 +252,8 @@ func (h *Handler) AdminUpdateOrderStatusBadge(w http.ResponseWriter, r *http.Req
 // <select> that offers only the statuses the order may still move to
 // (forward-only; cancelled is terminal). Backward transitions are rejected by
 // the database's state machine and surface as a Persian toast via HX-Trigger.
+// When the order moves to dispatched (ارسال شد) the optional postal tracking
+// code submitted alongside is stored on the order.
 func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
 	orderID := r.PathValue("id")
 	if !validOrderID(orderID) {
@@ -219,7 +267,14 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := database.UpdateOrderStatus(r.Context(), h.db, orderID, status); err != nil {
+	trackingCode, err := trackingCodeFromForm(r)
+	if err != nil {
+		http.Error(w, "invalid tracking code", http.StatusBadRequest)
+		return
+	}
+
+	changed, err := database.UpdateOrderStatus(r.Context(), h.db, orderID, status, trackingCode)
+	if err != nil {
 		if errors.Is(err, database.ErrInvalidOrderTransition) {
 			orderTransitionToast(w, "تغییر وضعیت سفارش به عقب مجاز نیست؛ وضعیت فقط رو به جلو تغییر می‌کند.")
 			http.Error(w, "invalid status transition", http.StatusBadRequest)
@@ -229,11 +284,20 @@ func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// One-time customer SMS on real transitions only (same-status tracking-code
+	// edits are silent). Dispatched with an empty code notifies without one.
+	if changed {
+		h.notifyOrderStatusAsync(orderID, status, trackingCode)
+	}
 
+	renderedCode := ""
+	if status == "dispatched" {
+		renderedCode = trackingCode
+	}
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<td id="order-%s-status" class="px-4 py-3" onclick="event.stopPropagation()">
     %s
-  </td>`, orderID, h.orderStatusSelectHTML(w, r, orderID, status))
+  </td>`, orderID, h.orderStatusSelectHTML(w, r, orderID, status, renderedCode))
 }
 
 // ── Product Management ────────────────────────────────

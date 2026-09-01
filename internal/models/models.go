@@ -35,8 +35,12 @@ type Order struct {
 	TotalAmount     int       `json:"total_amount"`
 	Status          string    `json:"status"`
 	PaymentRefID    int64     `json:"payment_ref_id"`
-	CreatedAt       time.Time `json:"created_at"`
-	UserID          int64     `json:"user_id"`
+	// TrackingCode is the optional postal tracking number the admin enters
+	// when marking an order dispatched (ارسال شد). Customers see it on their
+	// orders page to follow the shipment.
+	TrackingCode string    `json:"tracking_code"`
+	CreatedAt    time.Time `json:"created_at"`
+	UserID       int64     `json:"user_id"`
 }
 
 // OrderItem maps a product to its quantity and price-at-purchase within an order.

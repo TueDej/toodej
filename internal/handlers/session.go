@@ -157,11 +157,15 @@ func (h *Handler) reconcilePayments() {
 		if !result.OK {
 			continue
 		}
-		if err := database.ConfirmPayment(context.Background(), h.db, o.ID, result.RefID); err != nil {
+		transitioned, err := database.ConfirmPayment(context.Background(), h.db, o.ID, result.RefID)
+		if err != nil {
 			logutil.Error("payment reconciliation: confirm order", "order_id", o.ID, "err", err)
 			continue
 		}
 		logutil.Info("payment reconciliation: order confirmed paid", "order_id", o.ID, "ref_id", result.RefID)
+		if transitioned {
+			h.notifyOrderConfirmedAsync(o.ID, o.TotalAmount)
+		}
 	}
 }
 

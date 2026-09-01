@@ -113,6 +113,7 @@ func migrate(db *sql.DB) error {
 			CHECK (status IN ('pending','preparing','dispatched','cancelled','awaiting_payment')),
 		payment_authority TEXT   NOT NULL DEFAULT '',
 		payment_ref_id   INTEGER NOT NULL DEFAULT 0,
+		tracking_code    TEXT    NOT NULL DEFAULT '',
 		user_id        INTEGER REFERENCES users(id),
 		created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 	);
@@ -165,6 +166,11 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 	if err := ensureOrderColumn(db, "payment_ref_id", "ALTER TABLE orders ADD COLUMN payment_ref_id INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	// tracking_code holds the postal tracking number the admin enters when an
+	// order is marked dispatched (ارسال شد). Optional: it may stay empty.
+	if err := ensureOrderColumn(db, "tracking_code", "ALTER TABLE orders ADD COLUMN tracking_code TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := ensureOrderColumn(db, "user_id", "ALTER TABLE orders ADD COLUMN user_id INTEGER REFERENCES users(id)"); err != nil {
@@ -410,6 +416,7 @@ func migrateOrderStatusConstraint(db *sql.DB) error {
 			CHECK (status IN ('pending','preparing','dispatched','cancelled','awaiting_payment')),
 		payment_authority TEXT   NOT NULL DEFAULT '',
 		payment_ref_id   INTEGER NOT NULL DEFAULT 0,
+		tracking_code    TEXT    NOT NULL DEFAULT '',
 		user_id        INTEGER REFERENCES users(id),
 		created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 	)`); err != nil {
@@ -418,7 +425,7 @@ func migrateOrderStatusConstraint(db *sql.DB) error {
 
 	if _, err := tx.ExecContext(ctx, `INSERT INTO orders_new (
 			id, customer_name, customer_phone, customer_address, postal_code,
-			total_amount, status, payment_authority, payment_ref_id, user_id, created_at
+			total_amount, status, payment_authority, payment_ref_id, tracking_code, user_id, created_at
 		)
 		SELECT id, customer_name, customer_phone, customer_address, postal_code,
 			total_amount,
@@ -427,7 +434,7 @@ func migrateOrderStatusConstraint(db *sql.DB) error {
 				WHEN 'completed' THEN 'dispatched'
 				ELSE status
 			END,
-			payment_authority, payment_ref_id, user_id, created_at
+			payment_authority, payment_ref_id, tracking_code, user_id, created_at
 		FROM orders`); err != nil {
 		return fmt.Errorf("copy orders: %w", err)
 	}
@@ -764,7 +771,7 @@ func GetProductsByIDs(ctx context.Context, db *sql.DB, ids []int64) ([]models.Pr
 
 // GetOrders returns all orders ordered by newest first.
 func GetOrders(ctx context.Context, db *sql.DB) ([]models.Order, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, created_at FROM orders ORDER BY created_at DESC")
+	rows, err := db.QueryContext(ctx, "SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, payment_ref_id, tracking_code, created_at FROM orders ORDER BY created_at DESC")
 	if err != nil {
 		return nil, fmt.Errorf("query orders: %w", err)
 	}
@@ -774,7 +781,7 @@ func GetOrders(ctx context.Context, db *sql.DB) ([]models.Order, error) {
 	for rows.Next() {
 		var o models.Order
 		var createdAt string
-		if err := rows.Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &createdAt); err != nil {
+		if err := rows.Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &o.PaymentRefID, &o.TrackingCode, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan order: %w", err)
 		}
 		o.CreatedAt = parseTime(createdAt)
@@ -785,10 +792,19 @@ func GetOrders(ctx context.Context, db *sql.DB) ([]models.Order, error) {
 
 // UpdateOrderStatus changes the status of an order by its TDJ-XXXXXX ID.
 // When transitioning to "cancelled", stock is atomically restored for all items.
-func UpdateOrderStatus(ctx context.Context, db *sql.DB, orderID string, status string) error {
+// trackingCode is the optional postal tracking number; it is stored only when
+// the order moves to "dispatched" (ارسال شد) and may be empty. Any other
+// transition leaves the stored tracking code untouched (e.g. cancelling a
+// dispatched order keeps its code for the record).
+//
+// The returned bool reports whether the order's status actually changed
+// (same-status calls — e.g. re-posting dispatched to edit its tracking code —
+// return false) so callers can fire one-time customer notifications only on
+// real transitions.
+func UpdateOrderStatus(ctx context.Context, db *sql.DB, orderID string, status string, trackingCode string) (bool, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
+		return false, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
@@ -796,42 +812,49 @@ func UpdateOrderStatus(ctx context.Context, db *sql.DB, orderID string, status s
 	var currentStatus string
 	err = tx.QueryRowContext(ctx, "SELECT status FROM orders WHERE id = ?", orderID).Scan(&currentStatus)
 	if err == sql.ErrNoRows {
-		return fmt.Errorf("order %s not found", orderID)
+		return false, fmt.Errorf("order %s not found", orderID)
 	}
 	if err != nil {
-		return fmt.Errorf("query order %s: %w", orderID, err)
+		return false, fmt.Errorf("query order %s: %w", orderID, err)
 	}
 	if !validOrderTransition(currentStatus, status) {
-		return fmt.Errorf("%w: %s -> %s", ErrInvalidOrderTransition, currentStatus, status)
+		return false, fmt.Errorf("%w: %s -> %s", ErrInvalidOrderTransition, currentStatus, status)
 	}
 
-	if _, err := tx.ExecContext(ctx, "UPDATE orders SET status = ? WHERE id = ?", status, orderID); err != nil {
-		return fmt.Errorf("update order %s status: %w", orderID, err)
+	changed := currentStatus != status
+	if status == "dispatched" {
+		if _, err := tx.ExecContext(ctx, "UPDATE orders SET status = ?, tracking_code = ? WHERE id = ?", status, trackingCode, orderID); err != nil {
+			return false, fmt.Errorf("update order %s status: %w", orderID, err)
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, "UPDATE orders SET status = ? WHERE id = ?", status, orderID); err != nil {
+			return false, fmt.Errorf("update order %s status: %w", orderID, err)
+		}
 	}
 
 	// Restore stock only when transitioning to cancelled from a non-cancelled state.
 	if status == "cancelled" && currentStatus != "cancelled" {
 		rows, err := tx.QueryContext(ctx, "SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)
 		if err != nil {
-			return fmt.Errorf("query order items: %w", err)
+			return false, fmt.Errorf("query order items: %w", err)
 		}
 		defer rows.Close()
 
 		for rows.Next() {
 			var productID, quantity int
 			if err := rows.Scan(&productID, &quantity); err != nil {
-				return fmt.Errorf("scan order item: %w", err)
+				return false, fmt.Errorf("scan order item: %w", err)
 			}
 			if _, err := tx.ExecContext(ctx, "UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?", quantity, productID); err != nil {
-				return fmt.Errorf("restore stock for product %d: %w", productID, err)
+				return false, fmt.Errorf("restore stock for product %d: %w", productID, err)
 			}
 		}
 		if err := rows.Err(); err != nil {
-			return fmt.Errorf("iterate order items: %w", err)
+			return false, fmt.Errorf("iterate order items: %w", err)
 		}
 	}
 
-	return tx.Commit()
+	return changed, tx.Commit()
 }
 
 func validOrderTransition(currentStatus, nextStatus string) bool {
@@ -908,10 +931,13 @@ func GetOrderByAuthority(ctx context.Context, db *sql.DB, authority string) (*mo
 
 // ConfirmPayment marks an awaiting-payment order as pending (paid) and stores the
 // Zarinpal ref ID. Already-paid orders are treated as idempotent callbacks.
-func ConfirmPayment(ctx context.Context, db *sql.DB, orderID string, refID int64) error {
+// The returned bool reports whether THIS call performed the awaiting_payment
+// → pending transition (idempotent replays report false) so callers fire the
+// customer's "order confirmed" SMS exactly once.
+func ConfirmPayment(ctx context.Context, db *sql.DB, orderID string, refID int64) (bool, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin confirm payment: %w", err)
+		return false, fmt.Errorf("begin confirm payment: %w", err)
 	}
 	defer tx.Rollback()
 
@@ -919,17 +945,18 @@ func ConfirmPayment(ctx context.Context, db *sql.DB, orderID string, refID int64
 	var currentRefID int64
 	err = tx.QueryRowContext(ctx, "SELECT status, payment_ref_id FROM orders WHERE id = ?", orderID).Scan(&currentStatus, &currentRefID)
 	if err == sql.ErrNoRows {
-		return fmt.Errorf("order %s not found", orderID)
+		return false, fmt.Errorf("order %s not found", orderID)
 	}
 	if err != nil {
-		return fmt.Errorf("query payment status for %s: %w", orderID, err)
+		return false, fmt.Errorf("query payment status for %s: %w", orderID, err)
 	}
 
+	transitioned := false
 	switch currentStatus {
 	case "awaiting_payment":
 		res, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'pending', payment_ref_id = ? WHERE id = ? AND status = 'awaiting_payment'", refID, orderID)
 		if err != nil {
-			return fmt.Errorf("confirm payment for %s: %w", orderID, err)
+			return false, fmt.Errorf("confirm payment for %s: %w", orderID, err)
 		}
 		// The status may have changed between the SELECT above and this UPDATE
 		// (e.g. the unpaid-order janitor cancelled the order and restored its
@@ -937,19 +964,20 @@ func ConfirmPayment(ctx context.Context, db *sql.DB, orderID string, refID int64
 		// the caller would treat a paid order as confirmed while its stock was
 		// already returned — leaking inventory.
 		if n, _ := res.RowsAffected(); n == 0 {
-			return fmt.Errorf("%w: order %s was already transitioned before confirmation", ErrInvalidOrderTransition, orderID)
+			return false, fmt.Errorf("%w: order %s was already transitioned before confirmation", ErrInvalidOrderTransition, orderID)
 		}
+		transitioned = true
 	case "pending", "preparing", "dispatched":
 		if currentRefID == 0 && refID != 0 {
 			if _, err := tx.ExecContext(ctx, "UPDATE orders SET payment_ref_id = ? WHERE id = ? AND payment_ref_id = 0", refID, orderID); err != nil {
-				return fmt.Errorf("store payment ref for %s: %w", orderID, err)
+				return false, fmt.Errorf("store payment ref for %s: %w", orderID, err)
 			}
 		}
 	default:
-		return fmt.Errorf("%w: cannot confirm payment for %s in status %s", ErrInvalidOrderTransition, orderID, currentStatus)
+		return false, fmt.Errorf("%w: cannot confirm payment for %s in status %s", ErrInvalidOrderTransition, orderID, currentStatus)
 	}
 
-	return tx.Commit()
+	return transitioned, tx.Commit()
 }
 
 // MarkPaymentFailed sets order status to cancelled when payment verification fails.
@@ -1447,8 +1475,8 @@ func GetOrder(ctx context.Context, db *sql.DB, orderID string) (*models.Order, e
 	var o models.Order
 	var createdAt string
 	var userID sql.NullInt64
-	err := db.QueryRowContext(ctx, "SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, payment_ref_id, user_id, created_at FROM orders WHERE id = ?", orderID).
-		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &o.PaymentRefID, &userID, &createdAt)
+	err := db.QueryRowContext(ctx, "SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, payment_ref_id, tracking_code, user_id, created_at FROM orders WHERE id = ?", orderID).
+		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &o.PaymentRefID, &o.TrackingCode, &userID, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("get order %s: %w", orderID, err)
 	}
@@ -1610,7 +1638,7 @@ func VerifyOTP(ctx context.Context, db *sql.DB, phone, code string) (bool, error
 
 // GetOrdersByUser returns all orders placed by a specific user, newest first.
 func GetOrdersByUser(ctx context.Context, db *sql.DB, userID int64) ([]models.Order, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC", userID)
+	rows, err := db.QueryContext(ctx, "SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, payment_ref_id, tracking_code, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC", userID)
 	if err != nil {
 		return nil, fmt.Errorf("query user orders: %w", err)
 	}
@@ -1620,7 +1648,7 @@ func GetOrdersByUser(ctx context.Context, db *sql.DB, userID int64) ([]models.Or
 	for rows.Next() {
 		var o models.Order
 		var createdAt string
-		if err := rows.Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &createdAt); err != nil {
+		if err := rows.Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &o.PaymentRefID, &o.TrackingCode, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan order: %w", err)
 		}
 		o.CreatedAt = parseTime(createdAt)

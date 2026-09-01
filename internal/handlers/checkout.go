@@ -322,7 +322,8 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if result.OK {
-		if err := database.ConfirmPayment(r.Context(), h.db, order.ID, result.RefID); err != nil {
+		transitioned, err := database.ConfirmPayment(r.Context(), h.db, order.ID, result.RefID)
+		if err != nil {
 			// The gateway reports the payment succeeded, but we could not attach
 			// it to the order (it was cancelled, or already finalized). Showing a
 			// "payment successful" confirmation here would lie to the customer —
@@ -332,6 +333,11 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 			logutil.Error("confirm payment failed despite gateway success", "err", err, "order_id", order.ID)
 			http.Redirect(w, r, "/cart?error=payment_failed", http.StatusSeeOther)
 			return
+		}
+		// Fire the customer's "order confirmed" SMS exactly once — on the call
+		// that actually transitioned the order (idempotent replays skip it).
+		if transitioned {
+			h.notifyOrderConfirmedAsync(order.ID, order.TotalAmount)
 		}
 		// Cart is cleared only now that the payment is confirmed, so a failed
 		// gateway redirect can never drop the user's cart without an order.
