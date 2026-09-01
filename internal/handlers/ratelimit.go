@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -74,15 +75,34 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 }
 
 // clientIP returns the caller's IP. Behind the trusted loopback reverse proxy
-// (Caddy on the same host, per deploy.sh) the first X-Forwarded-For hop is used;
+// (Caddy on the same host, per deploy.sh) the X-Forwarded-For list is used;
 // otherwise the TCP peer address. Remote addresses other than loopback are never
 // trusted to supply X-Forwarded-For, so off-host clients cannot spoof their key.
+//
+// The RIGHTMOST XFF entry is used, not the first. Caddy appends the connecting
+// client's address to whatever XFF header the client supplied, so the rightmost
+// hop is always the real client IP as observed by the trusted proxy — an
+// attacker cannot remove or overwrite it. Taking the first (leftmost) entry
+// would trust a value the client fully controls, defeating the per-IP rate
+// limiters (admin login attempts, OTP IP lockout). The rightmost entry must
+// parse as an IP address; anything else (a misconfigured proxy chain) falls
+// back to the TCP peer so limiter keys can never be attacker-chosen.
 func clientIP(r *http.Request) string {
 	ip := remoteIP(r)
 	if ip == "127.0.0.1" || ip == "::1" {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if first := strings.TrimSpace(strings.Split(xff, ",")[0]); first != "" {
-				return first
+			parts := strings.Split(xff, ",")
+			for i := len(parts) - 1; i >= 0; i-- {
+				candidate := strings.TrimSpace(parts[i])
+				if candidate == "" {
+					continue
+				}
+				if net.ParseIP(candidate) != nil {
+					return candidate
+				}
+				// Unparseable rightmost hop: the proxy chain is not behaving
+				// as expected, so do not trust any part of the header.
+				break
 			}
 		}
 	}
