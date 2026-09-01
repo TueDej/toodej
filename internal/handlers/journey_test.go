@@ -744,3 +744,107 @@ func TestUnpaidJanitorCancelsUnpaid(t *testing.T) {
 		t.Fatalf("stock after cancel = %d, want %d", got, stockBefore)
 	}
 }
+
+// TestVerifyTransportErrorKeepsOrderAwaitingPayment ensures that when the
+// gateway cannot give an authoritative verify answer (timeout, 5xx, garbage
+// payload) AFTER the customer may have paid, the order is NOT cancelled and its
+// stock is NOT restored — otherwise a paid charge would be left with no
+// recoverable order. The order stays awaiting_payment so the payment
+// reconciler can rescue it, and the customer is sent to /orders.
+func TestVerifyTransportErrorKeepsOrderAwaitingPayment(t *testing.T) {
+	r, h, gw := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.login(t, h.db, "09121234567")
+	c.addToCart(t, seedProductFig)
+	stockBefore := productStock(t, h.db, seedProductFig)
+
+	resp := c.post("/checkout", validShipment())
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("place order = %d", resp.StatusCode)
+	}
+	order := lastOrder(t, h.db)
+
+	// Point only the verify endpoint at a dead port: the payment request step
+	// already succeeded, but verification now fails as a transport error.
+	h.zarinpal = payment.NewTestClient("merchant",
+		gw.server.URL+"/request",
+		"http://127.0.0.1:1/verify",
+		gw.server.URL+"/pg/StartPay/",
+		&http.Client{Timeout: time.Second})
+
+	resp = c.get("/checkout/verify?Authority=" + order.PaymentAuthority + "&Status=OK")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("verify transport error = %d", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/orders" {
+		t.Fatalf("verify transport error redirect = %q, want /orders", loc)
+	}
+
+	order = lastOrder(t, h.db)
+	if order.Status != "awaiting_payment" {
+		t.Fatalf("order status = %q, want awaiting_payment (must not cancel on inconclusive verify)", order.Status)
+	}
+	if got := productStock(t, h.db, seedProductFig); got != stockBefore-1 {
+		t.Fatalf("stock after inconclusive verify = %d, want %d (reservation must be kept)", got, stockBefore-1)
+	}
+
+	// The reconciler must be able to rescue the order once the gateway answers
+	// definitively: restore a working gateway client and reconcile.
+	h.zarinpal = gw.client()
+	h.reconcilePayments()
+
+	order = lastOrder(t, h.db)
+	if order.Status != "pending" {
+		t.Fatalf("order status after reconciliation = %q, want pending", order.Status)
+	}
+	if got := productStock(t, h.db, seedProductFig); got != stockBefore-1 {
+		t.Fatalf("stock after reconciliation = %d, want %d", got, stockBefore-1)
+	}
+}
+
+// TestVerifyTransportErrorUnpaidOrderStillCancelledByJanitor ensures the
+// compensating case: if the inconclusive verify was for a genuinely UNPAID
+// order, the unpaid-order janitor still reclaims the stock after the TTL.
+func TestVerifyTransportErrorUnpaidOrderStillCancelledByJanitor(t *testing.T) {
+	r, h, gw := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.login(t, h.db, "09121234567")
+	c.addToCart(t, seedProductJam)
+	stockBefore := productStock(t, h.db, seedProductJam)
+
+	resp := c.post("/checkout", validShipment())
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("place order = %d", resp.StatusCode)
+	}
+	order := lastOrder(t, h.db)
+
+	h.zarinpal = payment.NewTestClient("merchant",
+		gw.server.URL+"/request",
+		"http://127.0.0.1:1/verify",
+		gw.server.URL+"/pg/StartPay/",
+		&http.Client{Timeout: time.Second})
+	resp = c.get("/checkout/verify?Authority=" + order.PaymentAuthority + "&Status=OK")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("verify transport error = %d", resp.StatusCode)
+	}
+	if lastOrder(t, h.db).Status != "awaiting_payment" {
+		t.Fatal("order should remain awaiting_payment after inconclusive verify")
+	}
+
+	// The gateway never actually charged the customer. Age the order past the
+	// TTL and run the janitor: it must cancel and restore the stock.
+	if _, err := h.db.Exec("UPDATE orders SET created_at = datetime('now', '-1 hour') WHERE id = ?", order.ID); err != nil {
+		t.Fatalf("age order: %v", err)
+	}
+	if _, err := database.CancelExpiredUnpaidOrders(context.Background(), h.db, unpaidOrderTTL); err != nil {
+		t.Fatalf("cancel expired unpaid orders: %v", err)
+	}
+
+	order = lastOrder(t, h.db)
+	if order.Status != "cancelled" {
+		t.Fatalf("order status after janitor = %q, want cancelled", order.Status)
+	}
+	if got := productStock(t, h.db, seedProductJam); got != stockBefore {
+		t.Fatalf("stock after janitor = %d, want %d", got, stockBefore)
+	}
+}

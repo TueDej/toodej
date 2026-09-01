@@ -315,9 +315,18 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.zarinpal.VerifyPayment(gatewayAmount, authority)
 	if err != nil {
-		logutil.Error("zarinpal verify", "err", err)
-		database.MarkPaymentFailed(r.Context(), h.db, order.ID)
-		http.Redirect(w, r, "/cart", http.StatusSeeOther)
+		// The gateway did not give an authoritative answer (timeout, 5xx,
+		// unreadable payload). The customer may have ALREADY paid, so the order
+		// must not be cancelled here: MarkPaymentFailed would restore stock and
+		// move the order out of awaiting_payment, leaving a paid charge with no
+		// recoverable order. Keep the order in awaiting_payment — the payment
+		// reconciler re-verifies it every minute until the gateway returns a
+		// definitive verdict (paid → confirmed; unpaid → janitor cancels after
+		// the TTL and restores stock). Send the customer to their orders page,
+		// where the order shows as awaiting payment and can be retried.
+		logutil.Error("zarinpal verify (gateway answer inconclusive; order left awaiting_payment)",
+			"err", err, "order_id", order.ID)
+		http.Redirect(w, r, "/orders", http.StatusSeeOther)
 		return
 	}
 
