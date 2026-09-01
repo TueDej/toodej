@@ -215,9 +215,15 @@ func TestUserJourneyEndToEnd(t *testing.T) {
 	}
 
 	// ── Logout ───────────────────────────────────────────────
-	resp = c.get("/logout")
+	resp = c.post("/logout", nil)
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("logout = %d", resp.StatusCode)
+	}
+	// GET /logout must no longer exist: a cross-site top-level navigation
+	// (which SameSite=Lax allows) must not be able to log a user out.
+	resp = c.get("/logout")
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /logout = %d, want 405", resp.StatusCode)
 	}
 	resp = c.get("/orders")
 	if resp.StatusCode != http.StatusSeeOther {

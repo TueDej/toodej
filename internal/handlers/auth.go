@@ -281,7 +281,10 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // Logout removes the session mapping, clears both session and CSRF cookies,
-// and redirects to the home page.
+// and redirects to the home page. It is registered as POST only (with the
+// standard CSRF and Same-Origin guards): as a GET it could be triggered by any
+// cross-site top-level navigation, since SameSite=Lax cookies are still sent
+// on those — a nuisance logout-CSRF.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	sid := h.getOrCreateSessionID(w, r)
 	h.sessionMu.Lock()

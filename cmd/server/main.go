@@ -100,7 +100,9 @@ func main() {
 	r.Get("/login", h.LoginPage)
 	r.Post("/auth/send-otp", h.SendOTP)
 	r.Post("/auth/verify-otp", h.VerifyOTP)
-	r.Get("/logout", h.Logout)
+	// Logout is POST-only: a GET that mutates state could be triggered by any
+	// cross-site top-level navigation (SameSite=Lax still sends those).
+	r.Post("/logout", h.Logout)
 	r.Get("/orders", h.UserOrders)
 	r.Post("/orders/{id}/pay", h.ResumePayment)
 	r.Get("/sitemap.xml", h.ServeSitemap)

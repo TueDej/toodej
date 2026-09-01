@@ -391,7 +391,10 @@
           <a href="/products/all" class="navlink text-base">محصولات</a>
           {{if .LoggedIn}}
           <a href="/orders" class="navlink text-base">سفارش‌های من</a>
-          <a href="/logout" class="navlink text-base text-clay">خروج</a>
+          <form method="post" action="/logout" class="inline">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <button type="submit" class="navlink text-base text-clay">خروج</button>
+          </form>
           {{else}}
           <a href="/login" class="navlink text-base">ورود</a>
           {{end}}
@@ -425,7 +428,10 @@
         <a href="/products/all" class="rounded-lg px-3 py-2.5 text-base font-medium text-walnut hover:bg-sand">محصولات</a>
         {{if .LoggedIn}}
         <a href="/orders" class="rounded-lg px-3 py-2.5 text-base font-medium text-walnut hover:bg-sand">سفارش‌های من</a>
-        <a href="/logout" class="rounded-lg px-3 py-2.5 text-base font-medium text-clay hover:bg-sand">خروج</a>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+          <button type="submit" class="w-full text-right rounded-lg px-3 py-2.5 text-base font-medium text-clay hover:bg-sand">خروج</button>
+        </form>
         {{else}}
         <a href="/login" class="rounded-lg px-3 py-2.5 text-base font-medium text-walnut hover:bg-sand">ورود</a>
         {{end}}

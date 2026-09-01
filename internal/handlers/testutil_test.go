@@ -202,7 +202,7 @@ func routerFor(h *Handler) *chi.Mux {
 	r.Get("/login", h.LoginPage)
 	r.Post("/auth/send-otp", h.SendOTP)
 	r.Post("/auth/verify-otp", h.VerifyOTP)
-	r.Get("/logout", h.Logout)
+	r.Post("/logout", h.Logout)
 	r.Get("/orders", h.UserOrders)
 	r.Post("/orders/{id}/pay", h.ResumePayment)
 
