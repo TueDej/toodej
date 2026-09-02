@@ -47,6 +47,8 @@ The server starts at `http://localhost:8080`. Admin panel at `http://localhost:8
 | `ADMIN_PASS` | `admin123` | Admin panel login password |
 | `KAVENEGAR_API_KEY` | _(empty)_ | Kavenegar SMS API key (leave empty for DEV_MODE) |
 | `KAVENEGAR_TEMPLATE` | `verify-otp` | Kavenegar verification template name |
+| `ADMIN_NOTIFY_PHONE` | _(empty)_ | Admin phone for order-submission SMS (unset disables) |
+| `KAVENEGAR_TEMPLATE_ADMIN_ORDER` | _(empty)_ | Kavenegar template for admin order-submission SMS (unset disables) |
 | `DEV_MODE` | _(not set)_ | Set to `true` to log OTPs to stdout instead of SMS |
 | `ZARINPAL_MERCHANT_ID` | _(empty)_ | Zarinpal payment gateway merchant ID |
 | `ZARINPAL_SANDBOX` | `true` | `true` for sandbox, `false` for production |

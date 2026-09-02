@@ -176,6 +176,8 @@ EXISTING_ADMIN_USER=$(read_existing "ADMIN_USER")
 EXISTING_ADMIN_PASS=$(read_existing "ADMIN_PASS")
 EXISTING_KAVENEGAR_KEY=$(read_existing "KAVENEGAR_API_KEY")
 EXISTING_KAVENEGAR_TEMPLATE=$(read_existing "KAVENEGAR_TEMPLATE")
+EXISTING_ADMIN_PHONE=$(read_existing "ADMIN_NOTIFY_PHONE")
+EXISTING_KAVENEGAR_TEMPLATE_ADMIN_ORDER=$(read_existing "KAVENEGAR_TEMPLATE_ADMIN_ORDER")
 EXISTING_ZARINPAL_MERCHANT_ID=$(read_existing "ZARINPAL_MERCHANT_ID")
 EXISTING_ZARINPAL_SANDBOX=$(read_existing "ZARINPAL_SANDBOX")
 EXISTING_APP_BASE_URL=$(read_existing "APP_BASE_URL")
@@ -244,6 +246,23 @@ if [ -n "$KAVENEGAR_API_KEY" ]; then
   fi
 else
   warn "No Kavenegar key — OTP codes will be printed to the service logs only."
+fi
+
+# Admin order-submission notification: SMS sent to ADMIN_NOTIFY_PHONE using the
+# KAVENEGAR_TEMPLATE_ADMIN_ORDER Verify.Lookup template. Both are optional —
+# leaving either blank disables the notification.
+ADMIN_NOTIFY_PHONE="$(clean_input "${EXISTING_ADMIN_PHONE:-}")"
+KAVENEGAR_TEMPLATE_ADMIN_ORDER="$(clean_input "${EXISTING_KAVENEGAR_TEMPLATE_ADMIN_ORDER:-}")"
+if [ -n "$KAVENEGAR_API_KEY" ] && [ "$ASSUME_YES" -eq 0 ]; then
+  if [ -z "$EXISTING_ADMIN_PHONE" ] || [ -z "$EXISTING_KAVENEGAR_TEMPLATE_ADMIN_ORDER" ]; then
+    read -rp "Admin phone for order-submission SMS (blank to disable) [${ADMIN_NOTIFY_PHONE}]: " INPUT_ADMIN_PHONE
+    ADMIN_NOTIFY_PHONE="$(clean_input "${INPUT_ADMIN_PHONE:-$ADMIN_NOTIFY_PHONE}")"
+    read -rp "Kavenegar admin order template name (blank to disable) [${KAVENEGAR_TEMPLATE_ADMIN_ORDER}]: " INPUT_ADMIN_ORDER_TEMPLATE
+    KAVENEGAR_TEMPLATE_ADMIN_ORDER="$(clean_input "${INPUT_ADMIN_ORDER_TEMPLATE:-$KAVENEGAR_TEMPLATE_ADMIN_ORDER}")"
+  fi
+  if [ -n "$ADMIN_NOTIFY_PHONE" ] && [ -z "$KAVENEGAR_TEMPLATE_ADMIN_ORDER" ]; then
+    warn "Admin phone set but no KAVENEGAR_TEMPLATE_ADMIN_ORDER — order-submission SMS disabled."
+  fi
 fi
 
 ZARINPAL_MERCHANT_ID="$(clean_input "${EXISTING_ZARINPAL_MERCHANT_ID:-}")"
@@ -387,6 +406,8 @@ env_line() {
   env_line "DB_PATH" "$DB_PATH"
   env_line "KAVENEGAR_API_KEY" "$KAVENEGAR_API_KEY"
   env_line "KAVENEGAR_TEMPLATE" "$KAVENEGAR_TEMPLATE"
+  env_line "ADMIN_NOTIFY_PHONE" "$ADMIN_NOTIFY_PHONE"
+  env_line "KAVENEGAR_TEMPLATE_ADMIN_ORDER" "$KAVENEGAR_TEMPLATE_ADMIN_ORDER"
   env_line "ZARINPAL_MERCHANT_ID" "$ZARINPAL_MERCHANT_ID"
   env_line "ZARINPAL_SANDBOX" "$ZARINPAL_SANDBOX"
   env_line "APP_BASE_URL" "$APP_BASE_URL"
@@ -461,6 +482,7 @@ kv "Database:" "$DB_PATH"
 kv "App base URL:" "$APP_BASE_URL"
 kv "Zarinpal sandbox:" "${ZARINPAL_SANDBOX:-false}"
 kv "Kavenegar configured:" "$([ -n "$KAVENEGAR_API_KEY" ] && echo "yes" || echo "no")"
+kv "Admin order SMS:" "$([ -n "$ADMIN_NOTIFY_PHONE" ] && [ -n "$KAVENEGAR_TEMPLATE_ADMIN_ORDER" ] && echo "yes → ${ADMIN_NOTIFY_PHONE}" || echo "disabled")"
 kv "Env file:" "${ENV_FILE} (640, root:${DEPLOYER_GROUP})"
 printf "\n  ${DIM}Logs:${NC}     sudo journalctl -u %s -f\n" "${APP_NAME}.service"
 

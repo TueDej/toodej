@@ -35,6 +35,7 @@ Confirm the server is configured and started correctly before testing:
 | `ZARINPAL_SANDBOX`  | `true` → sandbox endpoints (default); `false` → live | set `true` for testing             |
 | `KAVENEGAR_API_KEY` | Kavenegar SMS key (empty ⇒ OTP only logged)          | leave empty in dev                 |
 | `KAVENEGAR_TEMPLATE`| Kavenegar OTP template name                          | `verify-otp`                       |
+| `ADMIN_NOTIFY_PHONE` / `KAVENEGAR_TEMPLATE_ADMIN_ORDER` | Admin phone + template for order-submission SMS | empty ⇒ disabled; DEV_MODE logs instead |
 | `LOG_LEVEL` / `LOG_FORMAT` | `debug|info|warn|error` / `json|text`          | `info` / `text` in dev             |
 
 > **Cart caveat:** the cart is in-memory per server instance. Restarting the server clears

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -64,4 +65,42 @@ func (h *Handler) notifyOrderConfirmedAsync(orderID string, totalAmount int) {
 	}
 	// Plain digits: Lookup tokens reject separator characters like commas.
 	h.notifyOrderStatusAsync(orderID, "pending", strconv.Itoa(totalAmount))
+}
+
+// adminOrderNotifyTarget returns the (receptor, template) pair used to inform
+// the admins about a new order submission: ADMIN_NOTIFY_PHONE picks up the
+// admin's phone number and KAVENEGAR_TEMPLATE_ADMIN_ORDER names the Verify
+// Lookup template that must be pre-defined in the Kavenegar panel. Either
+// being unset disables the notification.
+func adminOrderNotifyTarget() (receptor, template string) {
+	return strings.TrimSpace(os.Getenv("ADMIN_NOTIFY_PHONE")),
+		envDefault("KAVENEGAR_TEMPLATE_ADMIN_ORDER", "")
+}
+
+// notifyAdminOrderAsync informs the admins that a new order was submitted
+// (customer completed checkout, order created and awaiting payment). It never
+// blocks the HTTP response; failures are logged and swallowed — a missing or
+// failed admin SMS must never fail the checkout flow.
+//
+// %token carries the order ID without its hyphen (Lookup rejects separator
+// characters); %token2 carries the customer's phone number so the admin can
+// follow up without opening the panel.
+func (h *Handler) notifyAdminOrderAsync(orderID, customerPhone string) {
+	receptor, template := adminOrderNotifyTarget()
+	if receptor == "" || template == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		// Re-read the order so the notification reflects the persisted state.
+		if _, err := database.GetOrder(ctx, h.db, orderID); err != nil {
+			logutil.Error("admin order sms: load order", "order_id", orderID, "err", err)
+			return
+		}
+		token := strings.ReplaceAll(orderID, "-", "")
+		if err := services.SendOrderStatusSMS(receptor, template, token, customerPhone); err != nil {
+			logutil.Error("admin order sms", "order_id", orderID, "phone", receptor, "err", err)
+		}
+	}()
 }

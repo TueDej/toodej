@@ -217,6 +217,10 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	totalAmount := order.TotalAmount
 
+	// Inform the admins about the new order submission without blocking the
+	// redirect to the payment gateway.
+	h.notifyAdminOrderAsync(orderID, phone)
+
 	// Initiate Zarinpal payment.
 	callbackURL := h.baseURL + "/checkout/verify"
 	gatewayAmount, err := payment.TomanToRial(totalAmount)
