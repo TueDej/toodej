@@ -178,6 +178,12 @@ EXISTING_KAVENEGAR_KEY=$(read_existing "KAVENEGAR_API_KEY")
 EXISTING_KAVENEGAR_TEMPLATE=$(read_existing "KAVENEGAR_TEMPLATE")
 EXISTING_ADMIN_PHONE=$(read_existing "ADMIN_NOTIFY_PHONE")
 EXISTING_KAVENEGAR_TEMPLATE_ADMIN_ORDER=$(read_existing "KAVENEGAR_TEMPLATE_ADMIN_ORDER")
+EXISTING_KAVENEGAR_TEMPLATE_ORDER_CONFIRMED=$(read_existing "KAVENEGAR_TEMPLATE_ORDER_CONFIRMED")
+EXISTING_KAVENEGAR_TEMPLATE_ORDER_DISPATCHED=$(read_existing "KAVENEGAR_TEMPLATE_ORDER_DISPATCHED")
+EXISTING_KAVENEGAR_TEMPLATE_ORDER_CANCELLED=$(read_existing "KAVENEGAR_TEMPLATE_ORDER_CANCELLED")
+EXISTING_LOG_LEVEL=$(read_existing "LOG_LEVEL")
+EXISTING_LOG_FORMAT=$(read_existing "LOG_FORMAT")
+EXISTING_UPLOAD_DIR=$(read_existing "UPLOAD_DIR")
 EXISTING_ZARINPAL_MERCHANT_ID=$(read_existing "ZARINPAL_MERCHANT_ID")
 EXISTING_ZARINPAL_SANDBOX=$(read_existing "ZARINPAL_SANDBOX")
 EXISTING_APP_BASE_URL=$(read_existing "APP_BASE_URL")
@@ -264,6 +270,18 @@ if [ -n "$KAVENEGAR_API_KEY" ] && [ "$ASSUME_YES" -eq 0 ]; then
     warn "Admin phone set but no KAVENEGAR_TEMPLATE_ADMIN_ORDER — order-submission SMS disabled."
   fi
 fi
+
+# Per-status customer order notifications (optional: unset = that notification
+# is disabled in the app). Carried from the env file as-is — no prompts.
+KAVENEGAR_TEMPLATE_ORDER_CONFIRMED="$(clean_input "${EXISTING_KAVENEGAR_TEMPLATE_ORDER_CONFIRMED:-}")"
+KAVENEGAR_TEMPLATE_ORDER_DISPATCHED="$(clean_input "${EXISTING_KAVENEGAR_TEMPLATE_ORDER_DISPATCHED:-}")"
+KAVENEGAR_TEMPLATE_ORDER_CANCELLED="$(clean_input "${EXISTING_KAVENEGAR_TEMPLATE_ORDER_CANCELLED:-}")"
+
+# Logging and upload location: carried from the env file, with the app's own
+# defaults as fallback so the env file always states them explicitly.
+LOG_LEVEL="$(clean_input "${EXISTING_LOG_LEVEL:-info}")"
+LOG_FORMAT="$(clean_input "${EXISTING_LOG_FORMAT:-json}")"
+UPLOAD_DIR="$(clean_input "${EXISTING_UPLOAD_DIR:-uploads}")"
 
 ZARINPAL_MERCHANT_ID="$(clean_input "${EXISTING_ZARINPAL_MERCHANT_ID:-}")"
 ZARINPAL_SANDBOX="${EXISTING_ZARINPAL_SANDBOX:-false}"
@@ -391,13 +409,66 @@ sudo_if_needed mkdir -p "$ENV_DIR"
 sudo_if_needed chown root:root "$ENV_DIR"
 sudo_if_needed chmod 755 "$ENV_DIR"
 
-# '%%' escapes '%' (systemd expands specifiers), and values are double-quoted
+# '%%' escapes '%' (systemd expands % specifiers), and values are double-quoted
 # so spaces and '#' survive the round-trip through EnvironmentFile.
 env_line() {
   local val
   val="$(printf '%s' "$2" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g')"
   printf '%s="%s"\n' "$1" "$val"
 }
+
+# MANAGED_ENV_KEYS lists every key this script writes. Anything already in the
+# env file whose key is NOT on this list is carried over verbatim, so keys
+# added by hand (or by a newer version of the app) survive a re-deploy instead
+# of being silently dropped by the rewrite. Keys on this list are always
+# rewritten from the variables above — a stale managed key can never linger.
+MANAGED_ENV_KEYS="PORT ADMIN_USER ADMIN_PASS DB_PATH KAVENEGAR_API_KEY
+KAVENEGAR_TEMPLATE ADMIN_NOTIFY_PHONE KAVENEGAR_TEMPLATE_ADMIN_ORDER
+KAVENEGAR_TEMPLATE_ORDER_CONFIRMED KAVENEGAR_TEMPLATE_ORDER_DISPATCHED
+KAVENEGAR_TEMPLATE_ORDER_CANCELLED LOG_LEVEL LOG_FORMAT UPLOAD_DIR
+ZARINPAL_MERCHANT_ID ZARINPAL_SANDBOX APP_BASE_URL DEV_MODE"
+
+# preserved_env_lines echoes the existing env file's KEY=VALUE lines whose key
+# is not managed, keeping one line per key — the LAST occurrence wins,
+# matching how systemd and read_env_value read the file — emitted in the order
+# each key first appeared. Non-assignment lines (comments, blanks) are dropped.
+preserved_env_lines() {
+  [ -f "$ENV_FILE" ] || return 0
+  local reader="cat"
+  [ -r "$ENV_FILE" ] || reader="sudo cat"
+  $reader "$ENV_FILE" 2>/dev/null | awk -v managed="$MANAGED_ENV_KEYS" '
+    BEGIN { n = split(managed, arr, /[[:space:]]+/); for (i = 1; i <= n; i++) m[arr[i]] = 1 }
+    {
+      line = $0
+      # Key = text before the first "=", with leading whitespace stripped.
+      key = line
+      eq = index(key, "=")
+      key = (eq > 0) ? substr(key, 1, eq - 1) : ""
+      sub(/^[[:space:]]+/, "", key)
+      if (key == "" || (key in m)) next
+      if (!(key in seen)) { seen[key] = 1; order[++count] = key }
+      last[key] = line
+    }
+    END { for (i = 1; i <= count; i++) print last[order[i]] }
+  '
+}
+
+# Snapshot the current env file before rewriting it. Cheap insurance: if a
+# future deploy script has a gap in its managed-key list, the previous state
+# is one file away instead of gone.
+if [ -f "$ENV_FILE" ]; then
+  bak="$ENV_FILE.bak.$(date +%Y%m%d%H%M%S)"
+  if [ -r "$ENV_FILE" ]; then
+    cp "$ENV_FILE" "$bak" 2>/dev/null || bak=""
+  else
+    sudo cp "$ENV_FILE" "$bak" 2>/dev/null && sudo chown "$(id -u):$(id -g)" "$bak" 2>/dev/null || bak=""
+  fi
+  if [ -n "$bak" ]; then
+    info "Previous environment backed up to ${bak}"
+  else
+    warn "Could not back up ${ENV_FILE} before rewriting (continuing)."
+  fi
+fi
 
 {
   env_line "PORT" "$APP_PORT"
@@ -408,10 +479,17 @@ env_line() {
   env_line "KAVENEGAR_TEMPLATE" "$KAVENEGAR_TEMPLATE"
   env_line "ADMIN_NOTIFY_PHONE" "$ADMIN_NOTIFY_PHONE"
   env_line "KAVENEGAR_TEMPLATE_ADMIN_ORDER" "$KAVENEGAR_TEMPLATE_ADMIN_ORDER"
+  env_line "KAVENEGAR_TEMPLATE_ORDER_CONFIRMED" "$KAVENEGAR_TEMPLATE_ORDER_CONFIRMED"
+  env_line "KAVENEGAR_TEMPLATE_ORDER_DISPATCHED" "$KAVENEGAR_TEMPLATE_ORDER_DISPATCHED"
+  env_line "KAVENEGAR_TEMPLATE_ORDER_CANCELLED" "$KAVENEGAR_TEMPLATE_ORDER_CANCELLED"
+  env_line "LOG_LEVEL" "$LOG_LEVEL"
+  env_line "LOG_FORMAT" "$LOG_FORMAT"
+  env_line "UPLOAD_DIR" "$UPLOAD_DIR"
   env_line "ZARINPAL_MERCHANT_ID" "$ZARINPAL_MERCHANT_ID"
   env_line "ZARINPAL_SANDBOX" "$ZARINPAL_SANDBOX"
   env_line "APP_BASE_URL" "$APP_BASE_URL"
   env_line "DEV_MODE" "false"
+  preserved_env_lines
 } | sudo_if_needed tee "$ENV_FILE" > /dev/null
 sudo_if_needed chown root:"${DEPLOYER_GROUP}" "$ENV_FILE"
 sudo_if_needed chmod 640 "$ENV_FILE"
