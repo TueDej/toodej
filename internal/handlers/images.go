@@ -177,7 +177,7 @@ func (h *Handler) AdminRemoveImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	flash := ""
-	if err := database.RemoveImage(r.Context(), h.db, ownerType, ownerID, imageID); err != nil {
+	if path, err := database.RemoveImage(r.Context(), h.db, ownerType, ownerID, imageID); err != nil {
 		if errors.Is(err, database.ErrImageNotFound) {
 			flash = "تصویر یافت نشد."
 		} else {
@@ -185,6 +185,14 @@ func (h *Handler) AdminRemoveImage(w http.ResponseWriter, r *http.Request) {
 			flash = "حذف تصویر ناموفق بود."
 		}
 	} else {
+		// Delete the file AFTER the DB row is gone: a crash between the two
+		// leaves at worst an orphaned file, never a gallery pointing at a
+		// missing file. Failures are logged, not fatal to the request.
+		if path != "" {
+			if err := os.Remove(filepath.Join(h.uploadDir, filepath.Base(path))); err != nil && !os.IsNotExist(err) {
+				logutil.Error("remove image file", "err", err, "path", filepath.Base(path))
+			}
+		}
 		flash = "تصویر حذف شد."
 	}
 	h.renderImageGallery(w, r, ownerType, ownerID, flash)
@@ -309,7 +317,7 @@ func (h *Handler) renderImageGalleryString(r *http.Request, ownerType string, ow
         hx-post="/admin/images/%d/remove" hx-vals='%s}' hx-target="#gallery-%s-%d" hx-swap="outerHTML"
         class="absolute -top-2 -left-2 flex h-6 w-6 items-center justify-center rounded-full bg-pomegranate text-xs font-bold text-parchment shadow transition hover:opacity-80">×</button>%s
     </div>`,
-			e.Path, e.ID, hxVals, ownerType, ownerID, nav)
+			htmlEscape(e.Path), e.ID, hxVals, ownerType, ownerID, nav)
 	}
 
 	addLabel := "افزودن تصویر"
@@ -327,7 +335,7 @@ func (h *Handler) renderImageGalleryString(r *http.Request, ownerType string, ow
   </div>`, ownerType, ownerID, addLabel)
 
 	if flash != "" {
-		fmt.Fprintf(&b, `<p class="mt-2 text-xs font-medium text-fig" role="status">%s</p>`, flash)
+		fmt.Fprintf(&b, `<p class="mt-2 text-xs font-medium text-fig" role="status">%s</p>`, htmlEscape(flash))
 	}
 
 	fmt.Fprintf(&b, `

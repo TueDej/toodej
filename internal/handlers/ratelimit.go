@@ -18,6 +18,9 @@ type RateLimiter struct {
 	limit   int
 	window  time.Duration
 	entries map[string]*rateEntry
+	// lastSweep throttles the full-map sweep: without it, every request past
+	// 10k keys pays O(n), turning a key-flood into CPU-DoS.
+	lastSweep time.Time
 }
 
 type rateEntry struct {
@@ -52,7 +55,8 @@ func (rl *RateLimiter) Allow(key string) bool {
 		}
 	}
 
-	if len(rl.entries) > 10000 {
+	if len(rl.entries) > 10000 && now.Sub(rl.lastSweep) > time.Minute {
+		rl.lastSweep = now
 		for k, en := range rl.entries {
 			if now.After(en.reset) {
 				delete(rl.entries, k)

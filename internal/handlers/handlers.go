@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -156,13 +157,15 @@ func NewHandler(ctx context.Context, db *sql.DB, cartStore *CartStore, zarinpal 
 
 	ctx, cancel := context.WithCancel(ctx)
 
+	uploadDir := sanitizeUploadDir(envDefault("UPLOAD_DIR", "uploads"))
+
 	h := &Handler{
 		db:                db,
 		templates:         templates,
 		cartStore:         cartStore,
 		zarinpal:          zarinpal,
 		baseURL:           baseURL,
-		uploadDir:         envDefault("UPLOAD_DIR", "uploads"),
+		uploadDir:         uploadDir,
 		ctx:               ctx,
 		cancel:            cancel,
 		userSessions:      make(map[string]session),
@@ -180,4 +183,29 @@ func NewHandler(ctx context.Context, db *sql.DB, cartStore *CartStore, zarinpal 
 	h.startUnpaidOrderJanitor(ctx)
 	h.startPaymentReconciler(ctx)
 	return h, nil
+}
+
+// sanitizeUploadDir validates UPLOAD_DIR so a misconfigured environment cannot
+// turn the public /uploads/* FileServer into a system-file reader
+// (UPLOAD_DIR=/etc would otherwise serve /etc/*). Absolute system paths and
+// parent-directory escapes fall back to the default "uploads" with a warning.
+func sanitizeUploadDir(dir string) string {
+	cleaned := filepath.Clean(strings.TrimSpace(dir))
+	if cleaned == "" || cleaned == "." {
+		return "uploads"
+	}
+	if filepath.IsAbs(cleaned) {
+		for _, blocked := range []string{"/", "/etc", "/usr", "/bin", "/sbin", "/proc", "/sys", "/dev", "/var/run"} {
+			if cleaned == blocked || strings.HasPrefix(cleaned, blocked+"/") {
+				logutil.Warn("refusing unsafe UPLOAD_DIR; using default", "upload_dir", dir)
+				return "uploads"
+			}
+		}
+		return cleaned
+	}
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../") {
+		logutil.Warn("refusing escaping UPLOAD_DIR; using default", "upload_dir", dir)
+		return "uploads"
+	}
+	return cleaned
 }

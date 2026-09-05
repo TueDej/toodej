@@ -32,6 +32,9 @@ type attemptTracker struct {
 	mu      sync.Mutex
 	now     func() time.Time // indirected so tests can advance the clock
 	entries map[string]*attemptEntry
+	// lastSweep throttles the full-map sweep (see RateLimiter): every fail()
+	// past 10k keys must not pay O(n).
+	lastSweep time.Time
 }
 
 type attemptEntry struct {
@@ -112,11 +115,13 @@ func (t *attemptTracker) setNow(now func() time.Time) {
 }
 
 // sweep drops finished entries once the table is large enough for the memory to
-// matter. Callers must hold the mutex.
+// matter. Throttled to one full scan per minute so a key-flood cannot turn
+// every fail() into O(n) CPU-DoS. Callers must hold the mutex.
 func (t *attemptTracker) sweep(now time.Time) {
-	if len(t.entries) <= 10000 {
+	if len(t.entries) <= 10000 || now.Sub(t.lastSweep) <= time.Minute {
 		return
 	}
+	t.lastSweep = now
 	for k, e := range t.entries {
 		if !e.forgetAt.After(now) && !now.Before(e.lockedTil) {
 			delete(t.entries, k)

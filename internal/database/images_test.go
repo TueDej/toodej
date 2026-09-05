@@ -65,8 +65,10 @@ func TestRemoveImageRenumbersAndResyncs(t *testing.T) {
 	}
 
 	// Remove the first image; the rest shift down and image_url follows.
-	if err := RemoveImage(ctx, db, ImageOwnerProduct, pid, ids[0]); err != nil {
+	if path, err := RemoveImage(ctx, db, ImageOwnerProduct, pid, ids[0]); err != nil {
 		t.Fatalf("RemoveImage: %v", err)
+	} else if path != "/uploads/1.png" {
+		t.Fatalf("RemoveImage path = %q, want /uploads/1.png", path)
 	}
 	got, err := GetImages(ctx, db, ImageOwnerProduct, pid)
 	if err != nil {
@@ -81,7 +83,7 @@ func TestRemoveImageRenumbersAndResyncs(t *testing.T) {
 	}
 
 	// Removing a foreign/unknown image id must fail clearly.
-	if err := RemoveImage(ctx, db, ImageOwnerProduct, pid, ids[0]); !errors.Is(err, ErrImageNotFound) {
+	if _, err := RemoveImage(ctx, db, ImageOwnerProduct, pid, ids[0]); !errors.Is(err, ErrImageNotFound) {
 		t.Fatalf("re-remove = %v, want ErrImageNotFound", err)
 	}
 }

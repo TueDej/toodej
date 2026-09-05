@@ -260,9 +260,11 @@ func parseProductForm(w http.ResponseWriter, r *http.Request) (name, category, u
 	}
 	stockStr := strings.ReplaceAll(strings.TrimSpace(r.FormValue("stock_quantity")), ",", "")
 	if stockStr != "" {
-		stock, _ = strconv.Atoi(stockStr)
-		if stock < 0 {
-			stock = 0
+		var err error
+		stock, err = strconv.Atoi(stockStr)
+		if err != nil || stock < 0 {
+			http.Error(w, "invalid stock quantity", http.StatusBadRequest)
+			return "", "", "", "", 0, 0, false, false
 		}
 	}
 	return name, category, unit, description, price, stock, isActive, true

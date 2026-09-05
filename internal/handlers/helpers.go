@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -17,7 +18,7 @@ import (
 // just the "LoggedIn" boolean used to show/hide login/logout/orders links.
 // It also includes the CSRF token for forms and meta tags.
 func (h *Handler) commonData(r *http.Request, w http.ResponseWriter) map[string]any {
-	sid, err := sessionCookie(r)
+	sid, err := sessionCookieAny(r)
 	loggedIn := false
 	cartCount := 0
 	if err == nil && validSessionID(sid.Value) {
@@ -171,7 +172,8 @@ func (h *Handler) renderCartContent(w http.ResponseWriter, r *http.Request, sid,
 		"Items": cart.Snapshot(),
 		"Total": cart.Total(),
 	}, w)
-	w.Header().Set("HX-Trigger", `{"cartUpdated":"", "cartEvent":"`+event+`"}`)
+	trigger, _ := json.Marshal(map[string]string{"cartUpdated": "", "cartEvent": event})
+	w.Header().Set("HX-Trigger", string(trigger))
 	h.renderTemplate(w, "cart", "cart-content", data)
 }
 

@@ -118,7 +118,10 @@ func TestRequireAdmin(t *testing.T) {
 	}
 
 	// Valid admin session cookie → pass through.
-	sid := generateSessionID()
+	sid, err := generateSessionID()
+	if err != nil {
+		t.Fatalf("generateSessionID: %v", err)
+	}
 	h.adminSessions[sid] = time.Now().Add(time.Hour)
 	req = httptest.NewRequest(http.MethodGet, "/admin/", nil)
 	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: sid})

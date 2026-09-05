@@ -40,7 +40,7 @@ func (h *Handler) LoginPage(w http.ResponseWriter, r *http.Request) {
 		if h.pendingNext == nil {
 			h.pendingNext = make(map[string]pendingReturn)
 		}
-		h.pendingNext[sid] = pendingReturn{url: sanitizeReturnURL(next), expiresAt: time.Now().Add(sessionTTL)}
+		h.pendingNext[sid] = pendingReturn{url: sanitizeReturnURL(next), expiresAt: time.Now().Add(pendingReturnTTL)}
 		h.sessionMu.Unlock()
 	}
 
@@ -310,14 +310,15 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 // navigation, since SameSite=Lax cookies are still sent on those — a nuisance
 // logout-CSRF.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	if cookie, err := sessionCookie(r); err == nil && validSessionID(cookie.Value) {
-		sid := cookie.Value
+	for _, sid := range sessionSIDs(r) {
 		h.sessionMu.Lock()
 		delete(h.userSessions, sid)
 		delete(h.pendingLogins, sid)
 		delete(h.pendingNext, sid)
 		h.sessionMu.Unlock()
-		h.cartStore.Delete(sid)
+		if h.cartStore != nil {
+			h.cartStore.Delete(sid)
+		}
 	}
 
 	// Expire the session cookie in the browser. Both names are cleared so a

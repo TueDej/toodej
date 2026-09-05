@@ -205,34 +205,48 @@ func ReplaceImage(ctx context.Context, db *sql.DB, ownerType string, ownerID int
 }
 
 // RemoveImage deletes one image from an owner's gallery, renumbers the
-// remaining positions, and re-syncs the product's first-image URL.
-func RemoveImage(ctx context.Context, db *sql.DB, ownerType string, ownerID, imageID int64) error {
+// remaining positions, and re-syncs the product's first-image URL. It returns
+// the removed file's stored path so the caller can delete it from disk —
+// without this the bytes would accumulate on disk forever after every
+// gallery removal.
+func RemoveImage(ctx context.Context, db *sql.DB, ownerType string, ownerID, imageID int64) (string, error) {
 	if !validImageOwner(ownerType) {
-		return fmt.Errorf("unknown image owner type %q", ownerType)
+		return "", fmt.Errorf("unknown image owner type %q", ownerType)
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin remove image tx: %w", err)
+		return "", fmt.Errorf("begin remove image tx: %w", err)
 	}
 	defer tx.Rollback()
 
+	var path string
+	if err := tx.QueryRowContext(ctx,
+		"SELECT path FROM images WHERE id = ? AND owner_type = ? AND owner_id = ?", imageID, ownerType, ownerID).Scan(&path); err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("%w: image %d for %s %d", ErrImageNotFound, imageID, ownerType, ownerID)
+		}
+		return "", fmt.Errorf("lookup image %d: %w", imageID, err)
+	}
 	res, err := tx.ExecContext(ctx,
 		"DELETE FROM images WHERE id = ? AND owner_type = ? AND owner_id = ?", imageID, ownerType, ownerID)
 	if err != nil {
-		return fmt.Errorf("delete image %d: %w", imageID, err)
+		return "", fmt.Errorf("delete image %d: %w", imageID, err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("%w: image %d for %s %d", ErrImageNotFound, imageID, ownerType, ownerID)
+		return "", fmt.Errorf("%w: image %d for %s %d", ErrImageNotFound, imageID, ownerType, ownerID)
 	}
 	if err := renumberImagesTx(ctx, tx, ownerType, ownerID); err != nil {
-		return err
+		return "", err
 	}
 	if ownerType == ImageOwnerProduct {
 		if err := syncProductImageURLTx(ctx, tx, ownerID); err != nil {
-			return err
+			return "", err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // MoveImage shifts an image one slot left (delta < 0) or right (delta > 0)

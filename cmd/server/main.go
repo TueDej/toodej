@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -144,11 +146,10 @@ func main() {
 		})
 	})
 
-	// Admin-uploaded product/category images.
-	uploadDir := os.Getenv("UPLOAD_DIR")
-	if uploadDir == "" {
-		uploadDir = "uploads"
-	}
+	// Admin-uploaded product/category images. The directory is sanitized so a
+	// misconfigured UPLOAD_DIR (e.g. "/etc") cannot turn the public file
+	// server below into a system-file reader.
+	uploadDir := sanitizeUploadDir(getEnv("UPLOAD_DIR", "uploads"))
 	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))
 
 	// ── Start ─────────────────────────────────────────
@@ -192,4 +193,25 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// sanitizeUploadDir mirrors the handler-side check so the /uploads/*
+// FileServer never serves absolute system paths or parent escapes.
+func sanitizeUploadDir(dir string) string {
+	cleaned := filepath.Clean(strings.TrimSpace(dir))
+	if cleaned == "" || cleaned == "." {
+		return "uploads"
+	}
+	if filepath.IsAbs(cleaned) {
+		for _, blocked := range []string{"/", "/etc", "/usr", "/bin", "/sbin", "/proc", "/sys", "/dev", "/var/run"} {
+			if cleaned == blocked || strings.HasPrefix(cleaned, blocked+"/") {
+				return "uploads"
+			}
+		}
+		return cleaned
+	}
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../") {
+		return "uploads"
+	}
+	return cleaned
 }

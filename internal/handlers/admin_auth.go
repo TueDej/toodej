@@ -105,7 +105,12 @@ func (h *Handler) AdminLoginPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sid := generateSessionID()
+	sid, err := generateSessionID()
+	if err != nil {
+		logutil.Error("generate admin session id", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	h.sessionMu.Lock()
 	if h.adminSessions == nil {
 		h.adminSessions = make(map[string]time.Time)

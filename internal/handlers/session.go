@@ -19,6 +19,10 @@ import (
 const (
 	sessionTTL = 7 * 24 * time.Hour
 	otpTTL     = 2 * time.Minute
+	// pendingReturnTTL bounds how long a saved post-login destination lives.
+	// The previous code reused sessionTTL (7 days) here, letting bot traffic
+	// mint week-long redirect state; 30 minutes is plenty for a real login.
+	pendingReturnTTL = 30 * time.Minute
 )
 
 // Session cookie naming. On secure requests the cookie uses the __Host-
@@ -44,6 +48,34 @@ func sessionCookieNameFor(secure bool) string {
 // or an error when absent.
 func sessionCookie(r *http.Request) (*http.Cookie, error) {
 	return r.Cookie(sessionCookieNameFor(requestIsSecure(r)))
+}
+
+// sessionCookieAny returns the request's session cookie checking BOTH names
+// (secure __Host- and legacy). A secure/plain flip between login and a later
+// request must not orphan server state: the entry keyed by the other variant
+// would otherwise linger until the janitor while the user appears logged out.
+func sessionCookieAny(r *http.Request) (*http.Cookie, error) {
+	if c, err := r.Cookie(secureSessionCookieName); err == nil && validSessionID(c.Value) {
+		return c, nil
+	}
+	if c, err := r.Cookie(legacySessionCookieName); err == nil && validSessionID(c.Value) {
+		return c, nil
+	}
+	return nil, http.ErrNoCookie
+}
+
+// sessionSIDs returns every session id presented by the request across both
+// cookie variants, so logout/teardown can drop server state for all of them.
+func sessionSIDs(r *http.Request) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, name := range []string{secureSessionCookieName, legacySessionCookieName} {
+		if c, err := r.Cookie(name); err == nil && validSessionID(c.Value) && !seen[c.Value] {
+			seen[c.Value] = true
+			out = append(out, c.Value)
+		}
+	}
+	return out
 }
 
 // sessionCookie builds (with the given name helper context) the session
@@ -305,7 +337,7 @@ func (h *Handler) purgeExpiredSessions(now time.Time) {
 // the user is not logged in. It reads the session cookie and looks up the
 // in-memory session map.
 func (h *Handler) getUserID(r *http.Request) int64 {
-	cookie, err := sessionCookie(r)
+	cookie, err := sessionCookieAny(r)
 	if err != nil || !validSessionID(cookie.Value) {
 		return 0
 	}
@@ -321,13 +353,19 @@ func (h *Handler) getUserID(r *http.Request) int64 {
 // getOrCreateSessionID returns the existing session cookie value for this request,
 // or creates a new session, sets the cookie, and returns the new ID.
 func (h *Handler) getOrCreateSessionID(w http.ResponseWriter, r *http.Request) string {
-	cookie, err := sessionCookie(r)
-	if err == nil && validSessionID(cookie.Value) {
+	if cookie, err := sessionCookieAny(r); err == nil && validSessionID(cookie.Value) {
 		// Ensure CSRF token is set for existing session
 		_ = ensureCSRFToken(w, r)
 		return cookie.Value
 	}
-	sid := generateSessionID()
+	sid, err := generateSessionID()
+	if err != nil {
+		logutil.Error("generate session id", "err", err)
+		// Fail closed: return a value that fails validSessionID so the maps
+		// treat the request as unauthenticated and no two callers share it
+		// as a real session.
+		return "entropy-error"
+	}
 	http.SetCookie(w, newSessionCookie(r, sid, int(sessionTTL.Seconds())))
 	// Ensure CSRF token is set for new session
 	_ = ensureCSRFToken(w, r)
@@ -335,13 +373,15 @@ func (h *Handler) getOrCreateSessionID(w http.ResponseWriter, r *http.Request) s
 }
 
 // generateSessionID creates a cryptographically random 32-hex-character session
-// identifier using crypto/rand.
-func generateSessionID() string {
+// identifier using crypto/rand. Entropy failure is returned instead of
+// panicking: panicking inside a handler goroutine turns a transient kernel
+// entropy hiccup into a 500/crash, while an error lets the caller fail closed.
+func generateSessionID() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		panic(err)
+		return "", err
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }
 
 // regenerateSessionID issues a new session cookie and returns the new ID.
@@ -350,14 +390,30 @@ func generateSessionID() string {
 // prevent session fixation: the pre-auth session ID is discarded and cannot be
 // reused by an attacker who planted it.
 func (h *Handler) regenerateSessionID(w http.ResponseWriter, r *http.Request) string {
-	cookie, err := sessionCookie(r)
 	oldSid := ""
-	if err == nil && validSessionID(cookie.Value) {
+	if cookie, err := sessionCookieAny(r); err == nil && validSessionID(cookie.Value) {
 		oldSid = cookie.Value
 	}
 
-	newSid := generateSessionID()
+	newSid, err := generateSessionID()
+	if err != nil {
+		logutil.Error("regenerate session id", "err", err)
+		// Keep the old session rather than logging the user out on an
+		// entropy hiccup; fixation protection is best-effort here.
+		if oldSid != "" {
+			return oldSid
+		}
+		return "entropy-error"
+	}
 	http.SetCookie(w, newSessionCookie(r, newSid, int(sessionTTL.Seconds())))
+	// Expire the non-current variant so a flip-flopped client does not keep
+	// sending the stale cookie alongside the fresh one.
+	for _, name := range []string{legacySessionCookieName, secureSessionCookieName} {
+		if name == sessionCookieNameFor(requestIsSecure(r)) {
+			continue
+		}
+		http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", HttpOnly: true, Secure: requestIsSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	}
 	_ = ensureCSRFToken(w, r)
 
 	// Migrate existing session data to the new ID so login state is preserved.
@@ -376,7 +432,9 @@ func (h *Handler) regenerateSessionID(w http.ResponseWriter, r *http.Request) st
 			delete(h.pendingNext, oldSid)
 		}
 		h.sessionMu.Unlock()
-		h.cartStore.MigrateSession(oldSid, newSid)
+		if h.cartStore != nil {
+			h.cartStore.MigrateSession(oldSid, newSid)
+		}
 	}
 
 	return newSid

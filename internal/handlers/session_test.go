@@ -8,7 +8,10 @@ import (
 func TestGenerateSessionID(t *testing.T) {
 	seen := make(map[string]bool)
 	for i := 0; i < 1000; i++ {
-		id := generateSessionID()
+		id, err := generateSessionID()
+		if err != nil {
+			t.Fatalf("generateSessionID() error: %v", err)
+		}
 		if !validSessionID(id) {
 			t.Fatalf("generateSessionID() = %q, does not match session ID pattern", id)
 		}

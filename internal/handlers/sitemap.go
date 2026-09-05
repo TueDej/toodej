@@ -4,13 +4,31 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"farmstore/internal/database"
 	"farmstore/internal/logutil"
 )
 
-const baseURL = "https://toodej.shop"
+const defaultBaseURL = "https://toodej.shop"
+
+// sitemapBaseURL prefers APP_BASE_URL (the deployment's canonical origin),
+// then the request host, then the production default. The previous hardcoded
+// constant advertised the prod domain from dev/staging sitemaps.
+func sitemapBaseURL(r *http.Request) string {
+	if base := strings.TrimSpace(envDefault("APP_BASE_URL", "")); base != "" {
+		return strings.TrimSuffix(base, "/")
+	}
+	if r != nil && r.Host != "" {
+		scheme := "https"
+		if !requestIsSecure(r) {
+			scheme = "http"
+		}
+		return scheme + "://" + r.Host
+	}
+	return defaultBaseURL
+}
 
 type sitemapURL struct {
 	Loc        string `xml:"loc"`
@@ -27,6 +45,7 @@ type sitemapRoot struct {
 
 func (h *Handler) ServeSitemap(w http.ResponseWriter, r *http.Request) {
 	today := time.Now().UTC().Format("2006-01-02")
+	baseURL := sitemapBaseURL(r)
 
 	// Only list URLs that actually serve a 200. The storefront has no
 	// per-product detail route (products are shown in category grids), so the

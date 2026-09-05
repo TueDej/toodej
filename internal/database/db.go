@@ -684,8 +684,24 @@ func UpdateCategoryEnabled(ctx context.Context, db *sql.DB, id int64, enabled bo
 // UpdateCategory changes a category's slug, label, description, and enabled
 // flag. A slug that collides with a different category is rejected with
 // ErrDuplicateCategory so the UNIQUE constraint never surfaces as a 500.
+// Products reference their category by free-text label (no FK), so a label
+// rename also migrates products.category in the same transaction — otherwise
+// renamed products vanish from every category page except /all.
 func UpdateCategory(ctx context.Context, db *sql.DB, id int64, slug, label, description string, enabled bool) error {
-	res, err := db.ExecContext(ctx,
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin update category %d: %w", id, err)
+	}
+	defer tx.Rollback()
+
+	var oldLabel string
+	if err := tx.QueryRowContext(ctx, "SELECT label FROM categories WHERE id = ?", id).Scan(&oldLabel); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("category %d not found", id)
+		}
+		return fmt.Errorf("lookup category %d: %w", id, err)
+	}
+	res, err := tx.ExecContext(ctx,
 		"UPDATE categories SET slug = ?, label = ?, description = ?, is_enabled = ? WHERE id = ?",
 		slug, label, strings.TrimSpace(description), boolToInt(enabled), id)
 	if err != nil {
@@ -697,7 +713,12 @@ func UpdateCategory(ctx context.Context, db *sql.DB, id int64, slug, label, desc
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("category %d not found", id)
 	}
-	return nil
+	if label != oldLabel {
+		if _, err := tx.ExecContext(ctx, "UPDATE products SET category = ? WHERE category = ?", label, oldLabel); err != nil {
+			return fmt.Errorf("migrate products to renamed category: %w", err)
+		}
+	}
+	return tx.Commit()
 }
 
 // boolToInt converts a bool to its SQLite integer representation.
@@ -721,13 +742,18 @@ func scanCategoryRow(s interface {
 }
 
 // GetProducts returns active products, optionally filtered by category.
-// An empty or "all" category returns every active product.
+// An empty category returns every active product. "all" returns every active
+// product whose category is not disabled — disabling a category must hide its
+// products from /all too, otherwise the toggle is cosmetic (the products stay
+// buyable via the all-listing).
 func GetProducts(ctx context.Context, db *sql.DB, category string) ([]models.Product, error) {
 	query := "SELECT id, name, slug, category, description, price, stock_quantity, unit, image_url, is_active, created_at FROM products WHERE is_active = 1"
 	args := []interface{}{}
 	if category != "" && category != "all" {
 		query += " AND category = ?"
 		args = append(args, category)
+	} else if category == "all" {
+		query += " AND category NOT IN (SELECT label FROM categories WHERE is_enabled = 0)"
 	}
 	query += " ORDER BY position, id"
 
@@ -1286,7 +1312,8 @@ func CreateProduct(ctx context.Context, db *sql.DB, p *models.Product) (int64, e
 // SetProductOrder rewrites products.position to match the supplied id order:
 // the first id gets position 0, the next 1, and so on. The storefront and the
 // admin list both order by position, so this is what drag-to-reorder persists.
-// Ids that do not exist simply update zero rows.
+// Unknown ids are rejected (rather than silently updating zero rows, which
+// previously let partial/ghost orders create duplicate positions).
 func SetProductOrder(ctx context.Context, db *sql.DB, ids []int64) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1301,8 +1328,12 @@ func SetProductOrder(ctx context.Context, db *sql.DB, ids []int64) error {
 	defer stmt.Close()
 
 	for i, id := range ids {
-		if _, err := stmt.ExecContext(ctx, i, id); err != nil {
+		res, err := stmt.ExecContext(ctx, i, id)
+		if err != nil {
 			return fmt.Errorf("set position %d for product %d: %w", i, id, err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return fmt.Errorf("reorder: product %d not found", id)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -1695,12 +1726,13 @@ func CreateUser(ctx context.Context, db *sql.DB, phone string) (*models.User, er
 
 // GetOrCreateUser returns the existing user for a phone number or creates one.
 // This avoids a separate registration step — users are auto-created on first OTP request.
+// The insert uses OR IGNORE so two concurrent first-OTP requests for the same
+// number do not race into a UNIQUE violation (one would previously 500).
 func GetOrCreateUser(ctx context.Context, db *sql.DB, phone string) (*models.User, error) {
-	user, err := GetUserByPhone(ctx, db, phone)
-	if err == nil {
-		return user, nil
+	if _, err := db.ExecContext(ctx, "INSERT OR IGNORE INTO users (phone_number) VALUES (?)", phone); err != nil {
+		return nil, fmt.Errorf("ensure user %s: %w", phone, err)
 	}
-	return CreateUser(ctx, db, phone)
+	return GetUserByPhone(ctx, db, phone)
 }
 
 // ── OTP ──────────────────────────────────────────────

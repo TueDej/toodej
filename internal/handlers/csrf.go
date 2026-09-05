@@ -68,9 +68,14 @@ func extractToken(r *http.Request) string {
 }
 
 // cookieToken returns the CSRF token from the cookie, or empty string if not found.
+// Both variants are checked (secure first): after a secure/plain flip the
+// client may present the other name, and the comparison must still succeed
+// against the token the page was rendered with.
 func cookieToken(r *http.Request) string {
-	if cookie, err := r.Cookie(csrfCookieNameFor(requestIsSecure(r))); err == nil {
-		return cookie.Value
+	for _, name := range []string{csrfCookieNameSecure, csrfCookieName} {
+		if cookie, err := r.Cookie(name); err == nil && cookie.Value != "" {
+			return cookie.Value
+		}
 	}
 	return ""
 }
@@ -136,9 +141,9 @@ func csrfCookie(r *http.Request, token string) *http.Cookie {
 // ensureCSRFToken ensures a CSRF token cookie is set for the response.
 // Returns the token value (new or existing).
 func ensureCSRFToken(w http.ResponseWriter, r *http.Request) string {
-	// If cookie already exists, return its value (no need to set new cookie)
-	if cookie, err := r.Cookie(csrfCookieNameFor(requestIsSecure(r))); err == nil && cookie.Value != "" {
-		return cookie.Value
+	// If either variant cookie already exists, return its value (no need to set new cookie)
+	if token := cookieToken(r); token != "" {
+		return token
 	}
 	return rotateCSRFToken(w, r)
 }

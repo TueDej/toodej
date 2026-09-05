@@ -347,16 +347,20 @@ func (h *Handler) AdminUpdateProduct(w http.ResponseWriter, r *http.Request) {
 	if priceStr := r.FormValue("price"); priceStr != "" {
 		priceStr = strings.ReplaceAll(priceStr, ",", "")
 		price, err := strconv.Atoi(priceStr)
-		if err == nil && price >= 0 {
-			product.Price = price
+		if err != nil || price < 0 {
+			http.Error(w, "invalid price", http.StatusBadRequest)
+			return
 		}
+		product.Price = price
 	}
 	if stockStr := r.FormValue("stock_quantity"); stockStr != "" {
 		stockStr = strings.ReplaceAll(stockStr, ",", "")
 		stock, err := strconv.Atoi(stockStr)
-		if err == nil && stock >= 0 {
-			product.StockQuantity = stock
+		if err != nil || stock < 0 {
+			http.Error(w, "invalid stock quantity", http.StatusBadRequest)
+			return
 		}
+		product.StockQuantity = stock
 	}
 
 	if err := database.UpdateProduct(r.Context(), h.db, product); err != nil {
@@ -398,7 +402,12 @@ func (h *Handler) AdminCreateProduct(w http.ResponseWriter, r *http.Request) {
 	stock := 0
 	if stockStr != "" {
 		stockStr = strings.ReplaceAll(stockStr, ",", "")
-		stock, _ = strconv.Atoi(stockStr)
+		var err error
+		stock, err = strconv.Atoi(stockStr)
+		if err != nil || stock < 0 {
+			http.Error(w, "invalid stock quantity", http.StatusBadRequest)
+			return
+		}
 	}
 
 	slug, err := database.UniqueSlug(r.Context(), h.db, name, 0)
@@ -591,6 +600,7 @@ func (h *Handler) renderProductRow(w http.ResponseWriter, p models.Product) {
 // field (first id = shown first); positions are rewritten 0..n-1 so the
 // storefront lists products in exactly that order.
 func (h *Handler) AdminReorderProducts(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
@@ -601,13 +611,23 @@ func (h *Handler) AdminReorderProducts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(raw, ",")
+	if len(parts) > 2000 {
+		http.Error(w, "order too large", http.StatusBadRequest)
+		return
+	}
 	ids := make([]int64, 0, len(parts))
+	seen := make(map[int64]bool, len(parts))
 	for _, p := range parts {
 		id, err := strconv.ParseInt(strings.TrimSpace(p), 10, 64)
 		if err != nil || id <= 0 {
 			http.Error(w, "invalid product id in order", http.StatusBadRequest)
 			return
 		}
+		if seen[id] {
+			http.Error(w, "duplicate product id in order", http.StatusBadRequest)
+			return
+		}
+		seen[id] = true
 		ids = append(ids, id)
 	}
 	if err := database.SetProductOrder(r.Context(), h.db, ids); err != nil {
