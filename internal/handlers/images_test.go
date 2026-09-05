@@ -56,6 +56,7 @@ func (c *testClient) postMultipart(path string, fields url.Values, fileField, fi
 		c.t.Fatalf("new request: %v", err)
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.Header.Set("Origin", c.srv.URL) // SameOrigin middleware expects browser-like Origin on mutating requests
 	if c.csrfToken != "" {
 		req.Header.Set(csrfHeaderName, c.csrfToken)
 	}
@@ -70,6 +71,9 @@ func (c *testClient) postMultipart(path string, fields url.Values, fileField, fi
 	// Record cookies and body exactly like testClient.do does.
 	for _, ck := range resp.Cookies() {
 		c.cookies[ck.Name] = ck
+		if ck.Name == csrfCookieName || ck.Name == csrfCookieNameSecure {
+			c.csrfToken = ck.Value
+		}
 	}
 	data := make([]byte, 0)
 	tmp := make([]byte, 4096)

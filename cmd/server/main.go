@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -37,7 +38,11 @@ func main() {
 
 	// ── Handler ───────────────────────────────────────
 	cartStore := handlers.NewCartStore()
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	// Listen on both SIGINT (Ctrl-C) and SIGTERM (systemd's stop signal).
+	// Without SIGTERM handling, `systemctl restart` would hard-kill the
+	// process mid-request: in-flight checkouts and payment callbacks die
+	// before the graceful 10-second drain can run.
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	h, err := handlers.NewHandler(ctx, db, cartStore, zarinpal, baseURL)
 	if err != nil {

@@ -232,9 +232,12 @@ func TestUserJourneyEndToEnd(t *testing.T) {
 }
 
 // TestPaymentCancelledCallback ensures a customer who abandons the gateway
-// (Status != OK) gets the order cancelled and stock restored.
+// (Status != OK) gets the order cancelled and stock restored. The cancel is
+// backed by the gateway's own verify verdict — the fake gateway is told to
+// report the authority unpaid, mirroring Zarinpal's answer for an abandoned
+// transaction.
 func TestPaymentCancelledCallback(t *testing.T) {
-	r, h, _ := newTestRouter(t)
+	r, h, gw := newTestRouter(t)
 	c := newTestClient(t, r)
 	c.login(t, h.db, "09121234567")
 	c.addToCart(t, seedProductPome)
@@ -249,8 +252,9 @@ func TestPaymentCancelledCallback(t *testing.T) {
 		t.Fatalf("order status = %q", order.Status)
 	}
 
+	gw.setVerifyCode(-51) // gateway confirms the payment never happened
 	resp = c.get("/checkout/verify?Authority=" + order.PaymentAuthority + "&Status=FAIL")
-	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/cart" {
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/cart?error=payment_failed" {
 		t.Fatalf("cancelled callback = %d -> %q", resp.StatusCode, resp.Header.Get("Location"))
 	}
 
@@ -260,6 +264,39 @@ func TestPaymentCancelledCallback(t *testing.T) {
 	}
 	if got := productStock(t, h.db, seedProductPome); got != stockBefore {
 		t.Fatalf("stock after cancel = %d, want %d", got, stockBefore)
+	}
+}
+
+// TestPaymentCancelledCallbackCannotKillPaidOrder ensures a forged cancel
+// (Status=FAIL on a user-supplied Authority) cannot cancel an order the
+// gateway actually marked as paid: the gateway verdict wins over the hint.
+func TestPaymentCancelledCallbackCannotKillPaidOrder(t *testing.T) {
+	r, h, _ := newTestRouter(t)
+	c := newTestClient(t, r)
+	c.login(t, h.db, "09121234567")
+	c.addToCart(t, seedProductPome)
+	stockBefore := productStock(t, h.db, seedProductPome)
+
+	resp := c.post("/checkout", validShipment())
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("place order = %d", resp.StatusCode)
+	}
+	order := lastOrder(t, h.db)
+
+	// Fake gateway still reports the authority as paid (verifyCode 100).
+	resp = c.get("/checkout/verify?Authority=" + order.PaymentAuthority + "&Status=FAIL")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("forged cancel callback = %d", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/checkout/confirmation/"+order.ID {
+		t.Fatalf("forged cancel redirect = %q, want confirmation", loc)
+	}
+	order = lastOrder(t, h.db)
+	if order.Status != "pending" {
+		t.Fatalf("order status = %q, want pending (paid order must survive forged cancel)", order.Status)
+	}
+	if got := productStock(t, h.db, seedProductPome); got != stockBefore-1 {
+		t.Fatalf("stock = %d, want %d (reservation must be kept)", got, stockBefore-1)
 	}
 }
 
@@ -411,6 +448,11 @@ func TestResumePayment(t *testing.T) {
 	}
 	c.csrfToken = token
 
+	// The fake gateway must report the existing authority as unpaid so the
+	// resume path issues a fresh one (a paid authority would be rescued and
+	// confirmed instead of replaced).
+	gw.setVerifyCode(-51)
+
 	_, hitsBefore, _ := gw.snapshot()
 	resp = c.post("/orders/"+order.ID+"/pay", nil)
 	if resp.StatusCode != http.StatusSeeOther {
@@ -437,7 +479,9 @@ func TestResumePayment(t *testing.T) {
 		t.Fatalf("IDOR resume = %d, want 404", resp.StatusCode)
 	}
 
-	// A paid order cannot be resumed (no new gateway hit).
+	// A paid order cannot be resumed (no new gateway hit). The fake gateway
+	// must report the new authority as paid again for the callback.
+	gw.setVerifyCode(100)
 	resp = c.get("/checkout/verify?Authority=" + auth + "&Status=OK")
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("verify callback = %d", resp.StatusCode)

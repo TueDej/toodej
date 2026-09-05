@@ -35,6 +35,8 @@ type Handler struct {
 	adminPass         string                   // ADMIN_PASS, checked by the admin login form
 	adminLoginLimiter *RateLimiter             // per-IP cap on admin login attempts
 	otpLimiter        *RateLimiter             // per-phone cap on OTP sends
+	otpSendIPLimiter  *RateLimiter             // per-IP cap on OTP sends (stops number-cycling SMS pumping)
+	otpGlobalLimiter  *RateLimiter             // global cap on OTP sends (guards the SMS budget)
 	otpVerifyLimiter  *RateLimiter             // per-phone cap on OTP verification attempts
 	otpAttempts       *attemptTracker          // wrong-code budget + login cooldown per phone/IP
 	sessionMu         sync.RWMutex
@@ -169,6 +171,8 @@ func NewHandler(ctx context.Context, db *sql.DB, cartStore *CartStore, zarinpal 
 		adminSessions:     make(map[string]time.Time),
 		adminLoginLimiter: NewRateLimiter(5, time.Minute),
 		otpLimiter:        NewRateLimiter(5, time.Minute),
+		otpSendIPLimiter:  NewRateLimiter(10, time.Minute),
+		otpGlobalLimiter:  NewRateLimiter(300, time.Minute),
 		otpVerifyLimiter:  NewRateLimiter(10, time.Minute),
 		otpAttempts:       newAttemptTracker(),
 	}

@@ -5,7 +5,9 @@ package database
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -130,10 +132,19 @@ func migrate(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS otp_codes (
 		id           INTEGER PRIMARY KEY AUTOINCREMENT,
 		phone_number TEXT    NOT NULL,
-		code         TEXT    NOT NULL,
+		code         TEXT    NOT NULL, -- SHA-256 hash of (phone|code), never the plaintext
 		expires_at   TEXT    NOT NULL,
 		is_used      INTEGER NOT NULL DEFAULT 0
 	);
+
+	CREATE TABLE IF NOT EXISTS payment_authorities (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		order_id   TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+		authority  TEXT NOT NULL UNIQUE,
+		created_at TEXT NOT NULL DEFAULT (datetime('now'))
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_payment_authorities_order ON payment_authorities(order_id);
 
 	CREATE TABLE IF NOT EXISTS categories (
 		id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,6 +168,15 @@ func migrate(db *sql.DB) error {
 	_, err := db.Exec(schema)
 	if err != nil {
 		return err
+	}
+
+	// OTPs are now stored as SHA-256 hashes (see HashOTP). Any pre-existing
+	// rows hold plaintext from the old format and can never verify again.
+	// Codes are ephemeral (2-minute TTL) and the in-memory pending-login state
+	// dies with the process on every restart, so wiping the table on migrate
+	// loses nothing.
+	if _, err := db.Exec("DELETE FROM otp_codes"); err != nil {
+		return fmt.Errorf("purge legacy otp rows: %w", err)
 	}
 
 	if err := ensureOrderColumn(db, "postal_code", "ALTER TABLE orders ADD COLUMN postal_code TEXT NOT NULL DEFAULT ''"); err != nil {
@@ -899,30 +919,80 @@ func ValidOrderStatusOptions(current string) []string {
 	return opts
 }
 
-// SetPaymentAuthority stores the Zarinpal authority token on an order.
+// SetPaymentAuthority stores the Zarinpal authority token on an order and
+// records it in the payment_authorities history table. History matters: a
+// resume-payment overwrites the order's active authority, and a customer may
+// still complete payment on the superseded token — the callback and the
+// reconciler must still be able to resolve it to this order.
 func SetPaymentAuthority(ctx context.Context, db *sql.DB, orderID, authority string) error {
-	res, err := db.ExecContext(ctx, "UPDATE orders SET payment_authority = ? WHERE id = ? AND status = 'awaiting_payment'", authority, orderID)
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin set payment authority for %s: %w", orderID, err)
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, "UPDATE orders SET payment_authority = ? WHERE id = ? AND status = 'awaiting_payment'", authority, orderID)
 	if err != nil {
 		return fmt.Errorf("set payment authority for %s: %w", orderID, err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("%w: cannot set payment authority for %s", ErrInvalidOrderTransition, orderID)
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO payment_authorities (order_id, authority) VALUES (?, ?)", orderID, authority); err != nil {
+		return fmt.Errorf("record authority history for %s: %w", orderID, err)
+	}
+	return tx.Commit()
 }
 
-// GetOrderByAuthority looks up an order by its Zarinpal authority token.
+// GetAuthoritiesForOrder returns every authority ever issued for an order,
+// newest first. The active one lives on orders.payment_authority; the rest are
+// superseded tokens kept so their payments can still be matched.
+func GetAuthoritiesForOrder(ctx context.Context, db *sql.DB, orderID string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, "SELECT authority FROM payment_authorities WHERE order_id = ? ORDER BY id DESC", orderID)
+	if err != nil {
+		return nil, fmt.Errorf("query authorities for %s: %w", orderID, err)
+	}
+	defer rows.Close()
+
+	var authorities []string
+	for rows.Next() {
+		var a string
+		if err := rows.Scan(&a); err != nil {
+			return nil, err
+		}
+		authorities = append(authorities, a)
+	}
+	return authorities, rows.Err()
+}
+
+// GetOrderByAuthority looks up an order by its Zarinpal authority token. The
+// active authority is tried first; if it does not match, the history table is
+// consulted so payments completed on a superseded (resume-replaced) token are
+// still resolved to their order instead of orphaning the charge.
 func GetOrderByAuthority(ctx context.Context, db *sql.DB, authority string) (*models.Order, error) {
+	o, err := getOrderByAuthorityColumn(ctx, db, "orders.payment_authority = ?", authority)
+	if err == nil {
+		return o, nil
+	}
+	o, err = getOrderByAuthorityColumn(ctx, db,
+		"id IN (SELECT order_id FROM payment_authorities WHERE authority = ?)", authority)
+	if err != nil {
+		return nil, fmt.Errorf("get order by authority: %w", err)
+	}
+	return o, nil
+}
+
+func getOrderByAuthorityColumn(ctx context.Context, db *sql.DB, where string, authority string) (*models.Order, error) {
 	var o models.Order
 	var createdAt string
 	var userID sql.NullInt64
 	err := db.QueryRowContext(ctx, `SELECT id, customer_name, customer_phone, customer_address, postal_code,
-		total_amount, status, payment_ref_id, user_id, created_at
-		FROM orders WHERE payment_authority = ?`, authority).
+		total_amount, status, payment_authority, payment_ref_id, user_id, created_at
+		FROM orders WHERE `+where, authority).
 		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode,
-			&o.TotalAmount, &o.Status, &o.PaymentRefID, &userID, &createdAt)
+			&o.TotalAmount, &o.Status, &o.Authority, &o.PaymentRefID, &userID, &createdAt)
 	if err != nil {
-		return nil, fmt.Errorf("get order by authority: %w", err)
+		return nil, err
 	}
 	o.CreatedAt = parseTime(createdAt)
 	o.UserID = userID.Int64
@@ -1475,8 +1545,8 @@ func GetOrder(ctx context.Context, db *sql.DB, orderID string) (*models.Order, e
 	var o models.Order
 	var createdAt string
 	var userID sql.NullInt64
-	err := db.QueryRowContext(ctx, "SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, payment_ref_id, tracking_code, user_id, created_at FROM orders WHERE id = ?", orderID).
-		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &o.PaymentRefID, &o.TrackingCode, &userID, &createdAt)
+	err := db.QueryRowContext(ctx, "SELECT id, customer_name, customer_phone, customer_address, postal_code, total_amount, status, payment_authority, payment_ref_id, tracking_code, user_id, created_at FROM orders WHERE id = ?", orderID).
+		Scan(&o.ID, &o.CustomerName, &o.CustomerPhone, &o.CustomerAddress, &o.PostalCode, &o.TotalAmount, &o.Status, &o.Authority, &o.PaymentRefID, &o.TrackingCode, &userID, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("get order %s: %w", orderID, err)
 	}
@@ -1513,6 +1583,50 @@ func GetAwaitingPaymentOrders(ctx context.Context, db *sql.DB) ([]PaymentOrder, 
 		orders = append(orders, o)
 	}
 	return orders, rows.Err()
+}
+
+// GetRecentlyCancelledPaymentOrders returns orders cancelled within the given
+// window (measured from order creation) that carry an authority token and have
+// no recorded payment ref. The payment reconciler verifies these with the
+// gateway: a charge that succeeded after the cancel must be surfaced for a
+// manual refund instead of vanishing silently.
+func GetRecentlyCancelledPaymentOrders(ctx context.Context, db *sql.DB, window time.Duration) ([]PaymentOrder, error) {
+	minutes := int(window.Minutes())
+	if minutes < 1 {
+		minutes = 1
+	}
+	rows, err := db.QueryContext(ctx,
+		"SELECT id, total_amount, payment_authority FROM orders WHERE status = 'cancelled' AND payment_authority != '' AND payment_ref_id = 0 AND datetime(created_at) >= datetime('now', ?)",
+		fmt.Sprintf("-%d minutes", minutes))
+	if err != nil {
+		return nil, fmt.Errorf("query recently cancelled payment orders: %w", err)
+	}
+	defer rows.Close()
+
+	var orders []PaymentOrder
+	for rows.Next() {
+		var o PaymentOrder
+		if err := rows.Scan(&o.ID, &o.TotalAmount, &o.Authority); err != nil {
+			return nil, fmt.Errorf("scan recently cancelled payment order: %w", err)
+		}
+		orders = append(orders, o)
+	}
+	return orders, rows.Err()
+}
+
+// MarkOrphanedPayment records the gateway ref of a charge that succeeded for a
+// cancelled order. The row is only written once (payment_ref_id must still be
+// 0) so the reconciler's repeated scans do not re-report the same orphan.
+func MarkOrphanedPayment(ctx context.Context, db *sql.DB, orderID string, refID int64) error {
+	res, err := db.ExecContext(ctx,
+		"UPDATE orders SET payment_ref_id = ? WHERE id = ? AND status = 'cancelled' AND payment_ref_id = 0", refID, orderID)
+	if err != nil {
+		return fmt.Errorf("mark orphaned payment for %s: %w", orderID, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("order %s is not an unrecorded cancelled order", orderID)
+	}
+	return nil
 }
 
 // GetOrderWithItems retrieves a single order by ID along with its items and the
@@ -1591,26 +1705,49 @@ func GetOrCreateUser(ctx context.Context, db *sql.DB, phone string) (*models.Use
 
 // ── OTP ──────────────────────────────────────────────
 
-// CreateOTP stores a one-time password with a 2-minute expiry window.
-// Old expired or used OTPs are purged on each call so the table stays bounded.
+// HashOTP derives the value stored in otp_codes.code: a SHA-256 hash over the
+// phone number and the code. Hashing at rest means a database or backup leak
+// does not expose live OTPs in plaintext; the phone is mixed in so the same
+// code issued to two numbers hashes differently. Exported so tests can derive
+// the stored value for a known code.
+func HashOTP(phone, code string) string {
+	sum := sha256.Sum256([]byte(phone + "|" + code))
+	return hex.EncodeToString(sum[:])
+}
+
+// CreateOTP stores a one-time password with a 2-minute expiry window. The code
+// is stored hashed (HashOTP), never in plaintext.
+//
+// Any previous OTP row for the same phone is deleted first, so exactly one
+// live code exists per number: an intercepted code is invalidated by a resend,
+// and the guess space stays 1-in-100000 instead of growing with every resend.
+// Expired or used rows for other phones are purged on each call so the table
+// stays bounded.
 //
 // The expiry is stored in UTC: VerifyOTP parses this column as UTC, and the
 // purge below compares it with datetime('now') (also UTC). Storing the local
 // wall clock here would shift the effective expiry by the server's UTC offset —
 // on a UTC+3:30 host an OTP would stay valid for hours instead of minutes.
 func CreateOTP(ctx context.Context, db *sql.DB, phone, code string, expiresAt time.Time) error {
-	_, _ = db.ExecContext(ctx, "DELETE FROM otp_codes WHERE expires_at < datetime('now') OR is_used = 1")
-	_, err := db.ExecContext(ctx, "INSERT INTO otp_codes (phone_number, code, expires_at) VALUES (?, ?, ?)",
-		phone, code, expiresAt.UTC().Format("2006-01-02 15:04:05"))
+	_, err := db.ExecContext(ctx,
+		"DELETE FROM otp_codes WHERE phone_number = ? OR expires_at < datetime('now') OR is_used = 1",
+		phone)
+	if err != nil {
+		return fmt.Errorf("purge prior otp for %s: %w", phone, err)
+	}
+	_, err = db.ExecContext(ctx, "INSERT INTO otp_codes (phone_number, code, expires_at) VALUES (?, ?, ?)",
+		phone, HashOTP(phone, code), expiresAt.UTC().Format("2006-01-02 15:04:05"))
 	return err
 }
 
-// VerifyOTP checks that a code matches the latest unused OTP for the given phone
-// and that it has not expired. On success the OTP is marked as used.
+// VerifyOTP checks that a code matches the single live OTP for the given phone
+// and that it has not expired. The consume is atomic (guarded UPDATE), so two
+// concurrent verifications of the same code cannot both succeed. On success all
+// rows for the phone are removed, leaving no reusable hash material behind.
 func VerifyOTP(ctx context.Context, db *sql.DB, phone, code string) (bool, error) {
 	var id int64
 	var expiresAt string
-	err := db.QueryRowContext(ctx, "SELECT id, expires_at FROM otp_codes WHERE phone_number = ? AND code = ? AND is_used = 0 ORDER BY id DESC LIMIT 1", phone, code).
+	err := db.QueryRowContext(ctx, "SELECT id, expires_at FROM otp_codes WHERE phone_number = ? AND code = ? AND is_used = 0 ORDER BY id DESC LIMIT 1", phone, HashOTP(phone, code)).
 		Scan(&id, &expiresAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -1630,8 +1767,20 @@ func VerifyOTP(ctx context.Context, db *sql.DB, phone, code string) (bool, error
 		return false, nil
 	}
 
-	_, err = db.ExecContext(ctx, "UPDATE otp_codes SET is_used = 1 WHERE id = ?", id)
-	return err == nil, err
+	// Atomic consume: only the first concurrent caller flips is_used 0→1.
+	res, err := db.ExecContext(ctx, "UPDATE otp_codes SET is_used = 1 WHERE id = ? AND is_used = 0", id)
+	if err != nil {
+		return false, fmt.Errorf("consume otp: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		// Another request consumed this code between the SELECT and the UPDATE.
+		return false, nil
+	}
+	// Drop the rows entirely: a consumed code must leave nothing behind.
+	if _, err := db.ExecContext(ctx, "DELETE FROM otp_codes WHERE phone_number = ?", phone); err != nil {
+		return true, fmt.Errorf("delete consumed otp: %w", err)
+	}
+	return true, nil
 }
 
 // ── User Orders ──────────────────────────────────────

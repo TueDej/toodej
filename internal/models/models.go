@@ -27,14 +27,17 @@ type Product struct {
 // Order represents a customer order with a TDJ-XXXXXX ID, customer details,
 // total amount, and current processing status.
 type Order struct {
-	ID              string    `json:"id"`
-	CustomerName    string    `json:"customer_name"`
-	CustomerPhone   string    `json:"customer_phone"`
-	CustomerAddress string    `json:"customer_address"`
-	PostalCode      string    `json:"postal_code"`
-	TotalAmount     int       `json:"total_amount"`
-	Status          string    `json:"status"`
-	PaymentRefID    int64     `json:"payment_ref_id"`
+	ID              string `json:"id"`
+	CustomerName    string `json:"customer_name"`
+	CustomerPhone   string `json:"customer_phone"`
+	CustomerAddress string `json:"customer_address"`
+	PostalCode      string `json:"postal_code"`
+	TotalAmount     int    `json:"total_amount"`
+	Status          string `json:"status"`
+	// Authority is the currently active Zarinpal payment authority token.
+	// Superseded authorities are kept in the payment_authorities history table.
+	Authority    string `json:"payment_authority,omitempty"`
+	PaymentRefID int64  `json:"payment_ref_id"`
 	// TrackingCode is the optional postal tracking number the admin enters
 	// when marking an order dispatched (ارسال شد). Customers see it on their
 	// orders page to follow the shipment.

@@ -286,26 +286,31 @@ func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, gatewayURL, http.StatusSeeOther)
 }
 
-// VerifyPayment handles the Zarinpal callback after the user completes (or cancels)
-// the payment. It verifies the transaction and updates the order status accordingly.
+// VerifyPayment handles the Zarinpal callback after the user completes (or
+// cancels) the payment. The gateway's verify answer — not the user-supplied
+// Status hint — decides the outcome:
+//
+//   - transport error / unreadable payload: inconclusive. The customer may
+//     have ALREADY paid, so the order must not be cancelled here (that would
+//     restore stock and hide a paid charge). The order stays awaiting_payment
+//     and the payment reconciler re-verifies it every minute.
+//   - verified (code 100/101): ConfirmPayment; on transition the customer is
+//     notified once and the cart is cleared.
+//   - verified as unpaid: safe to cancel and restore stock — the gateway has
+//     confirmed no money moved, so the user-supplied Authority alone can no
+//     longer cancel a pending order via a forged <img>/link.
 func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 	authority := r.URL.Query().Get("Authority")
 	status := r.URL.Query().Get("Status")
 
-	if authority == "" || status != "OK" {
-		// Payment was cancelled or failed — cancel the order and restore stock.
-		if authority != "" {
-			if order, err := database.GetOrderByAuthority(r.Context(), h.db, authority); err == nil {
-				database.MarkPaymentFailed(r.Context(), h.db, order.ID)
-			}
-		}
+	if authority == "" {
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
 	}
 
 	order, err := database.GetOrderByAuthority(r.Context(), h.db, authority)
 	if err != nil {
-		logutil.Error("verify: order not found for authority", "err", err)
+		logutil.Error("verify: order not found for authority", "err", err, "status_hint", status)
 		http.Redirect(w, r, "/cart", http.StatusSeeOther)
 		return
 	}
@@ -358,12 +363,14 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 		h.cartStore.Get(sid).Clear()
 		http.Redirect(w, r, fmt.Sprintf("/checkout/confirmation/%s", order.ID), http.StatusSeeOther)
 		return
-	} else {
-		logutil.Warn("payment not verified", "order_id", order.ID, "message", result.Message)
-		database.MarkPaymentFailed(r.Context(), h.db, order.ID)
-		http.Redirect(w, r, "/cart?error=payment_failed", http.StatusSeeOther)
-		return
 	}
+
+	// The gateway confirms no payment happened (the user cancelled at the
+	// cashier, or the transaction failed). Cancelling is now backed by the
+	// gateway's own verdict instead of the user-supplied Status parameter.
+	logutil.Warn("payment not verified; cancelling order", "order_id", order.ID, "message", result.Message)
+	database.MarkPaymentFailed(r.Context(), h.db, order.ID)
+	http.Redirect(w, r, "/cart?error=payment_failed", http.StatusSeeOther)
 }
 
 // Confirmation displays the order confirmation page after a successful checkout.

@@ -72,6 +72,40 @@ func (h *Handler) ResumePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If a previous authority exists, ask the gateway whether it was already
+	// paid before issuing a new one. Overwriting unconditionally would orphan
+	// the old token: money taken on it could no longer be matched to the
+	// order (the callback and the reconciler only knew the active authority).
+	// When the old authority verifies as paid, confirm the order instead of
+	// starting a second charge.
+	if order.Authority != "" {
+		result, err := h.zarinpal.VerifyPayment(gatewayAmount, order.Authority)
+		switch {
+		case err == nil && result.OK:
+			transitioned, err := database.ConfirmPayment(r.Context(), h.db, order.ID, result.RefID)
+			if err != nil {
+				// The order can no longer be confirmed (cancelled/finalized).
+				// Do not start another charge on top of the taken money.
+				logutil.Error("resume payment: gateway paid but confirm failed", "err", err, "order_id", order.ID)
+				http.Redirect(w, r, "/orders", http.StatusSeeOther)
+				return
+			}
+			if transitioned {
+				h.notifyOrderConfirmedAsync(order.ID, order.TotalAmount)
+			}
+			http.Redirect(w, r, "/checkout/confirmation/"+order.ID, http.StatusSeeOther)
+			return
+		case err != nil:
+			// Inconclusive answer for the existing authority. Minting a new
+			// authority is still safe: the old token stays in the authority
+			// history, so a late payment on it is rescued by the callback
+			// lookup and the reconciler.
+			logutil.Warn("resume payment: existing authority verify inconclusive; issuing fresh authority",
+				"order_id", order.ID, "err", err)
+		}
+		// Verified as unpaid → fall through and issue a fresh authority.
+	}
+
 	callbackURL := h.baseURL + "/checkout/verify"
 	authority, err := h.zarinpal.RequestPayment(gatewayAmount, callbackURL, "سفارش تودج "+orderID)
 	if err != nil {

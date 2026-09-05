@@ -10,7 +10,9 @@ import (
 // SecurityHeaders attaches a baseline set of HTTP security headers to every
 // response: a Content-Security-Policy restricted to the known CDNs used by the
 // templates, clickjacking protection, MIME-sniffing prevention, a referrer
-// policy, and a permissions policy.
+// policy, and a permissions policy. On secure requests (direct TLS or the
+// trusted loopback TLS proxy) Strict-Transport-Security is added so browsers
+// refuse to downgrade to plain HTTP.
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -19,6 +21,9 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		h.Set("Content-Security-Policy", cspHeader)
+		if requestIsSecure(r) {
+			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -44,11 +49,20 @@ const cspHeader = "" +
 	"frame-ancestors 'none'; " +
 	"object-src 'none';"
 
-// SameOrigin is a lightweight CSRF mitigation for cookie- and Basic-Auth-
-// protected state-changing routes. Browsers attach an Origin header to
-// cross-site state-changing requests; when present it must match the request
-// Host or the request is rejected. Non-browser clients that omit Origin are
-// allowed (they cannot carry ambient cookie/Basic credentials from a victim).
+// SameOrigin is a CSRF mitigation for cookie-protected state-changing routes.
+// When an Origin header is present (browsers send it on cross-site and, on
+// modern browsers, same-site POSTs) it must match the request Host. When it is
+// absent:
+//   - a Referer header, if present, must reference the request Host;
+//   - a request carrying neither header but presenting an ambient session or
+//     admin cookie is rejected — a real browser always sends Origin or Referer
+//     on a mutating navigation/XHR, so a cookie-carrying POST without either is
+//     a stripped-header request, not a legitimate user;
+//   - requests with no cookies at all are allowed (non-browser API clients
+//     cannot carry ambient credentials from a victim).
+//
+// The double-submit CSRF token remains the primary defense; this middleware
+// shrinks the attack surface where that token may have been planted.
 func SameOrigin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost || r.Method == http.MethodPut ||
@@ -59,10 +73,33 @@ func SameOrigin(next http.Handler) http.Handler {
 					http.Error(w, "Forbidden", http.StatusForbidden)
 					return
 				}
+			} else if referer := r.Header.Get("Referer"); referer != "" {
+				u, err := url.Parse(referer)
+				if err != nil || !strings.EqualFold(u.Host, r.Host) {
+					http.Error(w, "Forbidden", http.StatusForbidden)
+					return
+				}
+			} else if hasAmbientCredentials(r) {
+				// Cookie-authenticated POST with no Origin and no Referer.
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
 			}
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// hasAmbientCredentials reports whether the request presents a session or admin
+// cookie — i.e. credentials a browser attaches automatically and an attacker
+// could ride. Cookie names cover both the plain-HTTP and the __Host- prefixed
+// variants.
+func hasAmbientCredentials(r *http.Request) bool {
+	for _, name := range []string{"session", "__Host-session", adminCookieName} {
+		if _, err := r.Cookie(name); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // remoteIP returns the client's IP from the TCP connection.

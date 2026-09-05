@@ -21,6 +21,46 @@ const (
 	otpTTL     = 2 * time.Minute
 )
 
+// Session cookie naming. On secure requests the cookie uses the __Host-
+// prefix, which browsers enforce as Secure + Path=/ + no Domain attribute —
+// a sibling subdomain can no longer plant a shadowing session cookie. Plain
+// HTTP development keeps the legacy name (the prefix requires a secure
+// context and would break the local flow).
+const (
+	legacySessionCookieName = "session"
+	secureSessionCookieName = "__Host-session"
+)
+
+// sessionCookieNameFor returns the session cookie name for the given security
+// level.
+func sessionCookieNameFor(secure bool) string {
+	if secure {
+		return secureSessionCookieName
+	}
+	return legacySessionCookieName
+}
+
+// sessionCookie returns the request's session cookie for its security level,
+// or an error when absent.
+func sessionCookie(r *http.Request) (*http.Cookie, error) {
+	return r.Cookie(sessionCookieNameFor(requestIsSecure(r)))
+}
+
+// sessionCookie builds (with the given name helper context) the session
+// Set-Cookie value.
+func newSessionCookie(r *http.Request, value string, maxAge int) *http.Cookie {
+	secure := requestIsSecure(r)
+	return &http.Cookie{
+		Name:     sessionCookieNameFor(secure),
+		Value:    value,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   maxAge,
+	}
+}
+
 // session is an authenticated session entry with its server-side expiry.
 type session struct {
 	userID    int64
@@ -133,10 +173,13 @@ func (h *Handler) startPaymentReconciler(ctx context.Context) {
 	}()
 }
 
-// reconcilePayments verifies every awaiting_payment order with a stored
-// authority against the gateway in rial. Orders whose payment actually succeeded
-// are moved to pending via ConfirmPayment; orders that were never paid are left
-// untouched so the unpaid-order janitor reclaims their stock after the TTL.
+// reconcilePayments verifies every awaiting_payment order against the gateway
+// in rial — the active authority first, then any superseded authority kept in
+// the payment_authorities history (a resume-payment replaces the active token
+// while the customer may still complete payment on the old one). Orders whose
+// payment actually succeeded are moved to pending via ConfirmPayment; orders
+// that were never paid are left untouched so the unpaid-order janitor
+// reclaims their stock after the TTL.
 func (h *Handler) reconcilePayments() {
 	orders, err := database.GetAwaitingPaymentOrders(context.Background(), h.db)
 	if err != nil {
@@ -149,23 +192,77 @@ func (h *Handler) reconcilePayments() {
 			logutil.Error("payment reconciliation: convert amount", "order_id", o.ID, "err", err)
 			continue
 		}
+
+		authorities := []string{o.Authority}
+		if history, err := database.GetAuthoritiesForOrder(context.Background(), h.db, o.ID); err == nil {
+			for _, a := range history {
+				if a != o.Authority {
+					authorities = append(authorities, a)
+				}
+			}
+		} else {
+			logutil.Error("payment reconciliation: list authorities", "order_id", o.ID, "err", err)
+		}
+
+		for _, auth := range authorities {
+			result, err := h.zarinpal.VerifyPayment(amount, auth)
+			if err != nil {
+				// No authoritative answer from the gateway: stop verifying this
+				// order this tick and let the next sweep retry.
+				logutil.Error("payment reconciliation: verify order", "order_id", o.ID, "err", err)
+				break
+			}
+			if !result.OK {
+				continue
+			}
+			transitioned, err := database.ConfirmPayment(context.Background(), h.db, o.ID, result.RefID)
+			if err != nil {
+				logutil.Error("payment reconciliation: confirm order", "order_id", o.ID, "err", err)
+				break
+			}
+			logutil.Info("payment reconciliation: order confirmed paid", "order_id", o.ID, "ref_id", result.RefID)
+			if transitioned {
+				h.notifyOrderConfirmedAsync(o.ID, o.TotalAmount)
+			}
+			break
+		}
+	}
+	h.detectOrphanedPayments()
+}
+
+// orphanScanWindow bounds how far back the orphaned-payment scan looks for
+// cancelled orders. It comfortably exceeds unpaidOrderTTL, so every order the
+// janitor cancelled (or a failed-verify path cancelled) is re-checked with the
+// gateway long enough for a late success to surface.
+const orphanScanWindow = 30 * time.Minute
+
+// detectOrphanedPayments re-verifies recently cancelled orders that carry an
+// authority and no recorded ref. If the gateway reports the charge as
+// successful, the money was taken for an order that no longer exists —
+// un-cancelling is unsafe (its stock was already handed back), so the ref is
+// recorded on the order and the discrepancy is logged at error level for a
+// manual refund.
+func (h *Handler) detectOrphanedPayments() {
+	orders, err := database.GetRecentlyCancelledPaymentOrders(context.Background(), h.db, orphanScanWindow)
+	if err != nil {
+		logutil.Error("orphaned payment scan: list cancelled orders", "err", err)
+		return
+	}
+	for _, o := range orders {
+		amount, err := payment.TomanToRial(o.TotalAmount)
+		if err != nil {
+			continue
+		}
 		result, err := h.zarinpal.VerifyPayment(amount, o.Authority)
-		if err != nil {
-			logutil.Error("payment reconciliation: verify order", "order_id", o.ID, "err", err)
+		if err != nil || !result.OK {
 			continue
 		}
-		if !result.OK {
+		if err := database.MarkOrphanedPayment(context.Background(), h.db, o.ID, result.RefID); err != nil {
+			logutil.Error("orphaned payment scan: record ref", "order_id", o.ID, "err", err)
 			continue
 		}
-		transitioned, err := database.ConfirmPayment(context.Background(), h.db, o.ID, result.RefID)
-		if err != nil {
-			logutil.Error("payment reconciliation: confirm order", "order_id", o.ID, "err", err)
-			continue
-		}
-		logutil.Info("payment reconciliation: order confirmed paid", "order_id", o.ID, "ref_id", result.RefID)
-		if transitioned {
-			h.notifyOrderConfirmedAsync(o.ID, o.TotalAmount)
-		}
+		logutil.Error("ORPHANED PAYMENT: gateway reports a cancelled order was paid — manual refund required",
+			"order_id", o.ID, "authority", o.Authority, "ref_id", result.RefID, "amount", o.TotalAmount)
 	}
 }
 
@@ -208,7 +305,7 @@ func (h *Handler) purgeExpiredSessions(now time.Time) {
 // the user is not logged in. It reads the session cookie and looks up the
 // in-memory session map.
 func (h *Handler) getUserID(r *http.Request) int64 {
-	cookie, err := r.Cookie("session")
+	cookie, err := sessionCookie(r)
 	if err != nil || !validSessionID(cookie.Value) {
 		return 0
 	}
@@ -224,22 +321,14 @@ func (h *Handler) getUserID(r *http.Request) int64 {
 // getOrCreateSessionID returns the existing session cookie value for this request,
 // or creates a new session, sets the cookie, and returns the new ID.
 func (h *Handler) getOrCreateSessionID(w http.ResponseWriter, r *http.Request) string {
-	cookie, err := r.Cookie("session")
+	cookie, err := sessionCookie(r)
 	if err == nil && validSessionID(cookie.Value) {
 		// Ensure CSRF token is set for existing session
 		_ = ensureCSRFToken(w, r)
 		return cookie.Value
 	}
 	sid := generateSessionID()
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    sid,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   requestIsSecure(r),
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(sessionTTL.Seconds()),
-	})
+	http.SetCookie(w, newSessionCookie(r, sid, int(sessionTTL.Seconds())))
 	// Ensure CSRF token is set for new session
 	_ = ensureCSRFToken(w, r)
 	return sid
@@ -261,22 +350,14 @@ func generateSessionID() string {
 // prevent session fixation: the pre-auth session ID is discarded and cannot be
 // reused by an attacker who planted it.
 func (h *Handler) regenerateSessionID(w http.ResponseWriter, r *http.Request) string {
-	cookie, err := r.Cookie("session")
+	cookie, err := sessionCookie(r)
 	oldSid := ""
 	if err == nil && validSessionID(cookie.Value) {
 		oldSid = cookie.Value
 	}
 
 	newSid := generateSessionID()
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    newSid,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   requestIsSecure(r),
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(sessionTTL.Seconds()),
-	})
+	http.SetCookie(w, newSessionCookie(r, newSid, int(sessionTTL.Seconds())))
 	_ = ensureCSRFToken(w, r)
 
 	// Migrate existing session data to the new ID so login state is preserved.

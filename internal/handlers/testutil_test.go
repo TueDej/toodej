@@ -125,6 +125,12 @@ const testdataDir = "testdata/templates"
 // template typo fails the test immediately rather than at first render.
 func newTestHandler(t *testing.T) (*Handler, *fakeGateway) {
 	t.Helper()
+	// OTP delivery fails closed without an API key (see services.SendOTP);
+	// tests run in DEV_MODE so codes are logged instead of sent.
+	t.Setenv("DEV_MODE", "true")
+	// Pin the OTP code for the whole test: codes are stored hashed, so tests
+	// could not otherwise know the plaintext to submit.
+	setTestOTP(t)
 	db := testDB(t)
 
 	layoutFiles := []string{filepath.Join(testdataDir, "layout.html")}
@@ -162,6 +168,8 @@ func newTestHandler(t *testing.T) (*Handler, *fakeGateway) {
 		adminPass:         "admin123",
 		adminLoginLimiter: NewRateLimiter(1000, time.Minute),
 		otpLimiter:        NewRateLimiter(100, time.Minute),
+		otpSendIPLimiter:  NewRateLimiter(1000, time.Minute),
+		otpGlobalLimiter:  NewRateLimiter(1000, time.Minute),
 		otpVerifyLimiter:  NewRateLimiter(100, time.Minute),
 		otpAttempts:       newAttemptTracker(),
 	}
@@ -288,6 +296,12 @@ func (c *testClient) do(method, path string, form url.Values) *http.Response {
 	if isMutating(method) && c.csrfToken != "" {
 		req.Header.Set(csrfHeaderName, c.csrfToken)
 	}
+	// Browsers send an Origin header on mutating navigations/XHRs; the
+	// SameOrigin middleware relies on it. Send the test server's own URL so
+	// cookie-carrying POSTs look like first-party browser traffic.
+	if isMutating(method) {
+		req.Header.Set("Origin", c.srv.URL)
+	}
 	for _, ck := range c.cookies {
 		req.AddCookie(ck)
 	}
@@ -299,6 +313,12 @@ func (c *testClient) do(method, path string, form url.Values) *http.Response {
 
 	for _, ck := range resp.Cookies() {
 		c.cookies[ck.Name] = ck
+		// The server rotates the CSRF cookie on login; a real browser then
+		// reloads the page and picks the fresh token up from the new meta tag.
+		// Track the cookie value so subsequent header tokens stay in sync.
+		if ck.Name == csrfCookieName || ck.Name == csrfCookieNameSecure {
+			c.csrfToken = ck.Value
+		}
 	}
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -361,10 +381,25 @@ func (c *testClient) hasCookie(name string) bool {
 	return ok
 }
 
-// login performs the full OTP login flow for a phone number and returns the
-// session cookie value. It reads the generated code from the test database.
+// testOTPCode is the pinned OTP code tests log in with. OTP codes are stored
+// hashed (database.HashOTP), so a test cannot read the plaintext back from the
+// database; instead the generator is overridden to produce this known value.
+const testOTPCode = "54321"
+
+// setTestOTP pins the OTP generator to the known test code for the duration of
+// the test. Safe to call multiple times per test.
+func setTestOTP(t *testing.T) {
+	t.Helper()
+	generateOTP = func() (string, error) { return testOTPCode, nil }
+	t.Cleanup(func() { generateOTP = generateOTP5 })
+}
+
+// login performs the full OTP login flow for a phone number. The OTP generator
+// is pinned first so the verification code is known without reading the
+// (hashed) database row.
 func (c *testClient) login(t *testing.T, db *sql.DB, phone string) {
 	t.Helper()
+	setTestOTP(t)
 	if !c.hasCookie("csrf_token") {
 		if resp := c.get("/"); resp.StatusCode != http.StatusOK {
 			t.Fatalf("csrf bootstrap GET / = %d", resp.StatusCode)
@@ -374,8 +409,7 @@ func (c *testClient) login(t *testing.T, db *sql.DB, phone string) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("send-otp status = %d", resp.StatusCode)
 	}
-	code := otpCode(t, db, phone)
-	resp = c.post("/auth/verify-otp", url.Values{"phone": {phone}, "code": {code}})
+	resp = c.post("/auth/verify-otp", url.Values{"phone": {phone}, "code": {testOTPCode}})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("verify-otp status = %d (body: %s)", resp.StatusCode, c.body())
 	}
@@ -384,15 +418,20 @@ func (c *testClient) login(t *testing.T, db *sql.DB, phone string) {
 	}
 }
 
-// otpCode returns the most recent unused OTP for a phone number.
+// otpCode returns the OTP code the server stored for a phone number: it
+// asserts a live row exists (proving persistence) and returns the pinned
+// plaintext that hashes to it.
 func otpCode(t *testing.T, db *sql.DB, phone string) string {
 	t.Helper()
-	var code string
-	err := db.QueryRow(`SELECT code FROM otp_codes WHERE phone_number = ? AND is_used = 0 ORDER BY id DESC LIMIT 1`, phone).Scan(&code)
-	if err != nil {
+	setTestOTP(t)
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM otp_codes WHERE phone_number = ? AND is_used = 0`, phone).Scan(&n); err != nil {
 		t.Fatalf("read otp for %s: %v", phone, err)
 	}
-	return code
+	if n == 0 {
+		t.Fatalf("no live otp row for %s", phone)
+	}
+	return testOTPCode
 }
 
 // addToCart adds a product to the caller's cart (matching the client's session

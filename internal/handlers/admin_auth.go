@@ -113,6 +113,10 @@ func (h *Handler) AdminLoginPOST(w http.ResponseWriter, r *http.Request) {
 	h.adminSessions[sid] = time.Now().Add(adminSessionTTL)
 	h.sessionMu.Unlock()
 
+	// Rotate the CSRF token on admin login so a pre-authentication token (and
+	// any value planted beside it) never carries into the authenticated panel.
+	rotateCSRFToken(w, r)
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     adminCookieName,
 		Value:    sid,

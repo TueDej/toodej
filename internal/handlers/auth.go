@@ -72,7 +72,18 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Per-phone rate limit on top of the per-IP limit applied by the router.
+	// Per-phone rate limit plus per-IP and global caps on OTP sends. The
+	// per-phone budget alone cannot stop an attacker cycling numbers, which
+	// would drain the SMS budget and bomb victims' phones.
+	if !h.otpSendIPLimiter.Allow("ip:" + clientIP(r)) {
+		loginAlert(w, "warn", `درخواست‌های زیادی از این آدرس ارسال شده است؛ لطفاً کمی بعد دوباره تلاش کنید.`)
+		return
+	}
+	if !h.otpGlobalLimiter.Allow("global") {
+		loginAlert(w, "warn", `درخواست‌های زیادی ارسال شده است؛ لطفاً کمی بعد دوباره تلاش کنید.`)
+		return
+	}
+	// Per-phone rate limit on top of the per-IP and global caps.
 	if !h.otpLimiter.Allow("phone:" + phone) {
 		loginAlert(w, "warn", `درخواست‌های زیادی ارسال کرده‌اید؛ لطفاً کمی بعد دوباره تلاش کنید.`)
 		return
@@ -85,7 +96,7 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	code, err := generateOTP5()
+	code, err := generateOTP()
 	if err != nil {
 		logutil.Error("generate otp", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -113,11 +124,13 @@ func (h *Handler) SendOTP(w http.ResponseWriter, r *http.Request) {
 	h.pendingLogins[sid] = pendingLogin{phone: phone, expiresAt: time.Now().Add(otpTTL)}
 	h.sessionMu.Unlock()
 
-	// The dev-only code box and pre-filled value must never be rendered in
-	// production: doing so would leak the OTP to anyone with access to the
-	// client side.
+	// The dev-only code box and pre-filled value must never be rendered outside
+	// local development: doing so would leak the OTP to anyone with access to
+	// the client side. The loopback check matters because DEV_MODE=true has
+	// been used behind a proxy before — there the proxied client IP is a real
+	// remote address, not loopback, so the box stays hidden.
 	devBox := ""
-	if os.Getenv("DEV_MODE") == "true" {
+	if devOTPBoxAllowed(r) {
 		devBox = fmt.Sprintf(`<div class="rounded-lg bg-sand px-3 py-2 text-center text-xs text-clay" dir="ltr">Dev: %s</div>
 		<div id="otp-dev-code" data-code="%s" hidden></div>`, code, code)
 	}
@@ -271,6 +284,12 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	delete(h.pendingNext, newSid)
 	h.sessionMu.Unlock()
 
+	// Rotate the CSRF token on login: a token that existed before
+	// authentication (and may have been planted alongside a fixed session
+	// cookie) must not survive into the authenticated session. The next full
+	// page render picks the fresh token up from the new cookie.
+	rotateCSRFToken(w, r)
+
 	dest := sanitizeReturnURL(next)
 	if dest == "" {
 		dest = "/"
@@ -280,37 +299,52 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// Logout removes the session mapping, clears both session and CSRF cookies,
-// and redirects to the home page. It is registered as POST only (with the
-// standard CSRF and Same-Origin guards): as a GET it could be triggered by any
-// cross-site top-level navigation, since SameSite=Lax cookies are still sent
-// on those — a nuisance logout-CSRF.
+// Logout tears down ALL server-side state bound to the session: the
+// authenticated session, any in-flight OTP binding, the saved post-login
+// destination, and the cart. It reads the session cookie without minting a
+// new one — a logout must never create state — and expires both cookie
+// variants (legacy and __Host- prefixed) plus the CSRF cookie, so a captured
+// cookie cannot continue an OTP exchange or reach the victim's cart.
+// Logout is registered as POST only (with the standard CSRF and Same-Origin
+// guards): as a GET it could be triggered by any cross-site top-level
+// navigation, since SameSite=Lax cookies are still sent on those — a nuisance
+// logout-CSRF.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	sid := h.getOrCreateSessionID(w, r)
-	h.sessionMu.Lock()
-	delete(h.userSessions, sid)
-	h.sessionMu.Unlock()
+	if cookie, err := sessionCookie(r); err == nil && validSessionID(cookie.Value) {
+		sid := cookie.Value
+		h.sessionMu.Lock()
+		delete(h.userSessions, sid)
+		delete(h.pendingLogins, sid)
+		delete(h.pendingNext, sid)
+		h.sessionMu.Unlock()
+		h.cartStore.Delete(sid)
+	}
 
-	// Expire the session cookie in the browser.
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   requestIsSecure(r),
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   -1,
-	})
+	// Expire the session cookie in the browser. Both names are cleared so a
+	// client holding a cookie from before a secure/plain flip loses both.
+	for _, name := range []string{legacySessionCookieName, secureSessionCookieName} {
+		http.SetCookie(w, &http.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   requestIsSecure(r),
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   -1,
+		})
+	}
 	// Expire the CSRF token cookie as well.
-	http.SetCookie(w, &http.Cookie{
-		Name:     "csrf_token",
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   requestIsSecure(r),
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   -1,
-	})
+	for _, name := range []string{csrfCookieName, csrfCookieNameSecure} {
+		http.SetCookie(w, &http.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   requestIsSecure(r),
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   -1,
+		})
+	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -385,4 +419,22 @@ func generateOTP5() (string, error) {
 		return "", fmt.Errorf("generate otp: %w", err)
 	}
 	return fmt.Sprintf("%05d", n.Int64()), nil
+}
+
+// generateOTP is the code source used by SendOTP. It is indirected so tests
+// can pin a known code (OTP codes are stored hashed, so a test cannot read the
+// plaintext back from the database).
+var generateOTP = generateOTP5
+
+// devOTPBoxAllowed reports whether the dev-only OTP hint box may be rendered:
+// only when DEV_MODE is explicitly on AND the request originates from the
+// loopback interface. Behind a TLS proxy the proxied client IP is the real
+// remote address, so a misconfigured "DEV_MODE=true in production" does not
+// leak codes to remote browsers.
+func devOTPBoxAllowed(r *http.Request) bool {
+	if os.Getenv("DEV_MODE") != "true" {
+		return false
+	}
+	ip := clientIP(r)
+	return ip == "127.0.0.1" || ip == "::1"
 }

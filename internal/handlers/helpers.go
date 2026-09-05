@@ -17,7 +17,7 @@ import (
 // just the "LoggedIn" boolean used to show/hide login/logout/orders links.
 // It also includes the CSRF token for forms and meta tags.
 func (h *Handler) commonData(r *http.Request, w http.ResponseWriter) map[string]any {
-	sid, err := r.Cookie("session")
+	sid, err := sessionCookie(r)
 	loggedIn := false
 	cartCount := 0
 	if err == nil && validSessionID(sid.Value) {

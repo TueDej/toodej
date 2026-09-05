@@ -52,7 +52,7 @@ func (h *Handler) notifyOrderStatusAsync(orderID, status, token2 string) {
 		// reject separator characters (HTTP 431), so the token omits it.
 		token := strings.ReplaceAll(orderID, "-", "")
 		if err := services.SendOrderStatusSMS(o.CustomerPhone, template, token, token2); err != nil {
-			logutil.Error("order status sms", "order_id", orderID, "phone", o.CustomerPhone, "err", err)
+			logutil.Error("order status sms", "order_id", orderID, "phone_suffix", phoneSuffix(o.CustomerPhone), "err", err)
 		}
 	}()
 }
@@ -100,7 +100,7 @@ func (h *Handler) notifyAdminOrderAsync(orderID, customerPhone string) {
 		}
 		token := strings.ReplaceAll(orderID, "-", "")
 		if err := services.SendOrderStatusSMS(receptor, template, token, customerPhone); err != nil {
-			logutil.Error("admin order sms", "order_id", orderID, "phone", receptor, "err", err)
+			logutil.Error("admin order sms", "order_id", orderID, "phone_suffix", phoneSuffix(receptor), "err", err)
 		}
 	}()
 }

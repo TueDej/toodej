@@ -54,16 +54,25 @@ func TestSameOrigin(t *testing.T) {
 		name       string
 		method     string
 		origin     string
+		referer    string
+		cookie     string
 		wantStatus int
 	}{
-		{"mutating missing origin allowed", http.MethodPost, "", http.StatusOK},
-		{"mutating same origin allowed", http.MethodPost, "http://shop.test", http.StatusOK},
-		{"mutating same origin host different scheme allowed", http.MethodPost, "https://shop.test", http.StatusOK},
-		{"mutating cross origin blocked", http.MethodPost, "http://evil.test", http.StatusForbidden},
-		{"mutating malformed origin blocked", http.MethodPost, "not a url", http.StatusForbidden},
-		{"get with cross origin allowed", http.MethodGet, "http://evil.test", http.StatusOK},
-		{"put blocked cross origin", http.MethodPut, "http://evil.test", http.StatusForbidden},
-		{"delete blocked cross origin", http.MethodDelete, "http://evil.test", http.StatusForbidden},
+		{"mutating missing origin no cookies allowed", http.MethodPost, "", "", "", http.StatusOK},
+		{"mutating same origin allowed", http.MethodPost, "http://shop.test", "", "", http.StatusOK},
+		{"mutating same origin host different scheme allowed", http.MethodPost, "https://shop.test", "", "", http.StatusOK},
+		{"mutating cross origin blocked", http.MethodPost, "http://evil.test", "", "", http.StatusForbidden},
+		{"mutating malformed origin blocked", http.MethodPost, "not a url", "", "", http.StatusForbidden},
+		{"get with cross origin allowed", http.MethodGet, "http://evil.test", "", "", http.StatusOK},
+		{"put blocked cross origin", http.MethodPut, "http://evil.test", "", "", http.StatusForbidden},
+		{"delete blocked cross origin", http.MethodDelete, "http://evil.test", "", "", http.StatusForbidden},
+		// Cookie-carrying POSTs with neither Origin nor Referer are rejected:
+		// a real browser always sends one of the two on mutating requests.
+		{"mutating missing headers with session cookie blocked", http.MethodPost, "", "", "session=abc", http.StatusForbidden},
+		{"mutating missing headers with admin cookie blocked", http.MethodPost, "", "", "admin_session=abc", http.StatusForbidden},
+		// Referer fallback: same host passes, foreign host is blocked.
+		{"mutating same-host referer allowed", http.MethodPost, "", "http://shop.test/checkout", "", http.StatusOK},
+		{"mutating cross-host referer blocked", http.MethodPost, "", "http://evil.test/checkout", "", http.StatusForbidden},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -71,6 +80,13 @@ func TestSameOrigin(t *testing.T) {
 			req.Host = "shop.test"
 			if tt.origin != "" {
 				req.Header.Set("Origin", tt.origin)
+			}
+			if tt.referer != "" {
+				req.Header.Set("Referer", tt.referer)
+			}
+			if tt.cookie != "" {
+				key, val, _ := strings.Cut(tt.cookie, "=")
+				req.AddCookie(&http.Cookie{Name: key, Value: val})
 			}
 			rec := httptest.NewRecorder()
 			SameOrigin(noopHandler()).ServeHTTP(rec, req)
@@ -140,7 +156,7 @@ func TestCSRFMiddleware(t *testing.T) {
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			r.ParseForm()
 			for k, vs := range v {
-				r.Form[k] = vs
+				r.PostForm[k] = vs
 			}
 		}
 	}

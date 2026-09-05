@@ -226,6 +226,14 @@ func (s *CartStore) PurgeIdle(maxIdle time.Duration) int {
 	return removed
 }
 
+// Delete removes a session's cart entirely. Called on logout so a captured
+// session cookie cannot reach the (cleared) cart afterwards.
+func (s *CartStore) Delete(sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.carts, sessionID)
+}
+
 // MigrateSession moves the cart from oldID to newID so session regeneration
 // on login doesn't lose the user's cart.
 func (s *CartStore) MigrateSession(oldID, newID string) {
